@@ -6,7 +6,27 @@ social / market / on-chain / news data into *explainable* signals so you can do 
 
 ---
 
-## What it does
+## What it does (v2 — Memecoin Market Intelligence)
+
+**Engines (all explainable, all from stored 5-min snapshots):** multi-factor
+Momentum 0–100 (§4–5 bands + "why this score" factors), Sell-Pressure 0–100
+(accumulation→heavy distribution, §6), Liquidity Health (§10), ATH/price-position
+status (§7), Volume Acceleration 5m–4h + price↑vol↓ divergence (§12), whale
+accumulation/distribution — explicitly inferred (§8), momentum reversals &
+divergence detection (§18), and signal confluence composites (§13); plus the v1
+Trend/FOMO/Risk scores, organic-vs-manufactured forensics, regimes and CUSUM
+change-points, and forward-outcome calibration/backtesting (§31).
+
+**Product surfaces:** Dashboard (overview + trending + live intelligence feed +
+distribution watch), New Coins discovery (11 sort orders, §3), multi-filter
+Screener (§14), token pages with full market-intelligence panel + signal-history
+timeline (§15), head-to-head Compare (§29), Narratives, Backtesting (measured
+hit-rates), Watchlist, Alerts with momentum/sell-pressure/ATH/reversal rules
+(§20). New API: `/tokens/new`, `/screener`, `/tokens/compare`, `/signals/feed`.
+
+---
+
+## Original architecture notes
 
 | Question | Feature |
 |---|---|
