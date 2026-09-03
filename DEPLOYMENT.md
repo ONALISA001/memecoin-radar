@@ -1,8 +1,8 @@
 # Deploying Memecoin Radar to Vercel + Railway
 
-This is the "access from anywhere, permanently" setup: **frontend on Vercel**
-(free tier), **backend + Postgres on Railway** (~$5/mo hobby credit usually
-covers it). Total hands-on time: **~15 minutes**, no server to manage.
+This is the "access from anywhere, permanently" setup: **frontend on Vercel or
+Netlify** (free tier), **backend + Postgres on Railway** (~$5/mo hobby credit
+usually covers it). Total hands-on time: **~15 minutes**, no server to manage.
 
 ```
 browser ──► your-app.vercel.app (Next.js)
@@ -48,7 +48,9 @@ git push -u origin main
 > `/data`, then set `DATABASE_URL=sqlite:////data/radar.db`. Cheaper, but Postgres
 > survives redeploys/crashes more reliably and matches `docker-compose.yml`.
 
-## Step 2 — frontend on Vercel (~5 min)
+## Step 2 — frontend on Vercel **or Netlify** (~5 min)
+
+### Option A — Vercel (recommended, zero-config for Next.js)
 
 1. <https://vercel.com> → **Sign in with GitHub** → **Add New… → Project** →
    import `memecoin-radar`.
@@ -61,6 +63,31 @@ git push -u origin main
 4. Deploy. Your site is live at `https://<your-project>.vercel.app`.
 5. If you ever change the Railway URL, update `API_ORIGIN` and **Redeploy**
    (API rewrites are baked in at build time).
+
+### Option B — Netlify (equivalent free-tier frontend host)
+
+1. <https://netlify.com> → **Sign in with GitHub** → **Add new site → Import an
+   existing project** → pick `memecoin-radar`.
+2. Set **Base directory: `frontend`**. Leave build command / publish directory
+   untouched — `frontend/netlify.toml` pins them (`npm run build`, `.next`) and
+   enables the official Next.js runtime automatically.
+3. **Site settings → Environment variables** → add:
+   | Variable | Value |
+   |---|---|
+   | `API_ORIGIN` | `https://memecoin-radar-api.up.railway.app` ← your Railway URL, **no trailing slash** |
+4. Deploy. Live at `https://<your-site>.netlify.app`. Same rule as Vercel:
+   changing `API_ORIGIN` requires a **redeploy** (rewrites are baked at build).
+
+**Vercel vs Netlify here:** functionally identical for this app — both free for
+this traffic, both proxy `/api/*` at the edge. Vercel builds Next.js natively
+(slightly faster cold SSR, zero adapter); Netlify is equally fine and handy if
+you already use it or want its analytics/form extras. You can even deploy both
+against the same Railway backend and pick one for your custom domain.
+
+> **Why the backend can't move to Netlify too:** the API is a persistent
+> Python process with a 24/7 ingestion scheduler and DB writes. Netlify hosts
+> frontends and short-lived JS/Go functions only — persistent servers belong on
+> Railway, Render, Fly.io, or a VPS.
 
 ## Step 3 — optional polish
 
@@ -81,7 +108,7 @@ Vercel rebuilds the frontend. Schema changes are safe: startup runs
 
 | Piece | Plan | Cost |
 |---|---|---|
-| Vercel frontend | Hobby | $0 |
+| Vercel *or* Netlify frontend | Hobby / Starter | $0 |
 | Railway API + Postgres | Hobby (~$5 credit/mo) | typically $0–5 |
 | DexScreener market data | public API | $0 (rate-limited, app throttles to ~1 req/s) |
 

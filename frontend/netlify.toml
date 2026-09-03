@@ -1,0 +1,17 @@
+# Netlify deploy config for the Next.js frontend.
+# In Netlify UI set "Base directory" = frontend (monorepo), then this file
+# is picked up automatically. Build env: Node 20+ (default is fine).
+#
+# REQUIRED env var (Site settings → Environment variables):
+#   API_ORIGIN = https://<your-railway-domain>   (no trailing slash)
+# Rewrites are baked at build time — redeploy after changing API_ORIGIN.
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+# Official Next.js runtime (v5): SSR for dynamic routes (token/narrative pages),
+# static pages served from the CDN, and /api/* rewrites become edge proxy
+# redirects to API_ORIGIN (no function invocations burned on proxying).
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
