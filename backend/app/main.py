@@ -40,6 +40,17 @@ def ensure_schema_and_demo_user():
     Base.metadata.create_all(engine)
     try:
         _ensure_column("trend_scores", "kind", "kind VARCHAR(8) DEFAULT 'live'")
+        # v3 intelligence events (additive, idempotent)
+        for col, ddl in [
+            ("category", "category VARCHAR(16)"), ("importance", "importance VARCHAR(8)"),
+            ("importance_score", "importance_score INTEGER DEFAULT 0"),
+            ("confidence", "confidence INTEGER DEFAULT 0"),
+            ("signal_text", "signal_text VARCHAR(300)"), ("why_json", "why_json JSON"),
+            ("concern", "concern VARCHAR(300)"), ("chain_json", "chain_json JSON"),
+            ("checklist_json", "checklist_json JSON"),
+        ]:
+            _ensure_column("signal_events", col, ddl)
+        _ensure_column("tokens", "new_token_evented", "new_token_evented BOOLEAN DEFAULT 0")
     except Exception as exc:
         log.warning("column migration failed (non-fatal): %s", exc)
     with SessionLocal() as db:

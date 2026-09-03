@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { apiDelete, apiPatch, apiPost, useApi } from "@/lib/api";
 import { Badge, Empty, Panel } from "@/components/ui";
 import { timeAgo } from "@/lib/format";
@@ -13,12 +14,17 @@ const METRICS: [string, string][] = [
 const OPS: [string, string][] = [["gt", ">"], ["gte", "≥"], ["lt", "<"], ["lte", "≤"]];
 
 function CreateAlert({ onCreated }: { onCreated: () => void }) {
+  const sp = useSearchParams();
+  const qToken = sp.get("token") || "";
+  const qMetric = sp.get("metric") || "";
+  const qValue = sp.get("value") || "";
+  const qOp = sp.get("op") || "";
   const [name, setName] = useState("");
-  const [metric, setMetric] = useState("trend_score");
-  const [op, setOp] = useState("gt");
-  const [value, setValue] = useState("75");
-  const [scope, setScope] = useState("all");
-  const [address, setAddress] = useState("");
+  const [metric, setMetric] = useState(METRICS.some(([v]) => v === qMetric) ? qMetric : "trend_score");
+  const [op, setOp] = useState(OPS.some(([v]) => v === qOp) ? qOp : "gt");
+  const [value, setValue] = useState(qValue && !isNaN(parseFloat(qValue)) ? qValue : "75");
+  const [scope, setScope] = useState(qToken ? "address" : "all");
+  const [address, setAddress] = useState(qToken);
   const [channel, setChannel] = useState("browser");
   const [webhook, setWebhook] = useState("");
   const [busy, setBusy] = useState(false);
@@ -130,7 +136,7 @@ export default function AlertsPage() {
           <AlertFeed />
         </div>
       </Panel>
-      <CreateAlert onCreated={() => {}} />
+      <Suspense fallback={null}><CreateAlert onCreated={() => {}} /></Suspense>
     </div>
   );
 }

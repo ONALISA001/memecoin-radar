@@ -34,6 +34,7 @@ class Token(Base):
     state_json = Column(JSON)                # persisted simulator state (deterministic mocks)
     first_seen_at = Column(DateTime(timezone=True), server_default=func.now())
     token_created_at = Column(Integer)       # epoch ms from provider
+    new_token_evented = Column(Boolean, default=False)  # v3: "new token" event emitted once ever
 
     __table_args__ = (Index("ix_tokens_chain_addr", "chain", "address"),)
 
@@ -254,22 +255,49 @@ class SignalOutcome(Base):
 
 
 class SignalEvent(Base):
-    """Notable market-intelligence events for the per-token signal timeline
-    and the global live-intelligence feed (v2 §15, §18, §20).
-    Written with per-(token, kind, key) cooldowns, never fabricated."""
+    """Notable market-intelligence events for the per-token signal timeline,
+    the global live-intelligence feed, chains and alert/rules (v2/v3).
+    Enriched rows (importance/confidence/checklist) are written by engine.intel;
+    write path is cooldown-deduped with escalation keys (§43)."""
     __tablename__ = "signal_events"
     id = Column(Integer, primary_key=True)
     token_id = Column(Integer, ForeignKey("tokens.id"), index=True)
     ts = Column(Integer, index=True)
-    kind = Column(String(32))                # ath_breakout | new_ath | confluence_emerging |
-                                             # confluence_distribution | momentum_cross |
-                                             # reversal_<kind> | volume_accel
-    key = Column(String(64), default="")     # sub-key (e.g. reversal kind) for cooldowns
+    kind = Column(String(32), index=True)
+    key = Column(String(64), default="")
     title = Column(String(200))
     detail = Column(String(600))
-    severity = Column(String(12), default="info")   # info | warning | danger | positive
+    severity = Column(String(12), default="info")
     metrics_json = Column(JSON)
-    __table_args__ = (Index("ix_sigev_dedupe", "token_id", "kind", "key", "ts"),)
+    # v3 enrichment (additive, nullable for backward compat)
+    category = Column(String(16), index=True)          # new|momentum|volume|flow|whales|holders|liquidity|ath|reversal|distribution|risk|pattern
+    importance = Column(String(8), index=True)         # LOW|MEDIUM|HIGH|CRITICAL
+    importance_score = Column(Integer, default=0)
+    confidence = Column(Integer, default=0)
+    signal_text = Column(String(300))
+    why_json = Column(JSON)
+    concern = Column(String(300))
+    chain_json = Column(JSON)
+    checklist_json = Column(JSON)
+    __table_args__ = (Index("ix_sigev_dedupe", "token_id", "kind", "key", "ts"),
+                      Index("ix_sigev_feed", "ts", "importance_score"),)
+
+
+class SignalEventOutcome(Base):
+    """Forward returns after intelligence events (v3 §49 validation)."""
+    __tablename__ = "signal_event_outcomes"
+    id = Column(Integer, primary_key=True)
+    event_id = Column(Integer, ForeignKey("signal_events.id"), index=True)
+    token_id = Column(Integer, ForeignKey("tokens.id"), index=True)
+    ts = Column(Integer, index=True)
+    horizon_secs = Column(Integer)
+    kind = Column(String(32), index=True)
+    category = Column(String(16))
+    importance = Column(String(8))
+    fwd_ret_pct = Column(Float)
+    max_dd_pct = Column(Float)
+    max_up_pct = Column(Float)
+    __table_args__ = (Index("ix_evout_unique", "event_id", "horizon_secs"),)
 
 
 class DataSource(Base):

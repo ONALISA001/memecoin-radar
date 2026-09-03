@@ -6,6 +6,46 @@ social / market / on-chain / news data into *explainable* signals so you can do 
 
 ---
 
+## What it does (v3 — Real-Time Event Intelligence)
+
+v3 turns the v2 signal feed into a full event-detection engine (`app/engine/intel.py`,
+thresholds centralized in `app/engine/intel_config.py`):
+
+- **12 event categories** (v3 §5–§15): new token, momentum acceleration, unusual volume
+  (vs the token's own 15-min baseline, with `2x/3x/5x` escalation buckets §43), buy/sell
+  pressure (activity-floored §35), whale accumulation/distribution (sustained direction,
+  aggregate-inference labeled §23), holder growth/weakening, liquidity +/-, new high/breakout,
+  reversal/divergence, distribution warning, elevated risk.
+- **Enriched events (§52 acceptance)**: every event carries WHAT (title + signal statement),
+  significance (importance LOW/MEDIUM/HIGH/CRITICAL + score), confidence 0–100 (share of
+  supporting checks, age-capped §37: 58 <30m / 68 <1h / 80 <3h / 95 <24h), WHY (checklist +
+  bullets), the possible contradiction (concern line) and a metrics snapshot; whale events are
+  labeled *inferred* (§38).
+- **Signal chains (§16)**: ordered-subsequence detection over a 90-minute window —
+  `pattern_emerging` (volume→flow→holders→momentum) and `pattern_distribution`
+  (new-high→abnormal-volume→distribution-flow→weakening).
+- **Cooldown dedupe + escalation (§43)**: same kind+token inside its cooldown only re-fires
+  when a strictly higher magnitude bucket is crossed.
+- **Market Pulse (§22)**: `/signals/pulse` — aggregate event flow, importance mix,
+  bullish-vs-risk balance, chain count, most active tokens over 15m/1h/4h/24h.
+- **Feed filters & sorts (§23–24)**: `/signals/feed` supports category multiselect,
+  min-importance tier, chain, token-age band, momentum band, min-confidence, search and
+  `smart` (importance × 6h recency decay) / importance / confidence / recent ordering.
+- **Watchlist intelligence (§30)**: `/signals/watchlist` groups events per watched token with
+  a headline state; UI section on the Watchlist page deep-links into token timelines
+  (`/token/<addr>?event=<id>` highlight mode).
+- **Outcome labeling (§49) + quality dashboard (§50)**: every event is back-labeled with
+  forward returns at +15m/+1h/+4h/+24h (`SignalEventOutcome`); `/signals/quality` reports
+  coverage, avg confidence per category, dedupe health (~0% dup target), labeling backlog and
+  avg forward return per category — surfaced on the Backtesting page.
+- **Surfaces**: `/feed` page (Market Pulse + filters + rich event cards with
+  why/checklist/concern expansion and View/Watch/Alert/Compare actions), compact live-intel
+  panel on the Dashboard, enriched timeline on token pages, alert/compare prefill via query
+  params, landing-page "Real-Time Memecoin Intelligence" section with demonstration cards
+  explicitly labeled as examples (v2 §45–46 pattern).
+
+Previous v2 summary below for the detection math the events are built on.
+
 ## What it does (v2 — Memecoin Market Intelligence)
 
 **Engines (all explainable, all from stored 5-min snapshots):** multi-factor

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line,
          ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useApi } from "@/lib/api";
+import { SignalQualityPanel } from "@/components/intelfeed";
 import { Badge, Empty, Panel } from "@/components/ui";
 
 const tooltipStyle = { background: "#0C1017", border: "1px solid #1B2331", borderRadius: 8, fontSize: 11 };
@@ -112,6 +113,7 @@ export default function BacktestingPage() {
             </table>
           </div>
         </Panel>
+        <SignalQualityPanel />
         <Panel title="How to read this page">
           <div className="p-4 space-y-2 text-[11px] text-ink/80 leading-relaxed">
             <p>· <b>Continuation rate</b> — % of snapshots in that score band that kept momentum (fwd return ≥ +10% without a &gt;30% drawdown).</p>

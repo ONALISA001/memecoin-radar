@@ -231,6 +231,52 @@
   </div>
 </section>
 
+<!-- ═══════════ v3 §45–46: REAL-TIME MEMECOIN INTELLIGENCE ═══════════ -->
+<section id="intel">
+  <div class="wrap">
+    <div class="h2">Real-Time Memecoin Intelligence</div>
+    <p class="lead">Not a ticker — an event-detection engine. Every token is scored every cycle across momentum, volume, order flow, whale flow, holders, liquidity and structure; when observed metrics cross thresholds, the engine emits an <b>enriched event</b>: what happened, how important it is, how confident we are, the supporting checks, and the contradiction to watch.</p>
+    <div class="steps" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-top:6px">
+      <div class="step"><b>1 · Monitor</b><span>Live market grid across chains — new tokens, volume acceleration, liquidity shifts, all timestamped.</span></div>
+      <div class="step"><b>2 · Analyze</b><span>Each event carries importance (LOW→CRITICAL), a 0–100 confidence score and a why-checklist of the indicators that fired.</span></div>
+      <div class="step"><b>3 · Detect</b><span>Ordered signal chains surface compound setups — e.g. volume → buy pressure → holders → momentum — before they trend.</span></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:14px">
+      <div class="evc" style="border-left-color:#34D399">
+        <span class="evtag">Example — Demonstration Data</span>
+        <div class="evttl">⚡ Momentum acceleration — $EXMPL</div>
+        <div class="evmeta"><span style="color:#F59E0B">HIGH</span><span style="color:#34D399">82% conf</span><span class="num">momentum 54 → 79</span></div>
+        <div class="evbody">Volume +240% 15m with buy share 63% and holders +9% — three momentum factors aligned.</div>
+        <div class="evfoot"><span class="ok">✓ volume confirms</span><span class="ok">✓ buy share rising</span><span class="ok">✓ holders growing</span><span class="warn">✗ sell pressure low</span></div>
+      </div>
+      <div class="evc" style="border-left-color:#F43F5E">
+        <span class="evtag">Example — Demonstration Data</span>
+        <div class="evttl">🔴 Distribution pattern (chain) — $DEMO</div>
+        <div class="evmeta"><span style="color:#F43F5E">CRITICAL</span><span style="color:#34D399">88% conf</span><span class="num">🔗 4 events in 42m</span></div>
+        <div class="evbody">new high → abnormal volume → whale distribution → momentum weakening — ordered chain detected inside 90 minutes.</div>
+        <div class="evfoot"><span class="warn">⚠ Watch: exit liquidity −18% in 3h — structural observation, not a rug claim.</span></div>
+      </div>
+      <div class="evc" style="border-left-color:#38BDF8">
+        <span class="evtag">Example — Demonstration Data</span>
+        <div class="evttl">🐋 Whale accumulation (inferred) — $SMOKE</div>
+        <div class="evmeta"><span style="color:#F59E0B">HIGH</span><span style="color:#FBBF24">74% conf</span><span class="num">net +$18.4k / 24h</span></div>
+        <div class="evbody">Aggregate large-wallet flow positive over 6h+24h while top-10 concentration slipped — direction sustained, not one-off.</div>
+        <div class="evfoot"><span class="ok">✓ sustained 6h+24h</span><span class="ok">✓ concentration shift</span><span class="warn">⚠ inferred from aggregate flow — not a claim about any specific wallet.</span></div>
+      </div>
+    </div>
+    <p style="font-size:10.5px;color:var(--dim);margin-top:12px;line-height:1.5">Every event links straight to the token timeline, watchlist, alert rules and compare view. Confidence is capped for young tokens, deduped with escalation (a “volume spike” re-alerts only when the spike gets materially bigger), and each event is back-labeled at +15m/+1h/+4h/+24h so the platform measures its own signal quality. Analytics only — memecoins are high-risk assets; nothing here is investment advice.</p>
+  </div>
+</section>
+<style>
+.evc{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--cyan);border-radius:10px;padding:12px 13px;text-align:left}
+.evtag{display:inline-block;font-size:8px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);border:1px dashed var(--line);border-radius:5px;padding:2px 6px;margin-bottom:7px}
+.evttl{font-size:12px;font-weight:800;color:var(--ink);margin-bottom:5px}
+.evmeta{display:flex;gap:8px;font-size:9.5px;font-weight:800;margin-bottom:6px;flex-wrap:wrap}
+.evbody{font-size:10.5px;color:var(--dim2);line-height:1.5}
+.evfoot{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;font-size:9px}
+.evfoot .ok{color:#34D399}.evfoot .warn{color:#FBBF24}
+</style>
+
 <!-- ═══════════ ENGINE / FULL PRODUCT (§38 final CTA pre-sect) ═══════════ -->
 <section id="engine">
   <div class="wrap">

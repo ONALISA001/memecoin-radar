@@ -61,6 +61,46 @@ def watchlist(db: Session = Depends(get_db), user: User = Depends(get_current_us
     return {"items": items}
 
 
+@router.get("/signals/watchlist")
+def watchlist_signals(hours: int = 24, min_importance: str = "MEDIUM",
+                      db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Watchlist intelligence (v3 §30): recent events across the user's
+    watched tokens, grouped per token with a headline state."""
+    import time as _time
+    from ..models import SignalEvent
+    from .data_api import _IMPORTANCE_ORDER, _event_json
+    now = int(_time.time())
+    wrows = db.execute(
+        select(Watchlist, Token).join(Token, Token.id == Watchlist.token_id)
+        .where(Watchlist.user_id == user.id)).all()
+    imp_min = _IMPORTANCE_ORDER.get(min_importance.upper(), 1)
+    min_score = [35, 60, 85][imp_min - 1] if imp_min else 0
+    tokens = []
+    for w, t in wrows:
+        evs = db.execute(
+            select(SignalEvent).where(
+                SignalEvent.token_id == t.id,
+                SignalEvent.ts >= now - min(hours, 72) * 3600,
+                SignalEvent.importance_score >= min_score)
+            .order_by(SignalEvent.ts.desc()).limit(20)).scalars().all()
+        best = max((e.importance_score or 0 for e in evs), default=0)
+        danger = sum(1 for e in evs if e.severity == "danger")
+        positive = sum(1 for e in evs if e.severity == "positive")
+        headline = ("investigate — risk signals active" if danger >= 2 else
+                    "distribution watch" if danger == 1 else
+                    "momentum building" if positive >= 2 else
+                    "quiet" if not evs else "mixed signals")
+        tokens.append({"address": t.address, "symbol": t.symbol, "name": t.name,
+                       "image_url": t.image_url, "added_at": w.created_at,
+                       "events": [_event_json(e, t.symbol, t.address) for e in evs],
+                       "event_count": len(evs), "max_importance": best,
+                       "danger_count": danger, "positive_count": positive,
+                       "headline": headline})
+    tokens.sort(key=lambda x: (x["max_importance"], x["event_count"]), reverse=True)
+    return {"items": tokens, "hours": hours, "min_importance": min_importance.upper(),
+            "ts": now}
+
+
 @router.post("/watchlist")
 def watchlist_add(body: WatchlistAdd, db: Session = Depends(get_db),
                   user: User = Depends(get_current_user)):

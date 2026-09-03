@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { apiDelete, useApi } from "@/lib/api";
+import { WatchlistIntel } from "@/components/intelfeed";
 import { Badge, ConfChip, Empty, FomoPill, Panel, RiskPill, Sparkline, TokenAvatar, TrendPill } from "@/components/ui";
 import { fmtPct, fmtUsd, pctColor, trendColor } from "@/lib/format";
 
@@ -28,6 +29,8 @@ export default function WatchlistPage() {
     try { await apiDelete(`/watchlist/${address}`); location.reload(); } finally { setBusy(null); }
   }
   return (
+    <div className="space-y-4">
+    <WatchlistIntel hours={24} />
     <Panel title={<span>👁 Watchlist <span className="text-dim normal-case font-normal">(score trajectories update every ingestion tick)</span></span>}>
       {loading && items.length === 0 ? <Empty text="Loading…" /> :
        items.length === 0 ? (
@@ -65,5 +68,6 @@ export default function WatchlistPage() {
         </div>
       )}
     </Panel>
+    </div>
   );
 }

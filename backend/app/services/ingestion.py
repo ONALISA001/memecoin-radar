@@ -27,6 +27,7 @@ from ..engine import risk as risk_engine
 from ..engine import scoring as scoring_engine
 from ..engine import signals as signals_engine
 from ..engine import fomo as fomo_engine
+from ..engine import intel as intel_engine
 from ..engine import market_intel as market_intel_engine
 from ..engine import timeseries as tsx
 from ..engine.context import TokenContext
@@ -216,53 +217,25 @@ def _latest_trends(db) -> dict[int, float]:
     return {tid: t for tid, t in rows}
 
 
-EVENT_COOLDOWN_SECONDS = 1800  # per (token, kind, key) — keeps the feed signal-dense
-
-
-def _record_signal_events(db, token_id: int, ts: int, mi: dict) -> None:
-    """Persist notable market-intelligence transitions (v2 §15 signal history,
-    §20 event alerts). Cooldown-deduped; only observed/derived events, never
-    fabricated ones (§23)."""
-    now = ts
-    mom, sellp, ath, vacc, conf = (mi["momentum"], mi["sell_pressure"], mi["ath"],
-                                   mi["volume_accel"], mi["confluence"])
-    events = []
-    if ath.get("new_ath"):
-        events.append(("new_ath", "", f"📈 New tracked high {'(breakout)' if ath['status'] == 'breaking_out' else ''}".strip(),
-                       f"Price touched tracked high at tick {ath['ath_ts']}",
-                       "positive", {"price": ath.get("price"), "ath": ath.get("ath")}))
-    if conf["signal"] == "emerging_momentum":
-        events.append(("confluence_emerging", "", "🟢 Emerging momentum confluence",
-                       "; ".join(conf["reasons"]), "positive", conf))
-    if conf["signal"] == "potential_distribution":
-        events.append(("confluence_distribution", "", "🔴 Potential distribution confluence",
-                       "; ".join(conf["reasons"]), "danger", conf))
-    for r in mi["reversals"]:
-        events.append(("reversal", r["kind"], "⚠️ " + r["title"], r["detail"],
-                       r["severity"], r))
-    if vacc["abnormal"]:
-        events.append(("volume_accel", "", "🚀 Abnormal volume acceleration",
-                       vacc["detail"], "warning", vacc["h1"]))
-    if mom["score"] >= 80:
-        events.append(("momentum_cross", "80", f"⚡ Momentum crossed 80 ({mom['score']:.0f})",
-                       mom["band_label"] + " — " + (mom["positive"][0] if mom["positive"] else ""),
-                       "positive", {"momentum": mom["score"]}))
-    for kind, key, title, detail, severity, metrics in events:
-        recent = db.execute(
-            select(SignalEvent.id).where(
-                SignalEvent.token_id == token_id, SignalEvent.kind == kind,
-                SignalEvent.key == key,
-                SignalEvent.ts >= now - EVENT_COOLDOWN_SECONDS)).first()
-        if recent:
-            continue
-        db.add(SignalEvent(token_id=token_id, ts=now, kind=kind, key=key,
-                           title=title, detail=detail[:590], severity=severity,
-                           metrics_json=metrics if isinstance(metrics, dict) else {}))
+def _latest_summaries(db) -> dict[int, dict]:
+    """Latest TrendScore summary blob per token — used as `prev_mi` source
+    for momentum/sell-pressure deltas in the v3 event engine."""
+    sub = select(TrendScore.token_id, func.max(TrendScore.ts).label("mts")).group_by(TrendScore.token_id).subquery()
+    rows = db.execute(
+        select(TrendScore.token_id, TrendScore.components_json)
+        .join(sub, (TrendScore.token_id == sub.c.token_id) & (TrendScore.ts == sub.c.mts))
+    ).all()
+    out: dict[int, dict] = {}
+    for tid, comp in rows:
+        summ = (comp or {}).get("summary") or {}
+        out[tid] = summ
+    return out
 
 
 def _score_all(db, now_b: int) -> dict:
     tokens = db.execute(select(Token)).scalars().all()
     prev_trends = _latest_trends(db)
+    prev_summaries = _latest_summaries(db)
 
     # pass 1: contexts + narrative inputs
     ctxs: dict[int, TokenContext] = {}
@@ -318,6 +291,7 @@ def _score_all(db, now_b: int) -> dict:
     watched = {r[0] for r in db.execute(select(Watchlist.token_id)).all()}
     payloads = []
     new_emerging = 0
+    chain_candidates: list[int] = []
     for t in tokens:
         ctx = ctxs[t.id]
         ni = per_token_narr.get(t.id, {"best_score": 0.0, "count": 0,
@@ -345,8 +319,21 @@ def _score_all(db, now_b: int) -> dict:
                                               fomo_payload["fomo"], age_hours, trend_delta_30m)
         new_emerging += int(emerging)
 
-        # v2: persist notable market-intelligence events with per-key cooldowns
-        _record_signal_events(db, t.id, now_b, mi)
+        # v3: enriched intelligence events (categories, importance tiers,
+        # confidence, checklists, concerns) with cooldown + escalation dedupe (§43)
+        prev_sum = prev_summaries.get(t.id) or {}
+        prev_mi = {"momentum": prev_sum.get("momentum"), "sell_pressure": prev_sum.get("sellp")}
+        try:
+            evs = intel_engine.detect_events(ctx, mi, t, age_hours, prev_mi,
+                                             risk_payload["risk"], risk_payload["flags"])
+            if evs:
+                written = intel_engine.record_events(db, t.id, now_b, evs)
+                if any(e["kind"] == "new_token" for e in evs):
+                    t.new_token_evented = True
+                if written:
+                    chain_candidates.append(t.id)
+        except Exception as exc:
+            log.warning("intel detect failed for %s: %s", t.symbol, exc)
 
         d = ctx.d
         d["price_chg_5m"] = tsx.level_growth(ctx.price, now_b, 300)[2]
@@ -428,11 +415,32 @@ def _score_all(db, now_b: int) -> dict:
         for ev in generate_whale_events(sim, now_b):
             db.add(WalletActivity(token_id=t.id, **ev))
 
+    # v3 §16: signal-chain detection over the last window for tokens that
+    # produced fresh events this tick
+    payloads_map = {p["token_id"]: p["mi"] for p in payloads}
+    if chain_candidates:
+        db.flush()
+        for tid in chain_candidates:
+            try:
+                chain_evs = intel_engine.detect_chains(db, tid, now_b,
+                                                       payloads_map.get(tid) or {})
+                if chain_evs:
+                    intel_engine.record_events(db, tid, now_b, chain_evs)
+            except Exception as exc:
+                log.warning("chain detect failed for token %s: %s", tid, exc)
+        db.flush()
+
     created_alerts = alerts_engine.evaluate_alerts(db, payloads, now_b, new_narratives=[])
     labels = backtest_engine.label_due(db, now_b)
+    # v3 §49: forward-return labeling of past intelligence events
+    ev_labeled = 0
+    try:
+        ev_labeled = intel_engine.label_event_outcomes(db, now_b)
+    except Exception as exc:
+        log.warning("event outcome labeling failed: %s", exc)
     db.flush()
     return {"tokens": len(tokens), "emerging": new_emerging, "alerts_fired": created_alerts,
-            "labels": labels, "breadth": round(breadth, 3)}
+            "labels": labels, "event_labels": ev_labeled, "breadth": round(breadth, 3)}
 
 
 # --------------------------------------------------------------------------

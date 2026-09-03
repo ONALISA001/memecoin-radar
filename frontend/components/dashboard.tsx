@@ -4,7 +4,7 @@ import React, { useMemo, useState } from "react";
 import { useApi } from "@/lib/api";
 import { ageLabel, fmtNum, fmtPct, fmtPrice, fmtUsd, pctColor, timeAgo } from "@/lib/format";
 import { Badge, ConfChip, Empty, FomoPill, Panel, RiskPill, RowBadges, TokenAvatar, TrendPill } from "./ui";
-import { SignalFeed } from "./marketintel";
+import { IntelFeed } from "./intelfeed";
 
 /* ------------------------------------------------ market overview strip */
 function OverviewStrip() {
@@ -254,7 +254,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
         <div className="xl:col-span-2"><TrendingTable /></div>
         <div className="space-y-4">
-          <SignalFeed limit={14} />
+          <IntelFeed compact={10} />
           <EmergingList />
           <NarrativeList />
           <SectorMomentum />

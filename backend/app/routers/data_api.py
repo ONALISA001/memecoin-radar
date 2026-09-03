@@ -265,20 +265,226 @@ def screener(
     return {"items": cards[:limit], "count": len(cards[:limit]), "total_matching": len(cards)}
 
 
+_SIGNAL_CATEGORIES = {"new", "momentum", "volume", "flow", "whales", "holders",
+                      "liquidity", "ath", "reversal", "distribution", "risk", "pattern"}
+_IMPORTANCE_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+
+
+def _event_json(ev, sym, addr) -> dict:
+    return {"id": ev.id, "ts": ev.ts, "symbol": sym, "address": addr,
+            "kind": ev.kind, "key": ev.key, "title": ev.title,
+            "detail": ev.detail, "severity": ev.severity,
+            "metrics": ev.metrics_json or {},
+            "category": ev.category, "importance": ev.importance,
+            "importance_score": ev.importance_score, "confidence": ev.confidence,
+            "signal_text": ev.signal_text, "why": ev.why_json or [],
+            "concern": ev.concern, "chain": ev.chain_json,
+            "checklist": ev.checklist_json or []}
+
+
 @router.get("/signals/feed")
-def signals_feed(address: str | None = None, limit: int = Query(60, le=200),
+def signals_feed(address: str | None = None, limit: int = Query(60, le=300),
+                 categories: str | None = None, importance: str | None = None,
+                 chain: str | None = None, age: str | None = None,
+                 momentum: str | None = None, min_confidence: int = 0,
+                 search: str | None = None,
+                 sort: str = Query("smart", pattern="^(smart|importance|confidence|recent)$"),
+                 since_secs: int | None = None,
                  db: Session = Depends(get_db)):
-    """Reverse-chronological market-intelligence events (v2 §15, §20)."""
+    """Enriched reverse-chronological intelligence events (v3 §20–§24).
+
+    Filters: categories (csv), importance minimum tier, chain, token age band
+    (new<3h / young<24h / established≥24h), current momentum band, min
+    confidence, text search. Sort: smart (importance × recency decay, default),
+    importance, confidence, recent. Observed/derived/inferred events only."""
     from ..models import SignalEvent
+    now = int(time.time())
+    cat_set = {c.strip() for c in (categories or "").split(",") if c.strip() in _SIGNAL_CATEGORIES}
+    imp_min = _IMPORTANCE_ORDER.get((importance or "").upper(), 0)
     q = (select(SignalEvent, Token.symbol, Token.address)
          .join(Token, Token.id == SignalEvent.token_id))
     if address:
         q = q.where(Token.address == address)
-    rows = db.execute(q.order_by(SignalEvent.ts.desc()).limit(limit)).all()
-    return {"items": [{"ts": ev.ts, "symbol": sym, "address": addr,
-                       "kind": ev.kind, "key": ev.key, "title": ev.title,
-                       "detail": ev.detail, "severity": ev.severity,
-                       "metrics": ev.metrics_json or {}} for ev, sym, addr in rows]}
+    if cat_set:
+        q = q.where(SignalEvent.category.in_(cat_set))
+    if imp_min:
+        q = q.where(SignalEvent.importance_score >= [35, 60, 85][imp_min - 1])
+    if min_confidence:
+        q = q.where(SignalEvent.confidence >= min_confidence)
+    if chain:
+        q = q.where(Token.chain == chain)
+    if since_secs:
+        q = q.where(SignalEvent.ts >= now - min(since_secs, 86400))
+    if search:
+        like = f"%{search.strip()[:40]}%"
+        q = q.where((SignalEvent.title.like(like)) | (SignalEvent.signal_text.like(like))
+                    | (Token.symbol.like(like)))
+    rows = db.execute(q.order_by(SignalEvent.ts.desc()).limit(400)).all()
+
+    cards = {}
+    if age or momentum:
+        for sc, t in latest_score_rows(db):
+            cards[t.address] = card(t, sc)
+
+    def band_ok(addr: str) -> bool:
+        if not (age or momentum):
+            return True
+        c = cards.get(addr)
+        if not c:
+            return False
+        if age == "new" and (c.get("age_hours") or 999) >= 3:
+            return False
+        if age == "young" and (c.get("age_hours") or 999) >= 24:
+            return False
+        if age == "established" and (c.get("age_hours") or 999) < 24:
+            return False
+        if momentum and c.get("momentum_band") != momentum:
+            return False
+        return True
+
+    items = [(ev, sym, addr) for ev, sym, addr in rows if band_ok(addr)]
+    if sort == "importance":
+        items.sort(key=lambda r: (r[0].importance_score or 0, r[0].ts), reverse=True)
+    elif sort == "confidence":
+        items.sort(key=lambda r: (r[0].confidence or 0, r[0].ts), reverse=True)
+    elif sort == "smart":
+        # importance-weighted with 6h recency decay (§24)
+        items.sort(key=lambda r: (r[0].importance_score or 0)
+                   * max(0.15, 1.0 - (now - r[0].ts) / 21600), reverse=True)
+    else:
+        items.sort(key=lambda r: r[0].ts, reverse=True)
+    out = [_event_json(ev, sym, addr) for ev, sym, addr in items[:limit]]
+    return {"items": out, "count": len(out), "ts": now,
+            "filters": {"categories": sorted(cat_set), "importance": importance,
+                        "chain": chain, "age": age, "momentum": momentum,
+                        "min_confidence": min_confidence, "sort": sort}}
+
+
+@router.get("/signals/pulse")
+def signals_pulse(window: str = Query("1h", pattern="^(15m|1h|4h|24h)$"),
+                  db: Session = Depends(get_db)):
+    """Market Pulse (v3 §22): aggregate view of the intelligence feed over a
+    rolling window — event volume, importance mix, tone balance, chains,
+    most active tokens."""
+    from ..models import SignalEvent
+    now = int(time.time())
+    since = now - TF_SECONDS[window]
+    rows = db.execute(
+        select(SignalEvent, Token.symbol).join(Token, Token.id == SignalEvent.token_id)
+        .where(SignalEvent.ts >= since)).all()
+    by_cat: dict[str, int] = {}
+    by_imp = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
+    by_tone = {"positive": 0, "info": 0, "warning": 0, "danger": 0}
+    per_token: dict[str, dict] = {}
+    conf_sum, conf_n = 0.0, 0
+    chains = 0
+    kind_counts: dict[str, int] = {}
+    for ev, sym in rows:
+        by_cat[ev.category or "uncategorized"] = by_cat.get(ev.category or "uncategorized", 0) + 1
+        by_imp[ev.importance or "LOW"] = by_imp.get(ev.importance or "LOW", 0) + 1
+        by_tone[ev.severity] = by_tone.get(ev.severity, 0) + 1
+        kind_counts[ev.kind] = kind_counts.get(ev.kind, 0) + 1
+        if ev.category == "pattern":
+            chains += 1
+        if ev.confidence:
+            conf_sum += ev.confidence
+            conf_n += 1
+        pt = per_token.setdefault(sym or "?", {"events": 0, "max_importance": 0,
+                                               "danger": 0, "positive": 0})
+        pt["events"] += 1
+        pt["max_importance"] = max(pt["max_importance"], ev.importance_score or 0)
+        pt["danger"] += int(ev.severity == "danger")
+        pt["positive"] += int(ev.severity == "positive")
+    top_tokens = sorted(per_token.items(), key=lambda kv: (kv[1]["max_importance"], kv[1]["events"]),
+                        reverse=True)[:6]
+    tone_total = max(sum(by_tone.values()), 1)
+    return {"window": window, "since": since, "ts": now,
+            "total_events": len(rows), "by_category": by_cat, "by_importance": by_imp,
+            "by_tone": by_tone,
+            "direction_balance": {
+                "positive_share": round(by_tone["positive"] / tone_total, 3),
+                "danger_share": round(by_tone["danger"] / tone_total, 3)},
+            "chains_detected": chains,
+            "avg_confidence": round(conf_sum / conf_n, 1) if conf_n else None,
+            "top_tokens": [{"symbol": s, **v} for s, v in top_tokens],
+            "top_kinds": sorted(kind_counts.items(), key=lambda kv: -kv[1])[:8]}
+
+
+@router.get("/signals/quality")
+def signals_quality(db: Session = Depends(get_db)):
+    """Signal quality dashboard (v3 §50): production stats for the event
+    engine — coverage, confidence, dedupe health, labeling progress and the
+    accuracy feedback loop from outcome labeling (§49)."""
+    from ..models import SignalEvent, SignalEventOutcome
+    now = int(time.time())
+    day = now - 86400
+    rows = db.execute(select(SignalEvent).where(SignalEvent.ts >= day)
+                      .order_by(SignalEvent.ts.asc())).scalars().all()
+    by_cat: dict[str, int] = {}
+    conf_by_cat: dict[str, list[float]] = {}
+    for ev in rows:
+        c = ev.category or "uncategorized"
+        by_cat[c] = by_cat.get(c, 0) + 1
+        if ev.confidence:
+            conf_by_cat.setdefault(c, []).append(ev.confidence)
+    # dedupe health: same (token, kind) events re-firing well inside the
+    # cooldown would be duplicates — measured directly (§43 compliance check)
+    from ..engine import intel_config as IC
+    last_seen: dict[tuple, int] = {}
+    dups = 0
+    pairs = 0
+    for ev in rows:
+        if ev.category is None:      # v2 legacy rows are not cooldown-managed
+            continue
+        k = (ev.token_id, ev.kind)
+        prev = last_seen.get(k)
+        if prev is not None:
+            pairs += 1
+            if ev.ts - prev < IC.COOLDOWNS.get(ev.kind, 3600) // 2:
+                dups += 1
+        last_seen[k] = ev.ts
+    # outcome labeling progress + forward returns (§49 feedback loop)
+    out_rows = db.execute(
+        select(SignalEventOutcome).where(SignalEventOutcome.ts >= day)).scalars().all()
+    by_horizon: dict[int, dict] = {}
+    by_cat_ret: dict[str, dict[str, list[float]]] = {}
+    for o in out_rows:
+        h = by_horizon.setdefault(o.horizon_secs, {"labeled": 0, "avg_ret": [], "avg_dd": []})
+        h["labeled"] += 1
+        if o.fwd_ret_pct is not None:
+            h["avg_ret"].append(o.fwd_ret_pct)
+        if o.max_dd_pct is not None:
+            h["avg_dd"].append(o.max_dd_pct)
+        cr = by_cat_ret.setdefault(o.category or "uncategorized", {"ret_1h": [], "ret_4h": []})
+        if o.fwd_ret_pct is not None and o.horizon_secs in (3600, 14400):
+            cr["ret_1h" if o.horizon_secs == 3600 else "ret_4h"].append(o.fwd_ret_pct)
+    horizons = [{"horizon_secs": hs, "labeled": v["labeled"],
+                 "avg_fwd_ret_pct": round(sum(v["avg_ret"]) / len(v["avg_ret"]), 2) if v["avg_ret"] else None,
+                 "avg_max_dd_pct": round(sum(v["avg_dd"]) / len(v["avg_dd"]), 2) if v["avg_dd"] else None}
+                for hs, v in sorted(by_horizon.items())]
+    cat_ret = {c: {k: (round(sum(v) / len(v), 2) if v else None) for k, v in m.items()}
+               for c, m in by_cat_ret.items()}
+    pending = db.execute(
+        select(func.count(SignalEvent.id)).where(
+            SignalEvent.ts <= now - 900, SignalEvent.category.isnot(None),
+            ~select(SignalEventOutcome.id).where(
+                SignalEventOutcome.event_id == SignalEvent.id,
+                SignalEventOutcome.horizon_secs == 900).exists())
+    ).scalar() or 0
+    latest_ts = db.execute(select(func.max(SignalEvent.ts))).scalar()
+    return {"window": "24h", "ts": now,
+            "events_24h": len(rows), "by_category": by_cat,
+            "avg_confidence_by_category": {c: round(sum(v) / len(v), 1)
+                                           for c, v in conf_by_cat.items()},
+            "dedupe": {"same_kind_pairs": pairs, "possible_duplicates": dups,
+                       "dup_rate": round(dups / pairs, 4) if pairs else 0.0},
+            "labeling": {"outcomes_24h": len(out_rows), "pending_min_horizon": pending},
+            "outcome_stats_by_horizon": horizons,
+            "avg_forward_return_by_category": cat_ret,
+            "freshness_secs": (now - latest_ts) if latest_ts else None}
+
+
+
 
 
 @router.get("/tokens/compare")

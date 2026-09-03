@@ -1,15 +1,23 @@
 "use client";
 import Link from "next/link";
-import React, { useState } from "react";
+import React, { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { api, apiDelete, apiPost, useApi } from "@/lib/api";
 import { ageLabel, fomoBandClass, fmtNum, fmtPct, fmtPrice, fmtUsd, pctColor,
          riskTextClass, timeAgo } from "@/lib/format";
 import { Badge, ConfChip, Empty, Gauge, Panel, RiskPill, RowBadges, Sparkline, TokenAvatar } from "./ui";
 import ForensicsPanel from "./forensics";
-import { MarketIntelPanel, SignalFeed } from "./marketintel";
+import { MarketIntelPanel } from "./marketintel";
+import { IntelFeed } from "./intelfeed";
 import { HoldersChart, LiquidityChart, PriceChart, ScoreChart, SocialChart, VolumeChart } from "./charts";
 
 /* ------------------------------------------------------------- helpers */
+function FeedWithFocus({ address }: { address: string }) {
+  const sp = useSearchParams();
+  const focusId = sp.get("event") ? Number(sp.get("event")) : undefined;
+  return <IntelFeed address={address} compact={40} focusId={focusId} />;
+}
+
 function Stat({ label, value, sub, color }: { label: string; value: React.ReactNode; sub?: React.ReactNode; color?: string }) {
   return (
     <div className="px-3 py-2">
@@ -353,7 +361,7 @@ export default function TokenPage({ address }: { address: string }) {
         </div>
         <div className="space-y-4">
           {sc?.market_intel && <MarketIntelPanel mi={sc.market_intel} />}
-          <SignalFeed address={d.address} limit={15} />
+          <Suspense fallback={null}><FeedWithFocus address={d.address} /></Suspense>
           {sc && <SignalsPanel sc={sc} />}
           {sc?.forensics && <ForensicsPanel forensics={sc.forensics} />}
           {d.contract_facts && (

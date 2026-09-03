@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useApi, api } from "@/lib/api";
 import { Badge, Empty, Panel, TokenAvatar } from "@/components/ui";
 import { bandLabel, BAND_COLORS } from "@/components/marketintel";
@@ -26,8 +27,16 @@ const ROWS: Row[] = [
   { label: "Token age", key: "age_hours", fmt: (v) => v >= 900 ? "unknown" : v < 48 ? Math.round(v) + "h" : Math.round(v / 24) + "d" },
 ];
 
-export default function ComparePage() {
+function CompareInner() {
+  const sp = useSearchParams();
   const [addrs, setAddrs] = useState<string[]>([]);
+  useEffect(() => {
+    const t = sp.get("tokens");
+    if (t && addrs.length === 0) {
+      setAddrs(t.split(",").map((x) => x.trim()).filter(Boolean).slice(0, 5));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const qs = addrs.join(",");
@@ -153,4 +162,8 @@ export default function ComparePage() {
       </div>
     </div>
   );
+}
+
+export default function ComparePage() {
+  return <Suspense fallback={null}><CompareInner /></Suspense>;
 }
