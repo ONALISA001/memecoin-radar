@@ -96,12 +96,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app = FastAPI(title="MemeCoin Radar API", version="0.1.0", lifespan=lifespan,
               docs_url="/docs" if True else None)
 
-# CORS is intentionally narrow: in this deployment the Next server proxies
-# same-origin requests; direct browser access to the API is not required.
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000",
-                                                  "http://127.0.0.1:3000"],
-                   allow_credentials=False, allow_methods=["GET", "POST", "PATCH", "DELETE"],
-                   allow_headers=["Authorization", "Content-Type"])
+# CORS: read-only analytics API, no cookies/credentialed requests — widened so a
+# static frontend hosted anywhere (Netlify Drop, Vercel) can call it cross-origin.
+# No secrets ever leave through responses (§22); a browser app only sends a JWT
+# it already holds.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(data_api.router, prefix="/api", tags=["data"])
