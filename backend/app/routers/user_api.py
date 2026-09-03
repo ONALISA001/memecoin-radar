@@ -1,0 +1,194 @@
+"""Authenticated user API: demo login, watchlist (§15), alerts (§16)."""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from ..config import DEMO_MODE
+from ..database import get_db
+from ..models import Alert, AlertEvent, Token, TrendScore, User, Watchlist
+from ..schemas import AlertCreate, AlertPatch, WatchlistAdd
+from ..security import get_current_user, issue_token, rate_limit
+
+router = APIRouter(dependencies=[Depends(rate_limit)])
+
+
+@router.post("/auth/demo")
+def demo_login(db: Session = Depends(get_db)):
+    """Demo-mode login: returns a JWT for the seeded demo user.
+    Disabled when DEMO_MODE=0 (production)."""
+    if not DEMO_MODE:
+        raise HTTPException(403, "demo mode disabled")
+    user = db.execute(select(User).where(User.email == "demo@memecoin.radar")).scalar_one_or_none()
+    if not user:
+        raise HTTPException(500, "demo user missing — run seed.py")
+    return {"token": issue_token(user), "user": {"id": user.id, "email": user.email}}
+
+
+# ------------------------------------------------------------- watchlist
+@router.get("/watchlist")
+def watchlist(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = db.execute(
+        select(Watchlist, Token).join(Token, Token.id == Watchlist.token_id)
+        .where(Watchlist.user_id == user.id)
+    ).all()
+    sub = (select(TrendScore.token_id, func.max(TrendScore.ts).label("mts"))
+           .group_by(TrendScore.token_id).subquery())
+    items = []
+    for w, t in rows:
+        sc = db.execute(
+            select(TrendScore)
+            .join(sub, (TrendScore.token_id == sub.c.token_id) & (TrendScore.ts == sub.c.mts))
+            .where(TrendScore.token_id == t.id)
+        ).scalar_one_or_none()
+        hist = db.execute(
+            select(TrendScore.ts, TrendScore.trend, TrendScore.fomo, TrendScore.risk)
+            .where(TrendScore.token_id == t.id).order_by(TrendScore.ts.desc()).limit(12)
+        ).all()
+        items.append({
+            "address": t.address, "symbol": t.symbol, "name": t.name, "chain": t.chain,
+            "image_url": t.image_url, "added_at": w.created_at,
+            "trend": sc.trend if sc else None, "fomo": sc.fomo if sc else None,
+            "risk": sc.risk if sc else None,
+            "fomo_class": sc.fomo_class if sc else None,
+            "risk_class": sc.risk_class if sc else None,
+            "summary": (sc.components_json or {}).get("summary", {}) if sc else {},
+            # score trajectory, oldest → newest ("52 → 64 → 73 → 81", §15)
+            "score_history": [{"ts": h.ts, "trend": h.trend, "fomo": h.fomo, "risk": h.risk}
+                              for h in reversed(hist)],
+        })
+    return {"items": items}
+
+
+@router.post("/watchlist")
+def watchlist_add(body: WatchlistAdd, db: Session = Depends(get_db),
+                  user: User = Depends(get_current_user)):
+    token = db.execute(select(Token).where(Token.address == body.address)).scalar_one_or_none()
+    if not token:
+        raise HTTPException(404, "token not tracked")
+    exists = db.execute(select(Watchlist).where(
+        Watchlist.user_id == user.id, Watchlist.token_id == token.id)).scalar_one_or_none()
+    if exists:
+        return {"ok": True, "already": True}
+    db.add(Watchlist(user_id=user.id, token_id=token.id))
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/watchlist/{address}")
+def watchlist_remove(address: str, db: Session = Depends(get_db),
+                     user: User = Depends(get_current_user)):
+    token = db.execute(select(Token).where(Token.address == address)).scalar_one_or_none()
+    if not token:
+        raise HTTPException(404, "token not tracked")
+    db.execute(Watchlist.__table__.delete().where(
+        Watchlist.user_id == user.id, Watchlist.token_id == token.id))
+    db.commit()
+    return {"ok": True}
+
+
+# ------------------------------------------------------------- alerts
+def _alert_out(a: Alert) -> dict:
+    return {"id": a.id, "name": a.name, "condition": a.condition_json,
+            "channel": {k: v for k, v in (a.channel_json or {}).items() if k != "url"},
+            "has_webhook": bool((a.channel_json or {}).get("url")),
+            "enabled": bool(a.enabled), "created_at": a.created_at}
+
+
+@router.get("/alerts")
+def alerts_list(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = db.execute(select(Alert).where(Alert.user_id == user.id)
+                      .order_by(Alert.created_at.desc())).scalars().all()
+    return {"items": [_alert_out(a) for a in rows],
+            "metrics": ["trend_score", "fomo_score", "risk_score", "mentions_growth_pct",
+                        "volume_growth_pct", "holder_growth_pct", "liquidity_drop_pct",
+                        "new_narrative"]}
+
+
+@router.post("/alerts")
+def alerts_create(body: AlertCreate, db: Session = Depends(get_db),
+                  user: User = Depends(get_current_user)):
+    count = db.execute(select(func.count(Alert.id)).where(Alert.user_id == user.id)).scalar() or 0
+    if count >= 50:
+        raise HTTPException(400, "alert limit reached (50)")
+    condition = {"metric": body.metric, "op": body.op, "value": body.value,
+                 "scope": body.scope}
+    if body.scope == "address":
+        if not body.address:
+            raise HTTPException(400, "address required for scope=address")
+        condition["address"] = body.address
+    channel = {"type": body.channel_type}
+    if body.channel_type == "webhook":
+        if not body.webhook_url:
+            raise HTTPException(400, "webhook_url required")
+        channel["url"] = body.webhook_url
+    a = Alert(user_id=user.id, name=body.name, condition_json=condition,
+              channel_json=channel, enabled=True)
+    db.add(a)
+    db.commit()
+    return _alert_out(a)
+
+
+@router.patch("/alerts/{alert_id}")
+def alerts_patch(alert_id: int, body: AlertPatch, db: Session = Depends(get_db),
+                 user: User = Depends(get_current_user)):
+    a = db.get(Alert, alert_id)
+    if not a or a.user_id != user.id:
+        raise HTTPException(404, "alert not found")
+    if body.enabled is not None:
+        a.enabled = body.enabled
+    if body.name:
+        a.name = body.name
+    db.commit()
+    return _alert_out(a)
+
+
+@router.delete("/alerts/{alert_id}")
+def alerts_delete(alert_id: int, db: Session = Depends(get_db),
+                  user: User = Depends(get_current_user)):
+    a = db.get(Alert, alert_id)
+    if not a or a.user_id != user.id:
+        raise HTTPException(404, "alert not found")
+    db.delete(a)
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/alerts/events")
+def alert_events(since: int = 0, db: Session = Depends(get_db),
+                 user: User = Depends(get_current_user)):
+    """Events for the notification bell (browser channel polls this)."""
+    rows = db.execute(
+        select(AlertEvent, Token.symbol)
+        .join(Alert, Alert.id == AlertEvent.alert_id)
+        .outerjoin(Token, Token.id == AlertEvent.token_id)
+        .where(Alert.user_id == user.id, AlertEvent.ts > since)
+        .order_by(AlertEvent.ts.desc()).limit(50)
+    ).all()
+    unread = db.execute(
+        select(func.count(AlertEvent.id)).join(Alert, Alert.id == AlertEvent.alert_id)
+        .where(Alert.user_id == user.id, AlertEvent.read == False)  # noqa: E712
+    ).scalar() or 0
+    return {"items": [{"id": e.id, "ts": e.ts, "payload": e.payload_json,
+                       "symbol": sym, "delivered": e.delivered_json, "read": bool(e.read)}
+                      for e, sym in rows], "unread": unread}
+
+
+@router.post("/admin/backtest/run")
+def admin_backtest_run(user: User = Depends(get_current_user)):
+    """Manually (re)run retro score backfill + outcome labeling."""
+    from ..services.backfill_scores import run_retro_backfill
+    return run_retro_backfill()
+
+
+@router.post("/alerts/events/read-all")
+def alert_events_read(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    rows = db.execute(
+        select(AlertEvent).join(Alert, Alert.id == AlertEvent.alert_id)
+        .where(Alert.user_id == user.id, AlertEvent.read == False)  # noqa: E712
+    ).scalars().all()
+    for e in rows:
+        e.read = True
+    db.commit()
+    return {"ok": True, "marked": len(rows)}

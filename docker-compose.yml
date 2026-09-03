@@ -1,0 +1,43 @@
+# Reference production topology (§26): frontend, backend, Postgres and Redis
+# deploy independently. The backend proxies nothing — browsers only reach the
+# frontend, which rewrites /api/* to the backend service.
+services:
+  frontend:
+    build: ./frontend
+    ports: ["3000:3000"]
+    environment:
+      NODE_ENV: production
+    depends_on: [backend]
+    # NOTE: next.config.mjs rewrites /api/* → http://127.0.0.1:8000/api/*.
+    # In compose, set the rewrite target to http://backend:8000/api/* via a
+    # build/deploy override (see docs/ARCHITECTURE.md §2).
+
+  backend:
+    build: ./backend
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: postgresql+psycopg2://radar:CHANGE_ME@postgres:5432/radar
+      JWT_SECRET: CHANGE_ME
+      DEMO_MODE: "0"
+      INGEST_INTERVAL_SECONDS: "60"
+    depends_on: [postgres]
+
+  # Production DB. The schema is standard SQLAlchemy DDL and ports 1:1 from
+  # the dev SQLite database.
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: CHANGE_ME
+      POSTGRES_DB: radar
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports: ["5432:5432"]
+
+  # Redis is provisioned for the Celery queue + response cache (Phase 5/6).
+  # redis:
+  #   image: redis:7-alpine
+  #   ports: ["6379:6379"]
+
+volumes:
+  pgdata:

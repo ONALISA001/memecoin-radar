@@ -1,0 +1,14 @@
+# Railway deployment config for the FastAPI backend.
+# Deploy with "Root Directory" = backend  (or `railway up` from this folder).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Root route returns {"ok": true} — cheap liveness probe.
+healthcheckPath = "/"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+# Binding/port: uvicorn reads $PORT inside the Dockerfile CMD.
