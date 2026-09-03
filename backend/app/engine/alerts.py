@@ -29,6 +29,10 @@ OPS = {
 
 def metric_value(metric: str, payload: dict) -> float | None:
     d = payload["d"]
+    mi = payload.get("mi") or {}
+    ath = mi.get("ath") or {}
+    rev = mi.get("reversals") or []
+    conf = mi.get("confluence") or {}
     return {
         "trend_score": payload["trend"],
         "fomo_score": payload["fomo"],
@@ -37,6 +41,16 @@ def metric_value(metric: str, payload: dict) -> float | None:
         "volume_growth_pct": d.get("volume_g_1h", 0.0),
         "holder_growth_pct": d.get("holders_g_1h", 0.0),
         "liquidity_drop_pct": max(0.0, -d.get("liq_chg_3h", 0.0)),
+        # v2 market-intelligence metrics (§20)
+        "momentum_score": (mi.get("momentum") or {}).get("score"),
+        "sell_pressure_score": (mi.get("sell_pressure") or {}).get("score"),
+        "liquidity_health_score": (mi.get("liquidity_health") or {}).get("score"),
+        "volume_accel_h1_pct": (mi.get("volume_accel") or {}).get("h1", {}).get("growth_pct"),
+        "buy_pressure_share_pct": ((mi.get("pressure") or {}).get("buy_share_1h") or 0) * 100,
+        "new_ath": 1.0 if ath.get("new_ath") else 0.0,
+        "reversal_detected": 1.0 if rev else 0.0,
+        "confluence_emerging": 1.0 if conf.get("signal") == "emerging_momentum" else 0.0,
+        "confluence_distribution": 1.0 if conf.get("signal") == "potential_distribution" else 0.0,
     }.get(metric)
 
 

@@ -6,6 +6,7 @@ import { ageLabel, fomoBandClass, fmtNum, fmtPct, fmtPrice, fmtUsd, pctColor,
          riskTextClass, timeAgo } from "@/lib/format";
 import { Badge, ConfChip, Empty, Gauge, Panel, RiskPill, RowBadges, Sparkline, TokenAvatar } from "./ui";
 import ForensicsPanel from "./forensics";
+import { MarketIntelPanel, SignalFeed } from "./marketintel";
 import { HoldersChart, LiquidityChart, PriceChart, ScoreChart, SocialChart, VolumeChart } from "./charts";
 
 /* ------------------------------------------------------------- helpers */
@@ -351,6 +352,8 @@ export default function TokenPage({ address }: { address: string }) {
           </div>
         </div>
         <div className="space-y-4">
+          {sc?.market_intel && <MarketIntelPanel mi={sc.market_intel} />}
+          <SignalFeed address={d.address} limit={15} />
           {sc && <SignalsPanel sc={sc} />}
           {sc?.forensics && <ForensicsPanel forensics={sc.forensics} />}
           {d.contract_facts && (

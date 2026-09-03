@@ -27,12 +27,15 @@ from ..engine import risk as risk_engine
 from ..engine import scoring as scoring_engine
 from ..engine import signals as signals_engine
 from ..engine import fomo as fomo_engine
+from ..engine import market_intel as market_intel_engine
+from ..engine import timeseries as tsx
 from ..engine.context import TokenContext
 from ..engine.forensics import compute_forensics
 from ..models import (Alert, DataSource, HolderSnapshot, LiquiditySnapshot,
                       Narrative, NewsArticle, PriceSnapshot, RiskEvent,
                       SocialPost, SocialSnapshot, SystemLog, Token, TokenPair,
-                      TrendScore, VolumeSnapshot, WalletActivity, Watchlist)
+                      TrendScore, VolumeSnapshot, WalletActivity, Watchlist,
+                      SignalEvent)
 from ..providers.base import HEALTH, RawToken
 from ..providers.dexscreener import DexscreenerProvider
 from ..providers.mock_providers import (FALLBACK_TOKENS, Sim, bucket_of,
@@ -213,6 +216,50 @@ def _latest_trends(db) -> dict[int, float]:
     return {tid: t for tid, t in rows}
 
 
+EVENT_COOLDOWN_SECONDS = 1800  # per (token, kind, key) — keeps the feed signal-dense
+
+
+def _record_signal_events(db, token_id: int, ts: int, mi: dict) -> None:
+    """Persist notable market-intelligence transitions (v2 §15 signal history,
+    §20 event alerts). Cooldown-deduped; only observed/derived events, never
+    fabricated ones (§23)."""
+    now = ts
+    mom, sellp, ath, vacc, conf = (mi["momentum"], mi["sell_pressure"], mi["ath"],
+                                   mi["volume_accel"], mi["confluence"])
+    events = []
+    if ath.get("new_ath"):
+        events.append(("new_ath", "", f"📈 New tracked high {'(breakout)' if ath['status'] == 'breaking_out' else ''}".strip(),
+                       f"Price touched tracked high at tick {ath['ath_ts']}",
+                       "positive", {"price": ath.get("price"), "ath": ath.get("ath")}))
+    if conf["signal"] == "emerging_momentum":
+        events.append(("confluence_emerging", "", "🟢 Emerging momentum confluence",
+                       "; ".join(conf["reasons"]), "positive", conf))
+    if conf["signal"] == "potential_distribution":
+        events.append(("confluence_distribution", "", "🔴 Potential distribution confluence",
+                       "; ".join(conf["reasons"]), "danger", conf))
+    for r in mi["reversals"]:
+        events.append(("reversal", r["kind"], "⚠️ " + r["title"], r["detail"],
+                       r["severity"], r))
+    if vacc["abnormal"]:
+        events.append(("volume_accel", "", "🚀 Abnormal volume acceleration",
+                       vacc["detail"], "warning", vacc["h1"]))
+    if mom["score"] >= 80:
+        events.append(("momentum_cross", "80", f"⚡ Momentum crossed 80 ({mom['score']:.0f})",
+                       mom["band_label"] + " — " + (mom["positive"][0] if mom["positive"] else ""),
+                       "positive", {"momentum": mom["score"]}))
+    for kind, key, title, detail, severity, metrics in events:
+        recent = db.execute(
+            select(SignalEvent.id).where(
+                SignalEvent.token_id == token_id, SignalEvent.kind == kind,
+                SignalEvent.key == key,
+                SignalEvent.ts >= now - EVENT_COOLDOWN_SECONDS)).first()
+        if recent:
+            continue
+        db.add(SignalEvent(token_id=token_id, ts=now, kind=kind, key=key,
+                           title=title, detail=detail[:590], severity=severity,
+                           metrics_json=metrics if isinstance(metrics, dict) else {}))
+
+
 def _score_all(db, now_b: int) -> dict:
     tokens = db.execute(select(Token)).scalars().all()
     prev_trends = _latest_trends(db)
@@ -286,18 +333,24 @@ def _score_all(db, now_b: int) -> dict:
         signals = signals_engine.confirmation(ctx, news_active)
         conflicts = signals_engine.detect_conflicts(ctx, fomo_payload["fomo"])
         forensics = compute_forensics(db, ctx)
-
         age_hours = max(0.0, (time.time() * 1000 - (t.token_created_at or 0)) / 3.6e6) \
             if t.token_created_at else 999.0
         if t.token_created_at is None and t.first_seen_at:
             age_hours = min(999.0, (time.time() - t.first_seen_at.timestamp()) / 3600) if t.first_seen_at else 999.0
+        mi = market_intel_engine.compute_market_intel(ctx, trend_payload["trend"], age_hours)
+
         prev = prev_trends.get(t.id)
         trend_delta_30m = (trend_payload["trend"] - prev) if prev is not None else 0.0
         emerging = signals_engine.is_emerging(ctx, trend_payload["trend"],
                                               fomo_payload["fomo"], age_hours, trend_delta_30m)
         new_emerging += int(emerging)
 
+        # v2: persist notable market-intelligence events with per-key cooldowns
+        _record_signal_events(db, t.id, now_b, mi)
+
         d = ctx.d
+        d["price_chg_5m"] = tsx.level_growth(ctx.price, now_b, 300)[2]
+        txns_24h_total = tsx.ssum(ctx.txns, now_b - 86400, now_b)
         summary = {
             "price": d["price_now"], "mcap": d["mcap_now"], "fdv": d["fdv_now"],
             "liquidity": d["liq_now"], "volume_24h": d["volume_24h"], "volume_1h": d["volume_1h"],
@@ -313,6 +366,20 @@ def _score_all(db, now_b: int) -> dict:
             "age_hours": age_hours,
             "organic": forensics["organic_score"],
             "regime": forensics["components"]["regime"]["regime"],
+            # v2 market-intelligence headline fields (cards/screener)
+            "momentum": mi["momentum"]["score"], "momentum_band": mi["momentum"]["band"],
+            "sellp": mi["sell_pressure"]["score"], "sellp_band": mi["sell_pressure"]["band"],
+            "liq_health": mi["liquidity_health"]["score"],
+            "liq_band": mi["liquidity_health"]["band"],
+            "ath_status": mi["ath"]["status"], "ath_distance": mi["ath"].get("distance_pct"),
+            "vol_accel_h1": mi["volume_accel"]["h1"]["growth_pct"],
+            "whale_class": mi["whales"]["classification"],
+            "confluence": mi["confluence"]["signal"],
+            "reversals": len(mi["reversals"]),
+            "price_chg_5m": d["price_chg_5m"],
+            "price_chg_15m": d["price_chg_15m"], "price_chg_4h": d.get("price_chg_4h", 0.0),
+            "sells_1h": d["sells_1h"], "liq_chg_24h": d["liq_chg_24h"],
+            "holders_g_24h": d["holders_g_24h"], "txns_24h": txns_24h_total,
         }
         components = {
             "trend": trend_payload["components"],
@@ -322,6 +389,7 @@ def _score_all(db, now_b: int) -> dict:
             "risk_flags": risk_payload["flags"],
             "signals": signals, "conflicts": conflicts,
             "forensics": forensics,
+            "market_intel": mi,
             "summary": summary,
             "sources": ctx.sources,
         }
@@ -348,7 +416,7 @@ def _score_all(db, now_b: int) -> dict:
             "token_id": t.id, "address": t.address, "symbol": t.symbol or "?",
             "trend": trend_payload["trend"], "fomo": fomo_payload["fomo"],
             "risk": risk_payload["risk"], "risk_flags": risk_payload["flags"],
-            "d": d, "watched": t.id in watched,
+            "d": d, "mi": mi, "watched": t.id in watched,
         })
 
     # content generators for active tokens

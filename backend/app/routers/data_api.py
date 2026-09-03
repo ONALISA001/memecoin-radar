@@ -63,6 +63,19 @@ def card(token: Token, sc: TrendScore) -> dict:
         "confirmed": s.get("confirmed", 0), "conflicts": s.get("conflicts", 0),
         "age_hours": s.get("age_hours"), "ts": sc.ts,
         "organic": s.get("organic"), "regime": s.get("regime"),
+        # v2 market-intelligence headline fields
+        "momentum": s.get("momentum"), "momentum_band": s.get("momentum_band"),
+        "sellp": s.get("sellp"), "sellp_band": s.get("sellp_band"),
+        "liq_health": s.get("liq_health"), "liq_band": s.get("liq_band"),
+        "ath_status": s.get("ath_status"), "ath_distance": s.get("ath_distance"),
+        "vol_accel_h1": s.get("vol_accel_h1"), "whale_class": s.get("whale_class"),
+        "confluence": s.get("confluence"), "reversals": s.get("reversals", 0),
+        "price_change_m5": s.get("price_chg_5m"),
+        "price_change_m15": s.get("price_chg_15m"),
+        "price_change_h4": s.get("price_chg_4h"),
+        "sells_1h": s.get("sells_1h"), "buys_1h": s.get("buy_share") and round(s.get("buy_share", 0.5) * s.get("txns_1h", 0), 1),
+        "txns_1h": s.get("txns_1h"), "txns_24h": s.get("txns_24h"),
+        "liq_chg_24h": s.get("liq_chg_24h"), "holders_g_24h": s.get("holders_g_24h"),
     }
 
 
@@ -161,6 +174,132 @@ def emerging(db: Session = Depends(get_db), limit: int = Query(30, le=100)):
                           "holders growing · momentum strengthening (§10)"}
 
 
+# NOTE: declared before /tokens/{address} so they don't get swallowed by it.
+
+NEW_SORTS = {
+    "newest": lambda c: -(c["age_hours"] or 9e9),
+    "momentum": lambda c: c["momentum"] or 0,
+    "volume": lambda c: c["volume_24h"] or 0,
+    "liquidity": lambda c: c["liquidity"] or 0,
+    "holder_growth": lambda c: c["holder_growth"] or 0,
+    "buy_pressure": lambda c: c["buy_share"] or 0,
+    "price_increase": lambda c: c["price_change_h24"] or 0,
+    "vol_accel": lambda c: c["vol_accel_h1"] or 0,
+    "low_risk": lambda c: -(c["risk"] or 0),
+    "activity": lambda c: c["txns_24h"] or 0,
+    "discussed": lambda c: c["mentions_1h"] or 0,
+}
+
+
+@router.get("/tokens/new")
+def tokens_new(sort: str = "newest", limit: int = Query(40, le=100),
+               max_age_h: float | None = None,
+               db: Session = Depends(get_db)):
+    """New memecoin discovery (v2 §3): recently launched/tracked tokens with
+    full momentum + sell-pressure + risk context, sortable by any dimension."""
+    cards = [card(t, sc) for sc, t in latest_score_rows(db)]
+    if max_age_h is not None:
+        cards = [c for c in cards if (c["age_hours"] or 9e9) <= max_age_h]
+    key = NEW_SORTS.get(sort, NEW_SORTS["newest"])
+    cards.sort(key=key, reverse=True)
+    return {"items": cards[:limit], "sorts": sorted(NEW_SORTS.keys()), "count": len(cards[:limit])}
+
+
+@router.get("/screener")
+def screener(
+    db: Session = Depends(get_db),
+    min_mcap: float | None = None, max_mcap: float | None = None,
+    min_liquidity: float | None = None, max_liquidity: float | None = None,
+    min_volume_1h: float | None = None, min_vol_accel: float | None = None,
+    min_momentum: float | None = None, max_momentum: float | None = None,
+    min_holder_growth: float | None = None, min_buy_share: float | None = None,
+    max_sellp: float | None = None, min_sellp: float | None = None,
+    max_risk: float | None = None, min_risk: float | None = None,
+    min_liq_health: float | None = None,
+    max_age_h: float | None = None, min_age_h: float | None = None,
+    status: str | None = None,           # comma list: emerging,trending,breakout,near_ath,extended,distribution,declining,newly_launched
+    whale: str | None = None,            # accumulating|neutral|distributing|heavy_distribution
+    sort: str = "momentum", limit: int = Query(60, le=200),
+):
+    """Multi-dimensional memecoin screener (v2 §14). All filters combine (AND)."""
+    cards = [card(t, sc) for sc, t in latest_score_rows(db)]
+
+    def keep(c):
+        if min_mcap is not None and (c["mcap"] or 0) < min_mcap: return False
+        if max_mcap is not None and (c["mcap"] or 9e18) > max_mcap: return False
+        if min_liquidity is not None and (c["liquidity"] or 0) < min_liquidity: return False
+        if max_liquidity is not None and (c["liquidity"] or 9e18) > max_liquidity: return False
+        if min_volume_1h is not None and (c["volume_1h"] or 0) < min_volume_1h: return False
+        if min_vol_accel is not None and (c["vol_accel_h1"] or 0) < min_vol_accel: return False
+        if min_momentum is not None and (c["momentum"] or 0) < min_momentum: return False
+        if max_momentum is not None and (c["momentum"] or 9e9) > max_momentum: return False
+        if min_holder_growth is not None and (c["holder_growth"] or 0) < min_holder_growth: return False
+        if min_buy_share is not None and (c["buy_share"] or 0) * 100 < min_buy_share: return False
+        if max_sellp is not None and (c["sellp"] or 0) > max_sellp: return False
+        if min_sellp is not None and (c["sellp"] or 0) < min_sellp: return False
+        if max_risk is not None and (c["risk"] or 0) > max_risk: return False
+        if min_risk is not None and (c["risk"] or 0) < min_risk: return False
+        if min_liq_health is not None and (c["liq_health"] or 0) < min_liq_health: return False
+        if max_age_h is not None and (c["age_hours"] or 9e9) > max_age_h: return False
+        if min_age_h is not None and (c["age_hours"] or 0) < min_age_h: return False
+        if whale and (c["whale_class"] or "neutral") not in whale.split(","): return False
+        if status:
+            sts = set(status.split(","))
+            match = (
+                ("emerging" in sts and c["emerging"])
+                or ("trending" in sts and (c["trend"] or 0) >= 65)
+                or ("breakout" in sts and c["ath_status"] == "breaking_out")
+                or ("near_ath" in sts and c["ath_status"] == "near_ath")
+                or ("extended" in sts and c["ath_status"] in ("extended", "overheated"))
+                or ("distribution" in sts and (c["sellp_band"] in ("distribution", "heavy_distribution")
+                                               or c["ath_status"] == "reversal_risk"))
+                or ("declining" in sts and (c["momentum"] or 0) < 40)
+                or ("newly_launched" in sts and (c["age_hours"] or 9e9) < 24)
+            )
+            if not match: return False
+        return True
+
+    cards = [c for c in cards if keep(c)]
+    key = NEW_SORTS.get(sort, NEW_SORTS["momentum"])
+    cards.sort(key=key, reverse=True)
+    return {"items": cards[:limit], "count": len(cards[:limit]), "total_matching": len(cards)}
+
+
+@router.get("/signals/feed")
+def signals_feed(address: str | None = None, limit: int = Query(60, le=200),
+                 db: Session = Depends(get_db)):
+    """Reverse-chronological market-intelligence events (v2 §15, §20)."""
+    from ..models import SignalEvent
+    q = (select(SignalEvent, Token.symbol, Token.address)
+         .join(Token, Token.id == SignalEvent.token_id))
+    if address:
+        q = q.where(Token.address == address)
+    rows = db.execute(q.order_by(SignalEvent.ts.desc()).limit(limit)).all()
+    return {"items": [{"ts": ev.ts, "symbol": sym, "address": addr,
+                       "kind": ev.kind, "key": ev.key, "title": ev.title,
+                       "detail": ev.detail, "severity": ev.severity,
+                       "metrics": ev.metrics_json or {}} for ev, sym, addr in rows]}
+
+
+@router.get("/tokens/compare")
+def tokens_compare(addresses: str, db: Session = Depends(get_db)):
+    """Side-by-side memecoin comparison (v2 §29): ?addresses=a,b,c (≤5)."""
+    addrs = [a.strip() for a in addresses.split(",") if a.strip()][:5]
+    rows = latest_score_rows(db)
+    by_addr = {t.address: (t, sc) for sc, t in rows}
+    found, missing = [], []
+    for a in addrs:
+        if a in by_addr:
+            found.append(card(*by_addr[a]))
+        else:
+            missing.append(a)
+    return {"items": found, "missing": missing,
+            "metrics": ["momentum", "sellp", "risk", "trend", "fomo", "liq_health",
+                        "liquidity", "mcap", "volume_24h", "vol_accel_h1",
+                        "holder_growth", "buy_share", "ath_status", "ath_distance",
+                        "whale_class", "organic", "age_hours"]}
+
+
 @router.get("/tokens/{address}")
 def token_detail(address: str, db: Session = Depends(get_db)):
     token = get_token_or_404(db, address)
@@ -202,6 +341,7 @@ def token_scores(address: str, db: Session = Depends(get_db)):
         "signals": c.get("signals", {}),
         "conflicts": c.get("conflicts", []),
         "forensics": c.get("forensics", {}),
+        "market_intel": c.get("market_intel", {}),
         "sources": c.get("sources", {}),
     }
 

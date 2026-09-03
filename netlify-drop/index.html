@@ -3,27 +3,28 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Memecoin Radar — Live Momentum, Explained</title>
+<title>Memecoin Radar — Memecoin Momentum, Whale Flow & Distribution Intelligence</title>
+<meta name="description" content="Memecoin market-intelligence terminal: new memecoin discovery, multi-factor momentum scores, sell-pressure detection, whale activity, liquidity health, ATH position and volume acceleration — in one live dashboard. Analytics, not financial advice.">
+<meta name="keywords" content="memecoin tracker, new memecoin tracker, memecoin screener, memecoin momentum tracker, memecoin analytics, memecoin whale tracker, memecoin volume tracker, memecoin on-chain analytics, memecoin liquidity tracker, memecoin trading signals">
+<meta property="og:title" content="See Memecoin Momentum Before the Crowd — Memecoin Radar">
+<meta property="og:description" content="New launches, real-time momentum, whale activity, liquidity, holder growth, volume acceleration and distribution signals in one intelligent dashboard.">
+<meta property="og:type" content="website">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Memecoin Radar",
+ "applicationCategory":"FinanceApplication","operatingSystem":"Web",
+ "description":"Memecoin market-intelligence dashboard: momentum, sell-pressure, whale-flow, liquidity health and distribution signal analysis.",
+ "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}
+</script>
 <!--
-  ═══════════════════════════════════════════════════════════════════════
-  Memecoin Radar — single-file live dashboard (Netlify Drop / any static host)
-
-  TWO MODES, zero build tools:
-
-  1) DIRECT MARKET MODE (works immediately, no setup)
-     This file reads live Solana memecoin data directly from the public
-     DexScreener API (CORS-open). Just deploy this file — it shows live
-     prices, volume, liquidity, boosts and buy/sell pressure right away.
-
-  2) RADAR ENGINE MODE (full experience)
-     Deploy the FastAPI backend (DEPLOYMENT.md → Railway, ~10 min), then
-     paste its URL in the API field. You additionally get: Trend/FOMO/Risk
-     scores, organic-vs-manufactured forensics, regimes, narratives,
-     alerts and measured signal calibration. Share link format:
-       https://yoursite.netlify.app/?api=https://your-railway-url
-
-  Analytics only. Historical relationships, not predictions. Not financial advice.
-  ═══════════════════════════════════════════════════════════════════════
+  ════════════════════════════════════════════════════════════════════
+  Memecoin Radar — public landing + ZERO-SETUP live market demo
+  Static file, no build tools. The "Live market now" section reads
+  directly from DexScreener's public API (CORS-open) — deploy this file
+  anywhere (Netlify Drop ready) and it's live immediately.
+  Connect a Radar engine (see DEPLOYMENT.md in the repo → Railway,
+  ~10 min) to unlock forensics scores, calibration & alerts site-wide.
+  Analytics only. Not financial advice.
+  ════════════════════════════════════════════════════════════════════
 -->
 <style>
   :root{
@@ -32,458 +33,366 @@
     --cyan:#22D3EE; --green:#34D399; --red:#F87171; --amber:#FBBF24; --violet:#A78BFA; --lime:#A3E635;
   }
   *{box-sizing:border-box; margin:0; padding:0}
-  body{background:var(--bg); color:var(--ink); font:14px/1.45 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;}
-  .num, .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-variant-numeric:tabular-nums}
-  .wrap{max-width:1280px; margin:0 auto; padding:18px 16px 60px}
+  html{scroll-behavior:smooth}
+  body{background:var(--bg); color:var(--ink); font:15px/1.55 -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+  .num{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-variant-numeric:tabular-nums}
+  .wrap{max-width:1180px; margin:0 auto; padding:0 20px}
   a{color:var(--cyan); text-decoration:none}
-  header{display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:14px 0 18px; border-bottom:1px solid var(--line)}
-  .logo{font-size:19px; font-weight:800; letter-spacing:-.3px}
-  .logo .radar{color:var(--cyan)}
-  .tag{font-size:11px; color:var(--dim); margin-top:2px; max-width:560px}
-  .hdr-right{margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
-  .dot{width:8px; height:8px; border-radius:50%; display:inline-block; background:var(--dim)}
-  .dot.ok{background:var(--green); box-shadow:0 0 8px var(--green)}
-  .dot.bad{background:var(--red); box-shadow:0 0 8px var(--red)}
-  .dot.wait{background:var(--amber); box-shadow:0 0 6px var(--amber); animation:pulse 1.6s infinite}
-  @keyframes pulse{50%{opacity:.35}}
-  .conn{font-size:11px; color:var(--dim2)}
-  .mode{font-size:9.5px; font-weight:800; letter-spacing:1px; padding:3px 8px; border-radius:5px}
-  .mode.direct{color:var(--amber); border:1px solid #FBBF2444; background:#FBBF2412}
-  .mode.radar{color:var(--green); border:1px solid #34D39944; background:#34D39912}
-  input[type=text]{background:var(--panel); border:1px solid var(--line2); color:var(--ink); border-radius:8px; padding:7px 10px; font-size:12px; min-width:270px; outline:none}
-  input[type=text]:focus{border-color:var(--cyan)}
-  button.btn{background:var(--cyan); color:#06222B; font-weight:700; border:0; border-radius:8px; padding:7px 14px; font-size:12px; cursor:pointer}
-  button.ghost{background:transparent; border:1px solid var(--line2); color:var(--dim2)}
-  button.ghost:hover{border-color:var(--cyan); color:var(--cyan)}
-  .panel{background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden}
-  .panel h3{font-size:11px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--dim2); padding:12px 14px; border-bottom:1px solid var(--line)}
-  .panel h3 small{font-weight:400; text-transform:none; letter-spacing:0; color:var(--dim); font-size:10.5px}
-  section{margin-top:16px}
-  .grid-stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:16px}
-  .stat{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 14px}
-  .stat .k{font-size:10px; letter-spacing:1.2px; text-transform:uppercase; color:var(--dim)}
-  .stat .v{font-size:21px; font-weight:800; margin-top:3px}
-  .grid-tokens{display:grid; grid-template-columns:repeat(auto-fill,minmax(288px,1fr)); gap:12px; margin-top:12px}
-  .grid-2{display:grid; grid-template-columns:1.4fr 1fr; gap:12px}
-  @media(max-width:900px){.grid-2{grid-template-columns:1fr}}
-  .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:13px 14px; cursor:pointer; transition:border-color .15s, transform .15s}
-  .card:hover{border-color:var(--line2); transform:translateY(-2px)}
-  .card .top{display:flex; gap:10px; align-items:center}
-  .avatar{width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#1E2A3D,#16202F); border:1px solid var(--line2); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; color:var(--cyan); overflow:hidden; flex:none}
-  .avatar img{width:100%; height:100%; object-fit:cover}
-  .card .sym{font-weight:800; font-size:14px}
-  .card .name{font-size:10.5px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px}
-  .card .price{margin-left:auto; text-align:right}
-  .card .price .p{font-size:13px; font-weight:700}
+  .btn{display:inline-block; border-radius:9px; padding:11px 22px; font-weight:700; font-size:13.5px; cursor:pointer; border:1px solid transparent}
+  .btn-p{background:var(--cyan); color:#06222B}
+  .btn-p:hover{filter:brightness(1.12)}
+  .btn-g{background:transparent; border-color:var(--line2); color:var(--ink)}
+  .btn-g:hover{border-color:var(--cyan); color:var(--cyan)}
+  /* nav */
+  nav{position:sticky; top:0; z-index:40; background:rgba(11,15,23,.86); backdrop-filter:blur(10px); border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex; align-items:center; gap:18px; padding-top:11px; padding-bottom:11px}
+  .logo{font-weight:800; font-size:16.5px}
+  .logo b{color:var(--cyan)}
+  nav a.lnk{color:var(--dim2); font-size:12.5px; font-weight:600}
+  nav a.lnk:hover{color:var(--cyan)}
+  /* hero */
+  .hero{padding:86px 0 44px; text-align:center; position:relative; overflow:hidden}
+  .hero::before{content:""; position:absolute; inset:-180px -100px auto; height:420px;
+    background:radial-gradient(ellipse 60% 55% at 50% 0%, rgba(34,211,238,.13), transparent 70%); pointer-events:none}
+  .kicker{display:inline-block; font-size:10.5px; font-weight:800; letter-spacing:2.2px; color:var(--cyan); border:1px solid #22D3EE44; border-radius:20px; padding:5px 13px; background:#22D3EE10}
+  h1{font-size:clamp(30px,5.2vw,52px); font-weight:800; letter-spacing:-1.4px; line-height:1.08; margin:20px 0 16px}
+  h1 em{font-style:normal; color:var(--cyan)}
+  .sub{max-width:660px; margin:0 auto; color:var(--dim2); font-size:16px}
+  .hero .cta{margin-top:28px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap}
+  .livechip{display:inline-flex; align-items:center; gap:7px; margin-top:20px; font-size:11px; color:var(--dim2); font-weight:600}
+  .dot{width:8px; height:8px; border-radius:50%}
+  .dot.ok{background:var(--green); box-shadow:0 0 8px var(--green); animation:pl 2.2s infinite}
+  .dot.bad{background:var(--red)} .dot.wait{background:var(--amber); animation:pl 1.4s infinite}
+  @keyframes pl{50%{opacity:.3}}
+  /* stat strip */
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin:46px 0 0}
+  .stat{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:15px 17px; text-align:center}
+  .stat .k{font-size:9.5px; letter-spacing:1.4px; text-transform:uppercase; color:var(--dim)}
+  .stat .v{font-size:23px; font-weight:800; margin-top:4px}
+  /* sections */
+  section{padding:58px 0}
+  .h2{font-size:clamp(21px,3vw,29px); font-weight:800; letter-spacing:-.6px; margin-bottom:8px}
+  .h2 + p.lead{color:var(--dim2); max-width:640px; font-size:14px; margin-bottom:26px}
+  .cards3{display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px}
+  .card h3{font-size:14.5px; margin-bottom:7px}
+  .card p{font-size:12.5px; color:var(--dim2)}
+  .ic{font-size:22px; margin-bottom:10px; display:block}
+  .feat-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px}
+  .feat{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 17px}
+  .feat b{font-size:12.5px; display:block; margin-bottom:4px}
+  .feat span{font-size:11.5px; color:var(--dim2); display:block; line-height:1.5}
+  .steps{counter-reset:st; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:12px}
+  .step{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:17px; position:relative}
+  .step::before{counter-increment:st; content:counter(st); position:absolute; top:14px; right:16px; font-size:26px; font-weight:800; color:#22D3EE22}
+  .step b{font-size:12.5px; display:block; margin-bottom:5px}
+  .step span{font-size:11.5px; color:var(--dim2)}
+  /* live market section */
+  .mkt{background:var(--bg2); border-top:1px solid var(--line); border-bottom:1px solid var(--line)}
+  .toolbar{display:flex; flex-wrap:wrap; gap:9px; align-items:center; margin:4px 0 16px}
+  .chips{font-size:10px; color:var(--dim); margin-left:auto}
+  .grid-tokens{display:grid; grid-template-columns:repeat(auto-fill,minmax(275px,1fr)); gap:11px}
+  .tcard{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:13px 14px; cursor:pointer; transition:transform .15s,border-color .15s}
+  .tcard:hover{border-color:var(--line2); transform:translateY(-2px)}
+  .tcard .top{display:flex; gap:9px; align-items:center}
+  .avatar{width:32px; height:32px; border-radius:50%; background:linear-gradient(135deg,#1E2A3D,#16202F); border:1px solid var(--line2); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:12px; color:var(--cyan); overflow:hidden; flex:none}
+  .avatar img{width:100%;height:100%;object-fit:cover}
+  .sym{font-weight:800; font-size:12.5px}
+  .tname{font-size:9.5px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:120px}
+  .price-m{margin-left:auto; text-align:right}
   .chg.up{color:var(--green)} .chg.dn{color:var(--red)}
-  .scores{margin-top:10px; display:grid; grid-template-columns:auto 1fr auto; gap:4px 10px; align-items:center; font-size:10px; color:var(--dim)}
-  .bar{height:5px; background:var(--bg2); border-radius:3px; overflow:hidden}
-  .bar>div{height:100%; border-radius:3px; transition:width .5s}
-  .bval{text-align:right; font-weight:700; font-size:10.5px}
-  .badges{display:flex; flex-wrap:wrap; gap:5px; margin-top:10px}
-  .pill{font-size:9.5px; font-weight:700; padding:2.5px 7px; border-radius:20px; border:1px solid; white-space:nowrap}
+  .mini{margin-top:9px; display:grid; grid-template-columns:1fr 1fr; gap:3px 10px; font-size:9.5px; color:var(--dim)}
+  .mini b{color:var(--ink); font-weight:600}
+  .pills{display:flex; flex-wrap:wrap; gap:4px; margin-top:8px}
+  .pill{font-size:8.5px; font-weight:700; padding:2px 6.5px; border-radius:16px; border:1px solid}
   .pill.cyan{color:var(--cyan); border-color:#22D3EE55; background:#22D3EE12}
   .pill.green{color:var(--green); border-color:#34D39955; background:#34D39912}
   .pill.red{color:var(--red); border-color:#F8717155; background:#F8717112}
-  .pill.amber{color:var(--amber); border-color:#FBBF2455; background:#FBBF2412}
   .pill.violet{color:var(--violet); border-color:#A78BFA55; background:#A78BFA12}
-  .pill.gray{color:var(--dim2); border-color:var(--line2); background:transparent}
-  table{width:100%; border-collapse:collapse; font-size:11.5px}
-  th{font-size:9.5px; letter-spacing:1.2px; color:var(--dim); text-align:right; padding:9px 12px; border-bottom:1px solid var(--line); font-weight:600}
-  th:first-child, td:first-child{text-align:left}
-  td{padding:8px 12px; border-bottom:1px solid #161E2B; text-align:right}
-  tr:last-child td{border-bottom:0}
-  .narow{display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid #161E2B; font-size:12px}
-  .narow:last-child{border-bottom:0}
-  .narow .n{font-weight:700}
-  .narow .m{font-size:10px; color:var(--dim)}
-  .narow .r{margin-left:auto; display:flex; gap:6px; align-items:center}
-  .notice{border:1px solid var(--line2); border-radius:12px; padding:18px 22px; margin-top:16px; background:linear-gradient(180deg,#121a29,#101623)}
-  .notice h2{font-size:14.5px; margin-bottom:10px}
-  .notice li{margin:6px 0 6px 18px; font-size:12.5px; color:var(--dim2)}
-  .notice code{background:#0A0F18; padding:2px 7px; border-radius:6px; color:var(--cyan); font-size:11.5px; word-break:break-all}
-  .err{margin-top:14px; border:1px solid #F8717144; background:#F8717110; color:var(--red); font-size:12px; padding:10px 14px; border-radius:10px}
-  .foot{margin-top:26px; font-size:10.5px; color:var(--dim); line-height:1.6; border-top:1px solid var(--line); padding-top:14px}
-  .mback{position:fixed; inset:0; background:#000A; display:none; align-items:center; justify-content:center; padding:18px; z-index:50}
+  .pill.gray{color:var(--dim2); border-color:var(--line2)}
+  /* engine banner */
+  .engine{background:linear-gradient(180deg,#101A2C,#0E1420); border:1px solid var(--line2); border-radius:16px; padding:26px; display:grid; grid-template-columns:1.3fr 1fr; gap:22px; align-items:center}
+  @media(max-width:840px){.engine{grid-template-columns:1fr}}
+  .engine h3{font-size:18px; margin-bottom:8px}
+  .engine li{font-size:12.5px; color:var(--dim2); margin:5px 0 5px 17px}
+  input[type=text]{background:var(--bg); border:1px solid var(--line2); color:var(--ink); border-radius:8px; padding:9px 12px; font-size:12px; width:100%; outline:none}
+  input[type=text]:focus{border-color:var(--cyan)}
+  footer{border-top:1px solid var(--line); padding:26px 0 40px; font-size:11px; color:var(--dim); line-height:1.7}
+  .err{margin:10px 0; border:1px solid #F8717144; background:#F8717110; color:var(--red); font-size:12px; padding:10px 14px; border-radius:10px}
+  .mback{position:fixed; inset:0; background:#000A; display:none; align-items:center; justify-content:center; padding:18px; z-index:60}
   .mback.on{display:flex}
-  .modal{background:var(--panel); border:1px solid var(--line2); border-radius:14px; max-width:820px; width:100%; max-height:86vh; overflow:auto; padding:20px 22px}
-  .modal .mh{display:flex; align-items:center; gap:12px; margin-bottom:14px}
-  .mrow{display:grid; grid-template-columns:160px 1fr; gap:6px 14px; font-size:12px; margin:2px 0}
-  .mrow .k{color:var(--dim); font-size:10.5px; text-transform:uppercase; letter-spacing:1px; padding-top:2px}
-  .why{background:var(--bg2); border:1px solid var(--line); border-radius:10px; padding:12px 14px; font-size:12.5px; margin-top:12px; line-height:1.6; white-space:pre-wrap}
-  .skel{color:var(--dim); padding:18px; text-align:center; font-size:12px}
-  @media(max-width:640px){ input[type=text]{min-width:0; width:100%} .hdr-right{width:100%} }
+  .modal{background:var(--panel); border:1px solid var(--line2); border-radius:14px; max-width:760px; width:100%; max-height:85vh; overflow:auto; padding:20px 22px}
+  .mrow{display:grid; grid-template-columns:150px 1fr; gap:5px 14px; font-size:12px; margin:2.5px 0}
+  .mrow .k{color:var(--dim); font-size:10px; text-transform:uppercase; letter-spacing:1px; padding-top:2px}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <header>
-    <div>
-      <div class="logo">🎯 Memecoin <span class="radar">Radar</span> <span class="mode direct" id="modeTag">DIRECT MARKET DATA</span></div>
-      <div class="tag" id="modeLine">Live Solana memecoins straight from DexScreener — no setup needed. Connect a Radar backend for scores, forensics & calibration.</div>
-    </div>
-    <div class="hdr-right">
-      <span class="dot" id="dot"></span><span class="conn" id="connText">loading…</span>
-      <input type="text" id="apiInput" placeholder="Radar API origin (optional), e.g. https://xxx.up.railway.app">
-      <button class="btn" onclick="connect()">Connect engine</button>
-      <button class="btn ghost" onclick="copyShare()" title="Copy a shareable link carrying the API connection">⤴ Share link</button>
-      <button class="btn ghost" id="disconnectBtn" style="display:none" onclick="disconnect()">Back to direct mode</button>
-    </div>
-  </header>
 
-  <div id="errBox"></div>
+<nav>
+  <div class="wrap">
+    <span class="logo">🎯 Memecoin <b>Radar</b></span>
+    <a class="lnk" href="#live">Live market</a>
+    <a class="lnk" href="#features">Features</a>
+    <a class="lnk" href="#how">How it works</a>
+    <a class="lnk" href="#engine">Radar engine</a>
+    <span style="flex:1"></span>
+    <a class="btn btn-p" style="padding:8px 16px" href="#live">Explore the market</a>
+  </div>
+</nav>
 
-  <div class="grid-stats" id="stats"></div>
-
-  <section>
-    <div class="panel"><h3 id="tokensTitle">🔥 Boosted &amp; hot right now <small>· refreshed <span id="upd">—</span></small></h3>
-      <div class="grid-tokens" id="tokens" style="padding:12px"><div class="skel">Loading live market data…</div></div>
+<!-- ═══════════ HERO (§37) ═══════════ -->
+<header class="hero">
+  <div class="wrap">
+    <span class="kicker">MEMECOIN MARKET INTELLIGENCE</span>
+    <h1>See Memecoin Momentum<br><em>Before the Crowd.</em></h1>
+    <p class="sub">Track newly launched memecoins, real-time momentum, whale activity, liquidity, holder growth, volume acceleration, and distribution signals — in one intelligent dashboard.</p>
+    <div class="cta">
+      <a class="btn btn-p" href="#live">Explore the Market →</a>
+      <a class="btn btn-g" href="#how">See How It Works</a>
     </div>
-  </section>
+    <div class="livechip"><span class="dot wait" id="dot"></span><span id="conn">connecting live market feed…</span></div>
 
-  <section class="grid-2" id="radarPanels">
-    <div class="panel" id="calibPanel"><h3>🧪 Signal calibration — measured, not claimed <small>· what actually happened after past signals</small></h3>
-      <div id="calib"><div class="skel">Requires a connected Radar backend.</div></div>
+    <div class="stats" id="stats">
+      <div class="stat"><div class="k">Tokens scanned</div><div class="v">—</div></div>
+      <div class="stat"><div class="k">Up over 24h</div><div class="v">—</div></div>
+      <div class="stat"><div class="k">Avg 24h change</div><div class="v">—</div></div>
+      <div class="stat"><div class="k">Combined volume 24h</div><div class="v">—</div></div>
+      <div class="stat"><div class="k">Boosted now</div><div class="v">—</div></div>
     </div>
-    <div style="display:flex; flex-direction:column; gap:12px">
-      <div class="notice" id="unlockPanel">
-        <h2>🔓 What a connected Radar engine adds</h2>
+  </div>
+</header>
+
+<!-- ═══════════ PROBLEM (§38) ═══════════ -->
+<section>
+  <div class="wrap">
+    <div class="h2">Memecoins move in minutes. Manual tracking moves in hours.</div>
+    <p class="lead">By the time a pump is obvious on a chart, the information asymmetry is gone. The signals were there — scattered across a dozen sources nobody can watch simultaneously.</p>
+    <div class="cards3">
+      <div class="card"><span class="ic">🌊</span><h3>Signal is buried in noise</h3>
+        <p>Hundreds of launches daily. Price alone can't tell organic accumulation from bots washing volume.</p></div>
+      <div class="card"><span class="ic">🐋</span><h3>Whales exit before charts admit it</h3>
+        <p>Distribution starts in transaction flow and holder behavior — visible only if you aggregate flow, holders and liquidity continuously.</p></div>
+      <div class="card"><span class="ic">💧</span><h3>Liquidity is the silent killer</h3>
+        <p>A $2M market cap on a $4K pool is a trap, not an opportunity. Pool depth and stability decide whether any exit exists at all.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ LIVE MARKET (§38 live preview, real data) ═══════════ -->
+<section class="mkt" id="live">
+  <div class="wrap">
+    <div class="toolbar" style="padding-top:54px">
+      <div>
+        <div class="h2" style="margin-bottom:2px">Live market, right now</div>
+        <p class="lead" style="margin-bottom:0">This is not a screenshot — real boosted Solana memecoins, refreshed every 60 seconds from DexScreener.</p>
+      </div>
+      <span class="chips num" id="upd">warming up…</span>
+    </div>
+    <div id="errBox"></div>
+    <div class="grid-tokens" id="tokens" style="padding-bottom:54px"><div style="color:var(--dim);font-size:12px;padding:10px">Loading boosted tokens…</div></div>
+  </div>
+</section>
+
+<!-- ═══════════ FEATURES (§38) ═══════════ -->
+<section id="features">
+  <div class="wrap">
+    <div class="h2">One dashboard. Every signal that matters.</div>
+    <p class="lead">Raw market data is a commodity. What the Radar does is convert it into interpretable market intelligence — every score arrives with its explanation.</p>
+    <div class="feat-grid">
+      <div class="feat"><b>🆕 New Coin Discovery</b><span>Launch feed with age, 5m–24h changes, buy/sell flow, holder growth, momentum, sell pressure and risk — sortable 11 ways.</span></div>
+      <div class="feat"><b>⚡ Momentum Intelligence</b><span>A transparent 0–100 composite of price, volume, transaction, holder and liquidity momentum — with a "Why this score?" factor breakdown.</span></div>
+      <div class="feat"><b>🔴 Sell-Pressure Detection</b><span>A dedicated 0–100 distribution scale: sell-side growth, whale net-flow, holder decline, liquidity exits and volume/price structure.</span></div>
+      <div class="feat"><b>🐋 Whale Tracking</b><span>Large-wallet accumulation vs distribution, top-holder concentration and deployer patterns — clearly labeled as inferred behavior.</span></div>
+      <div class="feat"><b>💧 Liquidity Health</b><span>Pool depth, liquidity/mcap, churn stress and stability graded healthy→critical. Thin pools get flagged, not hidden.</span></div>
+      <div class="feat"><b>📈 ATH & Overextension</b><span>Distance from tracked highs, new-high detection and status: breaking out, extended, overheated, reversal risk.</span></div>
+      <div class="feat"><b>🚀 Volume Acceleration</b><span>Window-over-window acceleration at 5m/15m/1h/4h — plus the bearish "price ↑ volume ↓" divergence flag.</span></div>
+      <div class="feat"><b>🧪 Measured Calibration</b><span>Every signal is labeled against what actually happened +1h/+4h. Reliability is shown as historical hit-rates, never promised.</span></div>
+      <div class="feat"><b>⚖️ Head-to-Head Compare</b><span>Up to five tokens side by side across momentum, distribution, structure and whale flow.</span></div>
+      <div class="feat"><b>🔎 Multi-Filter Screener</b><span>Combine market, momentum, risk, age and status filters — e.g. "breakout + liq health ≥ 45 + whales accumulating".</span></div>
+      <div class="feat"><b>📡 Signal History & Alerts</b><span>A per-token timeline of momentum crossings, confluence events, divergences and new highs. Alert rules on top.</span></div>
+      <div class="feat"><b>🧠 Risk Analysis</b><span>Structural risk 0–100 from liquidity, concentration, deployer facts and behavior — market risk, not profit promises.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ HOW IT WORKS (§38) ═══════════ -->
+<section id="how" style="background:var(--bg2); border-top:1px solid var(--line); border-bottom:1px solid var(--line)">
+  <div class="wrap">
+    <div class="h2">How it works</div>
+    <p class="lead">A continuously-running pipeline, tuned for honesty: confirmed data, derived metrics and inferred signals are always labeled as such.</p>
+    <div class="steps">
+      <div class="step"><b>Collect market data</b><span>Prices, volume, liquidity and transaction flow from DEX market feeds on a 5-minute grid.</span></div>
+      <div class="step"><b>Analyze on-chain activity</b><span>Holders, wallet flow, concentration and pool changes as time series, not vibes.</span></div>
+      <div class="step"><b>Calculate signals</b><span>Volume acceleration, buy/sell pressure, holder momentum, divergences, confluence.</span></div>
+      <div class="step"><b>Score momentum</b><span>Multi-factor 0–100 composites: momentum, sell pressure, liquidity health, risk.</span></div>
+      <div class="step"><b>Detect changes</b><span>Breakouts, reversals, distribution and abnormal volume become alertable events.</span></div>
+      <div class="step"><b>Measure ourselves</b><span>Signals are labeled against realized outcomes — hit-rates are published, not asserted.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ ENGINE / FULL PRODUCT (§38 final CTA pre-sect) ═══════════ -->
+<section id="engine">
+  <div class="wrap">
+    <div class="engine">
+      <div>
+        <h3>🔓 This page is the free demo. The Radar engine is the full terminal.</h3>
         <ul>
-          <li><b>Scores that explain themselves:</b> Trend, FOMO and Risk 0–100 with per-component breakdowns (`why` endpoint).</li>
-          <li><b>Forensics:</b> wash-trading suspicion, sybil pressure, coordination — the organic-vs-manufactured verdict on every token.</li>
-          <li><b>Regimes &amp; change-points:</b> markup / distribution / chop classification + social↔price lead-lag in minutes.</li>
-          <li><b>Measured reliability:</b> every signal gets labeled against what actually happened +1h / +4h; hit-rates shown here.</li>
-          <li><b>Deploy:</b> ~10 min on Railway using the repo's <code>DEPLOYMENT.md</code>, then paste the URL above and press <b>Connect engine</b>.</li>
+          <li><b>Forensics per token:</b> wash-trading suspicion, sybil pressure, coordination scoring, organic-vs-manufactured verdict.</li>
+          <li><b>Regimes & timing:</b> markup/distribution classification, change-points, social↔price lead-lag in minutes.</li>
+          <li><b>Calibrated reliability:</b> every score band's historical continuation/reversal rate, updated continuously.</li>
+          <li><b>Watchlists, alerts, narratives, backtesting</b> — the full product in the repo's <code style="color:var(--cyan)">DEPLOYMENT.md</code> (~10 min on Railway).</li>
         </ul>
       </div>
-      <div class="panel" id="emergPanel" style="display:none"><h3>🌱 Emerging <small>· early momentum</small></h3><div id="emerging"></div></div>
-      <div class="panel" id="narrPanel" style="display:none"><h3>📣 Narratives</h3><div id="narratives"></div></div>
+      <div>
+        <div style="font-size:11px;color:var(--dim2);margin-bottom:8px">Have a Radar engine running? Point this page at it — saved in your browser:</div>
+        <input type="text" id="apiInput" placeholder="https://your-radar-api.up.railway.app">
+        <div style="display:flex;gap:8px;margin-top:9px">
+          <button class="btn btn-p" style="padding:8px 16px" onclick="connectEngine()">Connect engine</button>
+          <button class="btn btn-g" style="padding:8px 16px" onclick="shareEngine()">⤴ Share link</button>
+        </div>
+        <div id="engMsg" style="font-size:10.5px;margin-top:8px"></div>
+      </div>
     </div>
-  </section>
-
-  <div class="foot">
-    <b>What this is:</b> an analytics page, refreshed every 60s. In <b>Direct mode</b> all numbers come from DexScreener's public API (prices, volume, liquidity, boosts, transactions). In <b>Radar mode</b> they additionally come from the Memecoin Radar engine, which computes interpretive scores and labels signals against realized outcomes. Calibration shows <i>historical</i> hit rates — how much trust each band has <i>earned</i>, nothing about future returns.
-    <b>Not financial advice.</b> Memecoins are extremely high risk; most go to zero. Data may be delayed or incomplete.
   </div>
-</div>
+</section>
 
-<div class="mback" id="mback" onclick="if(event.target===this)closeModal()">
+<!-- ═══════════ FINAL CTA ═══════════ -->
+<section style="text-align:center">
+  <div class="wrap">
+    <div class="h2" style="font-size:clamp(22px,3.4vw,32px)">Start Exploring <em style="color:var(--cyan);font-style:normal">Memecoin Intelligence</em></div>
+    <p class="lead" style="margin:10px auto 24px;text-align:center">Scroll up to the live market, or deploy the full engine for scores, forensics and alerts.</p>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+      <a class="btn btn-p" href="#live">Explore the Market →</a>
+      <a class="btn btn-g" href="#engine">Deploy the Engine</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <b>What this site is:</b> an analytics surface for memecoin market data. Live numbers on this page come from DexScreener's public API; engine scores are interpretive composites of confirmed, derived and inferred data — labeled as such.
+    <b>What it is not:</b> financial advice, a profit system, or a guarantee. Momentum does not predict. Most memecoins go to zero. Signals are historical relationships and analytical indicators only — speculate only with what you can afford to lose entirely. Data may be delayed, incomplete, or — where a provider is unavailable in this demo — partially simulated.
+  </div>
+</footer>
+
+<div class="mback" id="mback" onclick="if(event.target===this)this.classList.remove('on')">
   <div class="modal" id="modal"></div>
 </div>
 
 <script>
 'use strict';
-/* ═════════════ connection manager ═════════════ */
 const $ = id => document.getElementById(id);
 const DEX = 'https://api.dexscreener.com';
-function getParamBase(){ const p = new URLSearchParams(location.search).get('api'); return p ? p.replace(/\/+$/,'') : null; }
-function savedBase(){ try{ return localStorage.getItem('radar_api') || null; }catch(e){ return null; } }
-function setSaved(b){ try{ b ? localStorage.setItem('radar_api', b) : localStorage.removeItem('radar_api'); }catch(e){} }
-let API = getParamBase() || savedBase() || '';      // '' => direct mode
-let MODE = API ? 'radar' : 'direct';
-$('apiInput').value = API;
-
-function connect(){
-  const v = $('apiInput').value.trim().replace(/\/+$/,'');
-  if(!/^https?:\/\//.test(v)){ showError('Enter a full URL starting with http:// or https://'); return; }
-  API = v; setSaved(v); setMode('radar'); setStatus('wait','connecting…'); refresh(true);
-}
-function disconnect(){ API=''; setSaved(''); $('apiInput').value=''; setMode('direct'); refresh(true); }
-function copyShare(){
-  const b = API || $('apiInput').value.trim().replace(/\/+$/,'');
-  if(!b){ alert('In Direct mode the page URL is already self-sufficient — just share it as-is.\nOnce you connect a Radar engine, this button copies a link carrying that connection.'); return; }
-  const u = location.origin + location.pathname + '?api=' + encodeURIComponent(b);
-  (navigator.clipboard ? navigator.clipboard.writeText(u) : Promise.reject())
-    .then(()=>{ $('connText').textContent = 'share link copied ✓'; setTimeout(paintStatus,1800); })
-    .catch(()=>prompt('Copy this link:', u));
-}
-
-/* ═════════════ status / modes ═════════════ */
-let lastHost = '';
-function setStatus(cls, txt){ $('dot').className='dot '+cls; $('connText').textContent = txt; }
-function paintStatus(){
-  if(MODE==='radar'){
-    if(!lastHost) setStatus('wait','connecting…'); else setStatus('ok','live · '+lastHost);
-  } else { setStatus('ok','live · dexscreener.com'); }
-}
-function setMode(m){
-  MODE = m;
-  if(m==='radar'){
-    $('modeTag').textContent='RADAR ENGINE'; $('modeTag').className='mode radar';
-    $('modeLine').textContent='Full engine: scores, forensics, regimes and measured calibration.';
-    $('unlockPanel').style.display='none'; $('emergPanel').style.display='block'; $('narrPanel').style.display='block';
-    $('tokensTitle').innerHTML='🔥 Trending now <small>· composite social × depth momentum, refreshed <span id="upd">—</span></small>';
-    $('disconnectBtn').style.display='inline-block'; lastHost='';
-  } else {
-    $('modeTag').textContent='DIRECT MARKET DATA'; $('modeTag').className='mode direct';
-    $('modeLine').textContent='Live Solana memecoins straight from DexScreener — no setup needed. Connect a Radar backend for scores, forensics & calibration.';
-    $('unlockPanel').style.display='block'; $('emergPanel').style.display='none'; $('narrPanel').style.display='none';
-    $('tokensTitle').innerHTML='🔥 Boosted &amp; hot right now <small>· refreshed <span id="upd">—</span></small>';
-    $('calib').innerHTML='<div class="skel">Requires a connected Radar backend — the calibration engine labels every signal against what actually happened next, then shows hit-rates here.</div>';
-    $('disconnectBtn').style.display='none';
-  }
-}
-function showError(m){ $('errBox').innerHTML = m ? '<div class="err">⚠ '+esc(m)+'</div>' : ''; }
-
-/* ═════════════ fetch helpers ═════════════ */
-async function jget(url){
-  const r = await fetch(url, {headers:{'Accept':'application/json'}});
-  if(!r.ok) throw new Error(r.status + ' ' + r.statusText);
-  return r.json();
-}
-const api = p => jget(API + p);
-const dex = p => jget(DEX + p);
-
-/* ═════════════ formatting ═════════════ */
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const nfix = (v,d=2) => (v===null||v===undefined||isNaN(v)) ? '—' : Number(v).toLocaleString(undefined,{maximumFractionDigits:d});
-function fmtPrice(p){ if(!p) return '—'; p=Number(p); if(p>=1) return '$'+nfix(p,4); if(p>=0.0001) return '$'+p.toPrecision(3); return '$'+p.toExponential(2); }
+const nfix = (v,d=1) => (v===null||v===undefined||isNaN(v)) ? '—' : Number(v).toLocaleString(undefined,{maximumFractionDigits:d});
+function fmtPrice(p){ p=Number(p); if(!p) return '—'; if(p>=1) return '$'+nfix(p,4); if(p>=0.0001) return '$'+p.toPrecision(3); return '$'+p.toExponential(2); }
 function fmtBig(v){ v=Number(v); if(!v) return '—'; if(v>=1e9) return (v/1e9).toFixed(2)+'B'; if(v>=1e6) return (v/1e6).toFixed(1)+'M'; if(v>=1e3) return (v/1e3).toFixed(1)+'K'; return nfix(v,0); }
-function fmtPct(v, sign=true){ if(v===null||v===undefined||isNaN(v)) return '—'; const s=(sign&&v>0)?'+':''; return s+nfix(v,1)+'%'; }
-function organicPill(o){
-  if(o===null||o===undefined) return '';
-  const c = o>=70?['green','Likely organic']:o>=55?['green','Mostly organic']:o>=40?['amber','Mixed signals']:o>=25?['amber','Suspicious']:['red','Likely manufactured'];
-  return '<span class="pill '+c[0]+'" title="Organic score '+nfix(o,0)+'/100">'+c[1]+' · '+nfix(o,0)+'</span>';
-}
-function scoreColor(v, invert){ v=Number(v)||0; return invert ? (v>=70?'var(--red)':v>=40?'var(--amber)':'var(--green)') : (v>=70?'var(--cyan)':v>=40?'var(--violet)':'var(--dim2)'); }
-function bar(v, invert){ v=Math.max(0,Math.min(100,Number(v)||0)); return '<div class="bar"><div style="width:'+v+'%;background:'+scoreColor(v,invert)+'"></div></div>'; }
+function fmtPct(v){ if(v===null||v===undefined||isNaN(v)) return '—'; return (v>0?'+':'')+nfix(v,1)+'%'; }
 function timeAgo(ts){ if(!ts) return '—'; const s=(Date.now()-ts)/1000; if(s<3600) return Math.max(1,Math.round(s/60))+'m'; if(s<86400) return Math.round(s/3600)+'h'; return Math.round(s/86400)+'d'; }
-function avatar(t, img){
-  if(img) return '<div class="avatar"><img src="'+esc(img)+'" alt="" onerror="this.parentNode.innerHTML=\''+esc((t||'?').slice(0,2).toUpperCase())+'\'"></div>';
-  return '<div class="avatar">'+esc((t||'?').slice(0,2).toUpperCase())+'</div>';
-}
 
-/* ═════════════ RADAR MODE ═════════════ */
-function radarBadgeRow(t){
-  const b=[];
-  if(t.emerging) b.push('<span class="pill violet">early</span>');
-  if(t.trend>=65) b.push('<span class="pill cyan">trending</span>');
-  if(t.fomo>=81) b.push('<span class="pill red">extreme fomo</span>');
-  if(t.risk>=70) b.push('<span class="pill red">high risk</span>');
-  if(t.regime && t.regime!=='unknown') b.push('<span class="pill '+(t.regime==='distribution'?'red':t.regime==='markup'?'green':t.regime==='accumulation'?'cyan':'gray')+'">'+esc(t.regime)+'</span>');
-  const o = organicPill(t.organic); if(o) b.push(o);
-  return b.join(' ');
-}
-function radarCard(t){
-  const chg = Number(t.price_change_h24 ?? t.change_24h ?? t.chg24);
-  return '<div class="card" onclick="openRadarToken(\''+esc(t.address)+'\')">'
-    +'<div class="top">'+avatar(t.symbol, t.image_url)
-    +'<div><div class="sym">$'+esc(t.symbol||'?')+'</div><div class="name">'+esc(t.name||'')+'</div></div>'
-    +'<div class="price"><div class="p num">'+fmtPrice(t.price)+'</div>'
-    +'<div class="num chg '+(chg>=0?'up':'dn')+'" style="font-size:11px">'+(isNaN(chg)?'—':fmtPct(chg))+'</div>'
-    +'<div style="font-size:9.5px;color:var(--dim)" class="num">vol24h $'+fmtBig(t.volume_24h)+'</div></div></div>'
-    +'<div class="scores">'
-    +'<span>TREND</span>'+bar(t.trend)+'<span class="bval num" style="color:'+scoreColor(t.trend)+'">'+nfix(t.trend,0)+'</span>'
-    +'<span>FOMO</span>'+bar(t.fomo,true)+'<span class="bval num" style="color:'+scoreColor(t.fomo,true)+'">'+nfix(t.fomo,0)+'</span>'
-    +'<span>RISK</span>'+bar(t.risk,true)+'<span class="bval num" style="color:'+scoreColor(t.risk,true)+'">'+nfix(t.risk,0)+'</span>'
-    +'</div>'
-    +'<div class="badges">'+radarBadgeRow(t)+'</div></div>';
-}
-function renderEmerging(items){
-  if(!items.length){ $('emerging').innerHTML='<div class="skel">Nothing emerging right now.</div>'; return; }
-  $('emerging').innerHTML = items.slice(0,6).map(t=>
-    '<div class="narow">'+avatar(t.symbol).replace('width:36px','width:28px')
-    +'<div><div class="n">$'+esc(t.symbol||'?')+'</div><div class="m">trend '+nfix(t.trend,0)+' · fomo '+nfix(t.fomo,0)+'</div></div>'
-    +'<div class="r">'+organicPill(t.organic)+'</div></div>').join('');
-}
-function renderNarratives(items){
-  if(!items.length){ $('narratives').innerHTML='<div class="skel">No narrative clusters yet.</div>'; return; }
-  $('narratives').innerHTML = items.slice(0,6).map(n=>{
-    const name = n.name || n.label || '—';
-    const meta = [n.token_count!==undefined?n.token_count+' tokens':null, n.strong_candidates!==undefined?n.strong_candidates+' strong':null].filter(Boolean).join(' · ');
-    const heat = n.strength ?? n.score;
-    const g = n.mentions_growth ?? n.growth_1h;
-    return '<div class="narow"><div><div class="n">'+esc(name)+'</div><div class="m">'+esc(meta)+'</div></div>'
-      +'<div class="r">'+(heat!==undefined?'<span class="pill cyan">heat '+nfix(heat,0)+'</span>':'')
-      +(g!==undefined?'<span class="pill '+(g>=0?'green':'red')+'">'+fmtPct(g)+' mentions 1h</span>':'')+'</div></div>';
-  }).join('');
-}
-function renderCalib(cal){
-  if(!cal){ $('calib').innerHTML='<div class="skel">Calibration data unavailable.</div>'; return; }
-  const hz = cal.horizons && (cal.horizons['14400'] || cal.horizons['3600']);
-  const rows = (hz?.trend_curve || []).filter(b=>b.n>0);
-  let html = '<div style="padding:6px 14px 4px; font-size:10.5px; color:var(--dim)">By Trend-score band (next 4h): <b style="color:var(--ink)">continuation</b> vs <b style="color:var(--ink)">reversal/rug</b> share of historical snapshots.'+(cal.data_sufficiency?' Sufficiency: <b style="color:var(--ink)">'+esc(cal.data_sufficiency)+'</b> ('+nfix(cal.total_outcomes,0)+' outcomes).':'')+'</div><table><thead><tr><th>TREND BAND</th><th>N</th><th>CONTINUED</th><th>REVERSAL</th><th>MED. RETURN</th><th>MED. DRAWDOWN</th></tr></thead><tbody>';
-  if(!rows.length) html += '<tr><td colspan="6" style="text-align:center;color:var(--dim);padding:16px">Outcomes are still being labeled on this backend (first labels appear after ~1–4h of live data).</td></tr>';
-  rows.forEach(b=>{
-    html += '<tr><td class="num">'+esc(b.bucket)+'</td><td class="num">'+b.n+'</td>'
-      +'<td class="num" style="color:'+(b.continuation_rate>=40?'var(--green)':'var(--dim2)')+'">'+nfix(b.continuation_rate,0)+'%</td>'
-      +'<td class="num" style="color:'+(b.reversal_rate>=25?'var(--red)':'var(--dim2)')+'">'+nfix(b.reversal_rate,0)+'%</td>'
-      +'<td class="num">'+fmtPct(b.median_fwd_ret)+'</td><td class="num" style="color:var(--red)">'+fmtPct(b.median_max_dd)+'</td></tr>';
-  });
-  html += '</tbody></table>';
-  const rules = (cal.signal_rules||[]).filter(r=>r.n>0).slice(0,4);
-  if(rules.length){
-    html += '<div style="padding:10px 14px 4px; font-size:10.5px; color:var(--dim)">Signal rule hit-rates:</div>'
-      + rules.map(r=>'<div class="narow"><div class="n" style="font-size:11.5px">'+esc(r.rule)+'</div>'
-        +'<div class="r"><span class="m" style="font-size:10px;margin-right:6px">n='+r.n+'</span>'
-        +'<span class="pill '+(r.hit_rate_pct>=50?'green':r.hit_rate_pct>=30?'amber':'red')+'">'+nfix(r.hit_rate_pct,0)+'% hit</span>'
-        +'<span class="pill red">'+nfix(r.adverse_rate_pct,0)+'% adverse</span></div></div>').join('');
-  }
-  $('calib').innerHTML = html;
-}
-function radarStats(ov, cal){
-  const s = [];
-  s.push(['Tracked tokens', nfix(ov?.tracked ?? ov?.tracked_tokens, 0)]);
-  s.push(['Breadth (1h up)', ov?.breadth!==undefined ? fmtPct((ov.breadth>1?ov.breadth:ov.breadth*100), false) : '—']);
-  s.push(['Sector momentum', ov?.sector_momentum!==undefined ? nfix(ov.sector_momentum,0)+'/100 · '+esc(ov.phase||'') : '—']);
-  const retro = Math.round((cal?.retro_share??0)*100);
-  s.push(['Calibration', cal?.data_sufficiency || '—', cal?.total_outcomes!==undefined ? nfix(cal.total_outcomes,0)+' labeled outcomes'+(retro?' · '+retro+'% retro-seeded':'') : '']);
-  $('stats').innerHTML = s.map(x=>'<div class="stat"><div class="k">'+x[0]+'</div><div class="v">'+esc(x[1])+'</div>'+(x[2]?'<div style="font-size:10px;color:var(--dim)">'+esc(x[2])+'</div>':'')+'</div>').join('');
-}
-
-/* ═════════════ DIRECT MODE (DexScreener) ═════════════ */
-function directStats(tokens, boostCount){
-  const ups = tokens.filter(t=>(t.priceChange?.h24??0)>0).length;
-  const vol = tokens.reduce((a,t)=>a+(t.volume?.h24||0),0);
-  const avg = tokens.length ? tokens.reduce((a,t)=>a+(t.priceChange?.h24||0),0)/tokens.length : 0;
-  const s=[['Tokens scanned', nfix(tokens.length,0)],['Up over 24h', tokens.length? nfix(ups/tokens.length*100,0)+'%':'—'],
-           ['Avg 24h change', fmtPct(avg)],['Combined vol 24h','$'+fmtBig(vol)],
-           ['Boosted tokens', nfix(boostCount,0),'DexScreener paid boosts']];
-  $('stats').innerHTML = s.map(x=>'<div class="stat"><div class="k">'+x[0]+'</div><div class="v">'+esc(x[1])+'</div>'+(x[2]?'<div style="font-size:10px;color:var(--dim)">'+esc(x[2])+'</div>':'')+'</div>').join('');
-}
-function directPills(t, boost){
-  const b=[];
-  const buys = t.txns?.h24?.buys ?? 0, sells = t.txns?.h24?.sells ?? 0, tot = buys+sells;
-  const share = tot>0 ? buys/tot : null;
-  if(boost) b.push('<span class="pill cyan">boosted ×'+nfix(boost,0)+'</span>');
-  if(share!==null) b.push('<span class="pill '+(share>=0.6?'green':share<=0.4?'red':'gray')+'">buyers '+nfix(share*100,0)+'%</span>');
-  if(t.pairCreatedAt){ const h=(Date.now()-t.pairCreatedAt)/36e5; if(h<6) b.push('<span class="pill violet">fresh · '+timeAgo(t.pairCreatedAt)+'</span>'); }
-  if((t.liquidity?.usd??0)<5000 && (t.liquidity?.usd??0)>0) b.push('<span class="pill red">thin liquidity</span>');
-  return b.join(' ');
-}
-function directCard(t, boost){
-  const chg = t.priceChange?.h24;
-  const buys = t.txns?.h24?.buys ?? 0, sells = t.txns?.h24?.sells ?? 0, tot=buys+sells;
-  const share = tot>0 ? buys/tot*100 : 0;
-  return '<div class="card" onclick="openDirectToken(\''+esc(t.baseToken.address)+'\')">'
-    +'<div class="top">'+avatar(t.baseToken.symbol, t.info?.imageUrl)
-    +'<div><div class="sym">$'+esc(t.baseToken.symbol||'?')+'</div><div class="name">'+esc(t.baseToken.name||'')+'</div></div>'
-    +'<div class="price"><div class="p num">'+fmtPrice(t.priceUsd)+'</div>'
-    +'<div class="num chg '+((chg??0)>=0?'up':'dn')+'" style="font-size:11px">'+fmtPct(chg)+'</div>'
-    +'<div style="font-size:9.5px;color:var(--dim)" class="num">vol24h $'+fmtBig(t.volume?.h24)+'</div></div></div>'
-    +'<div class="scores">'
-    +'<span>BUYERS 24H</span>'+bar(share,false)+'<span class="bval num">'+nfix(share,0)+'%</span>'
-    +'<span>LIQUIDITY</span><div class="bar"><div style="width:'+Math.min(100,(t.liquidity?.usd||0)/2000)+'%;background:var(--cyan)"></div></div><span class="bval num">$'+fmtBig(t.liquidity?.usd)+'</span>'
-    +'<span>1H CHANGE</span><div class="bar"><div style="width:'+Math.min(100,Math.max(0,50+(t.priceChange?.h1||0)))+'%;background:'+((t.priceChange?.h1||0)>=0?'var(--green)':'var(--red)')+'"></div></div><span class="bval num chg '+((t.priceChange?.h1||0)>=0?'up':'dn')+'">'+fmtPct(t.priceChange?.h1)+'</span>'
-    +'</div>'
-    +'<div class="badges">'+directPills(t, boost)+'</div></div>';
-}
-let directCache = {};   // address -> pair, for modal
-async function loadDirect(){
-  const [boosts, profiles] = await Promise.all([
-    dex('/token-boosts/top/v1').catch(()=>[]),
-    dex('/token-profiles/latest/v1').catch(()=>[]),
-  ]);
-  const boostAmt = {}; boosts.forEach(x=>{ boostAmt[x.tokenAddress]=x.amount||x.totalAmount||1; });
-  const addrs = [];
-  const seen = new Set();
-  const push = x => { if(x.chainId==='solana' && x.tokenAddress && !seen.has(x.tokenAddress)){ seen.add(x.tokenAddress); addrs.push(x.tokenAddress); } };
-  boosts.forEach(push); profiles.slice(0,30).forEach(push);
-  if(!addrs.length) throw new Error('DexScreener returned no tokens');
-  const batches=[]; for(let i=0;i<addrs.length && i<60;i+=30) batches.push(addrs.slice(i,i+30).join(','));
-  const pairArrays = await Promise.all(batches.map(b=>dex('/tokens/v1/solana/'+b)));
-  const pairs = pairArrays.flat().filter(Boolean);
-  const byToken = {};
-  pairs.forEach(p=>{ const a=p.baseToken?.address; if(!a) return; if(!byToken[a] || (p.liquidity?.usd||0) > (byToken[a].liquidity?.usd||0)) byToken[a]=p; });
-  const tokens = addrs.map(a=>byToken[a]).filter(Boolean)
-    .sort((x,y)=>(boostAmt[y.baseToken.address]?1e12:0)+(y.volume?.h24||0) - ((boostAmt[x.baseToken.address]?1e12:0)+(x.volume?.h24||0)));
-  directCache = {}; tokens.forEach(t=>directCache[t.baseToken.address]=t);
-  directStats(tokens, boosts.length);
-  $('tokens').innerHTML = tokens.length ? tokens.slice(0,24).map(t=>directCard(t, boostAmt[t.baseToken.address])).join('') : '<div class="skel">No boosted tokens right now.</div>';
-}
-
-/* ═════════════ modals ═════════════ */
-function closeModal(){ $('mback').classList.remove('on'); }
-async function openRadarToken(addr){
-  $('mback').classList.add('on');
-  $('modal').innerHTML = '<div class="skel">Loading token intelligence…</div>';
+/* engine connect (optional upgrade path) */
+let ENG = (()=>{ try{ return localStorage.getItem('radar_api')||'' }catch(e){ return '' } })();
+const qapi = new URLSearchParams(location.search).get('api');
+if(qapi) ENG = qapi.replace(/\/+$/,'');
+$('apiInput').value = ENG;
+function engMsg(m, ok){ $('engMsg').innerHTML = m ? '<span style="color:'+(ok?'var(--green)':'var(--red)')+'">'+esc(m)+'</span>' : ''; }
+async function connectEngine(){
+  const v = $('apiInput').value.trim().replace(/\/+$/,'');
+  if(!/^https?:\/\//.test(v)){ engMsg('Enter a full URL starting with http(s)://'); return; }
+  engMsg('checking…', true);
   try{
-    const [sc, why] = await Promise.allSettled([api('/api/tokens/'+addr+'/scores'), api('/api/tokens/'+addr+'/why')]);
-    const d = sc.status==='fulfilled' ? sc.value : {};
-    const f = d.forensics || {}, c = f.components || {};
-    const wash=c.wash_trading||{}, syb=c.sybil_pressure||{}, co=c.coordination||{}, ll=c.lead_lag||{}, rg=c.regime||{};
-    let h = '<div class="mh">'+avatar(d.symbol)
-      +'<div><div style="font-size:17px;font-weight:800">$'+esc(d.symbol||'')+'</div><div style="font-size:10px;color:var(--dim)" class="num">'+esc(addr)+'</div></div>'
-      +'<button class="btn ghost" style="margin-left:auto" onclick="closeModal()">✕ Close</button></div>'
-      +'<div class="badges" style="margin:0 0 14px">'+radarBadgeRow({...d, organic:f.organic_score, regime:rg.regime})+'</div>'
-      +'<div class="mrow"><div class="k">Trend / FOMO / Risk</div><div class="num">'+nfix(d.trend,0)+' / '+nfix(d.fomo,0)+' ('+esc(d.fomo_class||'—')+') / '+nfix(d.risk,0)+' ('+esc(d.risk_class||'—')+')</div></div>'
-      +'<div class="mrow"><div class="k">Confidence</div><div>'+esc(d.confidence||'—')+'</div></div>'
-      +'<div class="mrow"><div class="k">Organic score</div><div><b class="num">'+nfix(f.organic_score,0)+'</b>/100 — '+esc(f.verdict||'')+'</div></div>'
-      +'<div class="mrow"><div class="k">Wash suspicion</div><div class="num">'+nfix((wash.score??0)*100,0)+'% · trades/wallet 24h: '+nfix(wash.trades_per_wallet_24h,1)+'</div></div>'
-      +'<div class="mrow"><div class="k">Sybil pressure</div><div class="num">'+nfix((syb.score??0)*100,0)+'% · unique authors '+(syb.unique_ratio_1h!==undefined?nfix(syb.unique_ratio_1h*100,0)+'%':'—')+'</div></div>'
-      +'<div class="mrow"><div class="k">Coordination</div><div class="num">'+nfix((co.score??0)*100,0)+'% · cross-token authors '+nfix(co.cross_token_authors,0)+'</div></div>'
-      +'<div class="mrow"><div class="k">Lead / lag</div><div>'+(ll.best_lag===null||ll.best_lag===undefined?'insufficient data':(ll.best_lag>0?'social leads price by ':'price leads social by ')+Math.abs(ll.lead_minutes)+'m (r='+nfix(ll.strength,2)+')')+'</div></div>'
-      +'<div class="mrow"><div class="k">Regime</div><div>'+esc(rg.regime||'—')+(rg.detail?' — <span style="color:var(--dim2)">'+esc(rg.detail)+'</span>':'')+'</div></div>';
-    if(why.status==='fulfilled' && why.value){
-      const w = typeof why.value==='string' ? why.value : (why.value.why || why.value.explanation || JSON.stringify(why.value));
-      h += '<div class="why">💡 <b>Why these scores:</b><br>'+esc(w)+'</div>';
-    }
-    $('modal').innerHTML = h;
-  }catch(e){ $('modal').innerHTML = '<div class="err">Failed to load token detail: '+esc(e.message)+'</div>'; }
+    const r = await fetch(v + '/api/market/overview', {headers:{'Accept':'application/json'}});
+    if(!r.ok) throw new Error(r.status);
+    ENG = v; try{ localStorage.setItem('radar_api', v); }catch(e){}
+    engMsg('✓ engine connected — full radar available at your engine domain (watchlist, forensics, calibration, alerts).', true);
+  }catch(e){ engMsg('Could not reach that engine ('+e.message+'). Is it deployed and CORS-open?'); }
 }
-function openDirectToken(addr){
-  const t = directCache[addr]; if(!t) return;
-  const buys = t.txns?.h24?.buys ?? 0, sells = t.txns?.h24?.sells ?? 0;
-  const links = (t.info?.socials||[]).map(s=>'<a href="'+esc(s.url)+'" target="_blank" rel="noopener">'+(s.type==='twitter'?'𝕏':s.type==='telegram'?'✈️ TG':esc(s.type||'link'))+'</a>').join(' · ');
-  $('mback').classList.add('on');
-  $('modal').innerHTML = '<div class="mh">'+avatar(t.baseToken.symbol, t.info?.imageUrl)
+function shareEngine(){
+  const v = ENG || $('apiInput').value.trim();
+  if(!v){ engMsg('Connect an engine first.'); return; }
+  const u = location.origin + location.pathname + '?api=' + encodeURIComponent(v);
+  (navigator.clipboard ? navigator.clipboard.writeText(u) : Promise.reject())
+    .then(()=>engMsg('✓ share link copied', true))
+    .catch(()=>prompt('Copy:', u));
+}
+
+/* ─── live market: direct DexScreener mode (zero-config) ─── */
+async function jget(u){ const r = await fetch(u, {headers:{'Accept':'application/json'}}); if(!r.ok) throw new Error(r.status); return r.json(); }
+const dex = p => jget(DEX + p);
+let cache = {};
+
+function pills(t, boost){
+  const b=[];
+  const buys=t.txns?.h24?.buys??0, sells=t.txns?.h24?.sells??0, tot=buys+sells, share=tot>0?buys/tot:null;
+  if(boost) b.push('<span class="pill cyan">boost x'+nfix(boost,0)+'</span>');
+  if(share!==null) b.push('<span class="pill '+(share>=0.6?'green':share<=0.4?'red':'gray')+'">'+nfix(share*100,0)+'% buyers</span>');
+  if(t.pairCreatedAt && (Date.now()-t.pairCreatedAt)<21600000) b.push('<span class="pill violet">fresh '+timeAgo(t.pairCreatedAt)+'</span>');
+  if((t.liquidity?.usd??0)<5000 && (t.liquidity?.usd??0)>0) b.push('<span class="pill red">thin liq</span>');
+  return b.join('');
+}
+function card(t, boost){
+  const chg=t.priceChange?.h24;
+  return '<div class="tcard" onclick="openTok(\''+esc(t.baseToken.address)+'\')">'
+    +'<div class="top"><div class="avatar">'+(t.info?.imageUrl?'<img src="'+esc(t.info.imageUrl)+'" onerror="this.remove()">':'')+esc((t.baseToken.symbol||'?').slice(0,2).toUpperCase())+'</div>'
+    +'<div style="min-width:0"><div class="sym">$'+esc(t.baseToken.symbol||'?')+'</div><div class="tname">'+esc(t.baseToken.name||'')+'</div></div>'
+    +'<div class="price-m"><div class="num" style="font-size:12px;font-weight:700">'+fmtPrice(t.priceUsd)+'</div>'
+    +'<div class="num chg '+((chg??0)>=0?'up':'dn')+'" style="font-size:10.5px;font-weight:700">'+fmtPct(chg)+'</div></div></div>'
+    +'<div class="mini"><span>MCap <b>$'+fmtBig(t.marketCap)+'</b></span><span>Vol 24h <b>$'+fmtBig(t.volume?.h24)+'</b></span>'
+    +'<span>Liquidity <b>$'+fmtBig(t.liquidity?.usd)+'</b></span><span>1h <b class="chg '+((t.priceChange?.h1||0)>=0?'up':'dn')+'">'+fmtPct(t.priceChange?.h1)+'</b></span></div>'
+    +'<div class="pills">'+pills(t, boost)+'</div></div>';
+}
+async function loadLive(){
+  const [boosts, profiles] = await Promise.all([
+    dex('/token-boosts/top/v1').catch(()=>[]), dex('/token-profiles/latest/v1').catch(()=>[])]);
+  const amt={}; boosts.forEach(x=>{ amt[x.tokenAddress]=x.amount||1 });
+  const seen=new Set(), addrs=[];
+  [...boosts, ...profiles.slice(0,30)].forEach(x=>{ if(x.chainId==='solana' && x.tokenAddress && !seen.has(x.tokenAddress)){ seen.add(x.tokenAddress); addrs.push(x.tokenAddress); } });
+  if(!addrs.length) throw new Error('no tokens');
+  const batches=[]; for(let i=0;i<addrs.length && i<60;i+=30) batches.push(addrs.slice(i,i+30).join(','));
+  const pairs=(await Promise.all(batches.map(b=>dex('/tokens/v1/solana/'+b)))).flat().filter(Boolean);
+  const byTok={};
+  pairs.forEach(p=>{ const a=p.baseToken?.address; if(a && (!byTok[a] || (p.liquidity?.usd||0)>(byTok[a].liquidity?.usd||0))) byTok[a]=p; });
+  const tokens=addrs.map(a=>byTok[a]).filter(Boolean)
+    .sort((x,y)=>((amt[y.baseToken.address]?1e12:0)+(y.volume?.h24||0))-((amt[x.baseToken.address]?1e12:0)+(x.volume?.h24||0)));
+  cache={}; tokens.forEach(t=>cache[t.baseToken.address]=t);
+  // stats
+  const ups=tokens.filter(t=>(t.priceChange?.h24??0)>0).length;
+  const avg=tokens.length? tokens.reduce((a,t)=>a+(t.priceChange?.h24||0),0)/tokens.length : 0;
+  const vol=tokens.reduce((a,t)=>a+(t.volume?.h24||0),0);
+  const vals=[tokens.length, tokens.length?Math.round(ups/tokens.length*100)+'%':'—', fmtPct(avg), '$'+fmtBig(vol), boosts.length];
+  document.querySelectorAll('#stats .v').forEach((el,i)=>{ el.textContent = vals[i]; });
+  $('tokens').innerHTML = tokens.slice(0,15).map(t=>card(t, amt[t.baseToken.address])).join('');
+  $('dot').className='dot ok'; $('conn').textContent='live · direct DexScreener feed · updated '+new Date().toTimeString().slice(0,5);
+  $('upd').textContent = 'updated ' + new Date().toTimeString().slice(0,8) + ' · next refresh 60s';
+}
+function openTok(addr){
+  const t=cache[addr]; if(!t) return;
+  const buys=t.txns?.h24?.buys??0, sells=t.txns?.h24?.sells??0;
+  const links=(t.info?.socials||[]).map(s=>'<a href="'+esc(s.url)+'" target="_blank" rel="noopener">'+(s.type==='twitter'?'𝕏':s.type==='telegram'?'✈️ TG':esc(s.type||'link'))+'</a>').join(' · ');
+  $('modal').innerHTML='<div style="display:flex;gap:12px;align-items:center;margin-bottom:14px">'
+    +'<div class="avatar">'+(t.info?.imageUrl?'<img src="'+esc(t.info.imageUrl)+'" onerror="this.remove()">':'')+esc((t.baseToken.symbol||'?').slice(0,2).toUpperCase())+'</div>'
     +'<div><div style="font-size:17px;font-weight:800">$'+esc(t.baseToken.symbol)+'</div><div style="font-size:11px;color:var(--dim)">'+esc(t.baseToken.name)+' · '+esc(t.dexId||'')+'</div></div>'
-    +'<button class="btn ghost" style="margin-left:auto" onclick="closeModal()">✕ Close</button></div>'
-    +'<div class="mrow"><div class="k">Price</div><div class="num">'+fmtPrice(t.priceUsd)+' &nbsp; <span class="chg '+((t.priceChange?.h24||0)>=0?'up':'dn')+'">'+fmtPct(t.priceChange?.h24)+' 24h</span> · '+fmtPct(t.priceChange?.h1)+' 1h</div></div>'
+    +'<button class="btn btn-g" style="margin-left:auto;padding:6px 12px" onclick="document.getElementById(\'mback\').classList.remove(\'on\')">✕</button></div>'
+    +'<div class="mrow"><div class="k">Price</div><div class="num">'+fmtPrice(t.priceUsd)+' &nbsp;<span class="chg '+((t.priceChange?.h24||0)>=0?'up':'dn')+'">'+fmtPct(t.priceChange?.h24)+' 24h</span></div></div>'
     +'<div class="mrow"><div class="k">Liquidity</div><div class="num">$'+fmtBig(t.liquidity?.usd)+'</div></div>'
     +'<div class="mrow"><div class="k">Volume 24h / 1h</div><div class="num">$'+fmtBig(t.volume?.h24)+' / $'+fmtBig(t.volume?.h1)+'</div></div>'
     +'<div class="mrow"><div class="k">Market cap / FDV</div><div class="num">$'+fmtBig(t.marketCap)+' / $'+fmtBig(t.fdv)+'</div></div>'
-    +'<div class="mrow"><div class="k">Transactions 24h</div><div class="num">'+nfix(buys,0)+' buys · '+nfix(sells,0)+' sells ('+nfix((buys+sells)>0?buys/(buys+sells)*100:0,0)+'% buys)</div></div>'
+    +'<div class="mrow"><div class="k">Transactions 24h</div><div class="num">'+nfix(buys,0)+' buys · '+nfix(sells,0)+' sells</div></div>'
     +'<div class="mrow"><div class="k">Pair age</div><div>'+timeAgo(t.pairCreatedAt)+' old</div></div>'
-    +'<div class="mrow"><div class="k">Address</div><div class="num" style="font-size:10px;word-break:break-all">'+esc(addr)+'</div></div>'
-    +'<div class="mrow"><div class="k">Links</div><div><a href="'+esc(t.url||'#')+'" target="_blank" rel="noopener">View on DexScreener ↗</a>'+(links?' · '+links:'')+'</div></div>'
-    +'<div class="why">🔬 <b>Want the forensic layer?</b> Connect a Radar engine (field in the header) to get wash-trading suspicion, sybil pressure, coordination detection, regime classification and the calibration track record for this token.</div>';
+    +'<div class="mrow"><div class="k">Links</div><div><a href="'+esc(t.url||'#')+'" target="_blank" rel="noopener">DexScreener ↗</a>'+(links?' · '+links:'')+'</div></div>'
+    +'<div style="background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:11px 13px;font-size:12px;margin-top:12px;color:var(--dim2)">🔬 With a connected Radar engine this modal additionally shows wash-trading, sybil & coordination forensics, momentum/sell-pressure factor breakdowns and signal history for this token.</div>';
+  $('mback').classList.add('on');
 }
-
-/* ═════════════ boot + poll ═════════════ */
-async function refreshRadar(first){
-  const [tr, em, na, cal, ov] = await Promise.allSettled([
-    api('/api/tokens/trending?limit=18'),
-    api('/api/tokens/emerging'),
-    api('/api/narratives/trending'),
-    api('/api/calibration/overview'),
-    api('/api/market/overview'),
-  ]);
-  if(tr.status!=='fulfilled') throw new Error(tr.reason?.message || 'API unreachable');
-  try{ lastHost = new URL(API).host; }catch(e){ lastHost = API; }
-  renderCalib._c = cal.status==='fulfilled' ? cal.value : renderCalib._c;
-  renderCalib._o = ov.status==='fulfilled'  ? ov.value  : renderCalib._o;
-  radarStats(renderCalib._o, renderCalib._c); renderCalib(renderCalib._c);
-  $('tokens').innerHTML = (tr.value.items||[]).length ? (tr.value.items||[]).map(radarCard).join('') : '<div class="skel">No tokens tracked yet — the backend populates within a minute of boot.</div>';
-  renderEmerging(em.status==='fulfilled' ? (em.value.items||[]) : []);
-  renderNarratives(na.status==='fulfilled' ? (na.value.items||[]) : []);
-}
-async function refresh(first){
-  setStatus('wait', MODE==='radar' ? 'connecting…' : 'refreshing…');
-  try{
-    if(MODE==='radar') await refreshRadar(first); else await loadDirect();
-    showError(''); paintStatus();
-    $('upd') && ($('upd').textContent = new Date().toTimeString().slice(0,8));
-  }catch(e){
-    setStatus('bad','feed error — retrying…');
-    if(MODE==='radar' && first){
-      showError('Radar engine at «'+API+'» unreachable ('+e.message+'). Falling back to Direct market mode — fix the URL or press "Back to direct mode".');
-      setMode('direct');
-      try{ await loadDirect(); setStatus('ok','live · dexscreener.com'); showError('Radar engine unreachable — showing direct DexScreener data instead. Check the API URL, then Connect engine again.'); }catch(e2){}
-    } else if(MODE==='direct' && first){
-      showError('Could not reach DexScreener ('+e.message+'). The page retries every 60s — if this persists, an extension/VPN may be blocking api.dexscreener.com.');
-    } else {
-      showError('Feed hiccup ('+e.message+') — showing last good data; retrying every 60s.');
-      paintStatus();
-    }
+window.connectEngine=connectEngine; window.shareEngine=shareEngine; window.openTok=openTok;
+(async function boot(){
+  try{ await loadLive(); $('errBox').innerHTML=''; }
+  catch(e){
+    $('dot').className='dot bad'; $('conn').textContent='feed error — retrying…';
+    $('tokens').innerHTML='<div class="err" style="grid-column:1/-1">⚠ Could not reach DexScreener ('+esc(e.message)+'). The page retries every 60s; if it persists, a browser extension/VPN may be blocking api.dexscreener.com.</div>';
   }
-}
-let timer=null;
-window.openRadarToken=openRadarToken; window.openDirectToken=openDirectToken;
-window.closeModal=closeModal; window.connect=connect; window.disconnect=disconnect; window.copyShare=copyShare;
-setMode(API ? 'radar' : 'direct');
-refresh(true);
-timer = setInterval(()=>refresh(false), 60000);
+  setInterval(()=>loadLive().catch(()=>{ $('dot').className='dot wait'; }), 60000);
+})();
 </script>
 </body>
 </html>

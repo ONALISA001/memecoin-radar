@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { useApi } from "@/lib/api";
 import { ageLabel, fmtNum, fmtPct, fmtPrice, fmtUsd, pctColor, timeAgo } from "@/lib/format";
 import { Badge, ConfChip, Empty, FomoPill, Panel, RiskPill, RowBadges, TokenAvatar, TrendPill } from "./ui";
+import { SignalFeed } from "./marketintel";
 
 /* ------------------------------------------------ market overview strip */
 function OverviewStrip() {
@@ -253,12 +254,42 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
         <div className="xl:col-span-2"><TrendingTable /></div>
         <div className="space-y-4">
+          <SignalFeed limit={14} />
           <EmergingList />
           <NarrativeList />
           <SectorMomentum />
           <RiskFeed />
         </div>
       </div>
+      <DistributionWatch />
     </div>
+  );
+}
+
+/* v2 §6/§21: tokens most likely distributing right now (sell-pressure leaders,
+   excluding dead-liquidity dust so the list stays decision-useful). */
+function DistributionWatch() {
+  const { data } = useApi("/screener?status=distribution&sort=momentum&limit=6&min_liquidity=3000", 30000);
+  const items = data?.items || [];
+  if (!items.length) return null;
+  return (
+    <Panel title={<span>🔴 Distribution watch <span className="text-dim normal-case font-normal">highest sell-pressure flow among liquid tokens — investigate, not condemn</span></span>}>
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-1 p-3">
+        {items.map((t: any) => (
+          <Link key={t.address} href={`/token/${t.address}`}
+                className="flex items-center gap-2.5 py-2 border-b border-line/40 last:border-0 hover:bg-bg/40 px-2 rounded">
+            <TokenAvatar url={t.image_url} symbol={t.symbol} size={26} />
+            <div className="flex-1 min-w-0">
+              <div className="text-[11.5px] font-bold truncate">${t.symbol} <span className="text-dim font-normal text-[9.5px]">{t.name}</span></div>
+              <div className="text-[9px] text-dim num">sellp {Math.round(t.sellp)}/100 ({t.sellp_band?.replace("_", " ")}) · whale {t.whale_class}</div>
+            </div>
+            <div className="text-right">
+              <div className={`num text-[11px] font-bold ${(t.price_change_h24 || 0) >= 0 ? "text-greenx" : "text-redx"}`}>{fmtPct(t.price_change_h24)}</div>
+              <div className="text-[9px] text-dim num">liq ${fmtNum(t.liquidity)}</div>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </Panel>
   );
 }

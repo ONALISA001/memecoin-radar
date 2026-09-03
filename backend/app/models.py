@@ -253,6 +253,25 @@ class SignalOutcome(Base):
     __table_args__ = (Index("ix_outcomes_unique", "token_id", "ts", "horizon_secs"),)
 
 
+class SignalEvent(Base):
+    """Notable market-intelligence events for the per-token signal timeline
+    and the global live-intelligence feed (v2 §15, §18, §20).
+    Written with per-(token, kind, key) cooldowns, never fabricated."""
+    __tablename__ = "signal_events"
+    id = Column(Integer, primary_key=True)
+    token_id = Column(Integer, ForeignKey("tokens.id"), index=True)
+    ts = Column(Integer, index=True)
+    kind = Column(String(32))                # ath_breakout | new_ath | confluence_emerging |
+                                             # confluence_distribution | momentum_cross |
+                                             # reversal_<kind> | volume_accel
+    key = Column(String(64), default="")     # sub-key (e.g. reversal kind) for cooldowns
+    title = Column(String(200))
+    detail = Column(String(600))
+    severity = Column(String(12), default="info")   # info | warning | danger | positive
+    metrics_json = Column(JSON)
+    __table_args__ = (Index("ix_sigev_dedupe", "token_id", "kind", "key", "ts"),)
+
+
 class DataSource(Base):
     __tablename__ = "data_sources"
     id = Column(Integer, primary_key=True)

@@ -8,8 +8,11 @@ import { timeAgo } from "@/lib/format";
 
 const NAV = [
   { href: "/", label: "Dashboard" },
+  { href: "/new", label: "New Coins" },
+  { href: "/screener", label: "Screener" },
   { href: "/narratives", label: "Narratives" },
   { href: "/backtesting", label: "Backtesting" },
+  { href: "/compare", label: "Compare" },
   { href: "/watchlist", label: "Watchlist" },
   { href: "/alerts", label: "Alerts" },
 ];
