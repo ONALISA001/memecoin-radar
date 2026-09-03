@@ -6,17 +6,21 @@
 <title>Memecoin Radar — Live Momentum, Explained</title>
 <!--
   ═══════════════════════════════════════════════════════════════════════
-  Memecoin Radar — single-file live dashboard (Netlify Drop ready)
-  ─────────────────────────────────────────────────────────────────────
-  This page is a pure static client. It renders LIVE data from the Memecoin
-  Radar FastAPI backend, which you deploy separately (the backend cannot run
-  on Netlify — it's a persistent Python server with an ingestion scheduler).
+  Memecoin Radar — single-file live dashboard (Netlify Drop / any static host)
 
-  1. Deploy the backend (Railway, ~10 min) — see DEPLOYMENT.md in the repo.
-  2. Open this page, paste your API origin (e.g. https://xxx.up.railway.app)
-     into the "API" field and press Connect. It is remembered in this browser.
-  3. To share: append ?api=YOUR_API_ORIGIN (URL-encoded) to this page's URL —
-     e.g.  https://yoursite.netlify.app/?api=https://xxx.up.railway.app
+  TWO MODES, zero build tools:
+
+  1) DIRECT MARKET MODE (works immediately, no setup)
+     This file reads live Solana memecoin data directly from the public
+     DexScreener API (CORS-open). Just deploy this file — it shows live
+     prices, volume, liquidity, boosts and buy/sell pressure right away.
+
+  2) RADAR ENGINE MODE (full experience)
+     Deploy the FastAPI backend (DEPLOYMENT.md → Railway, ~10 min), then
+     paste its URL in the API field. You additionally get: Trend/FOMO/Risk
+     scores, organic-vs-manufactured forensics, regimes, narratives,
+     alerts and measured signal calibration. Share link format:
+       https://yoursite.netlify.app/?api=https://your-railway-url
 
   Analytics only. Historical relationships, not predictions. Not financial advice.
   ═══════════════════════════════════════════════════════════════════════
@@ -32,7 +36,6 @@
   .num, .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-variant-numeric:tabular-nums}
   .wrap{max-width:1280px; margin:0 auto; padding:18px 16px 60px}
   a{color:var(--cyan); text-decoration:none}
-  /* ── header ─────────────────────────────── */
   header{display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:14px 0 18px; border-bottom:1px solid var(--line)}
   .logo{font-size:19px; font-weight:800; letter-spacing:-.3px}
   .logo .radar{color:var(--cyan)}
@@ -44,12 +47,14 @@
   .dot.wait{background:var(--amber); box-shadow:0 0 6px var(--amber); animation:pulse 1.6s infinite}
   @keyframes pulse{50%{opacity:.35}}
   .conn{font-size:11px; color:var(--dim2)}
+  .mode{font-size:9.5px; font-weight:800; letter-spacing:1px; padding:3px 8px; border-radius:5px}
+  .mode.direct{color:var(--amber); border:1px solid #FBBF2444; background:#FBBF2412}
+  .mode.radar{color:var(--green); border:1px solid #34D39944; background:#34D39912}
   input[type=text]{background:var(--panel); border:1px solid var(--line2); color:var(--ink); border-radius:8px; padding:7px 10px; font-size:12px; min-width:270px; outline:none}
   input[type=text]:focus{border-color:var(--cyan)}
   button.btn{background:var(--cyan); color:#06222B; font-weight:700; border:0; border-radius:8px; padding:7px 14px; font-size:12px; cursor:pointer}
   button.ghost{background:transparent; border:1px solid var(--line2); color:var(--dim2)}
   button.ghost:hover{border-color:var(--cyan); color:var(--cyan)}
-  /* ── layout panels ──────────────────────── */
   .panel{background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden}
   .panel h3{font-size:11px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:var(--dim2); padding:12px 14px; border-bottom:1px solid var(--line)}
   .panel h3 small{font-weight:400; text-transform:none; letter-spacing:0; color:var(--dim); font-size:10.5px}
@@ -61,11 +66,11 @@
   .grid-tokens{display:grid; grid-template-columns:repeat(auto-fill,minmax(288px,1fr)); gap:12px; margin-top:12px}
   .grid-2{display:grid; grid-template-columns:1.4fr 1fr; gap:12px}
   @media(max-width:900px){.grid-2{grid-template-columns:1fr}}
-  /* ── token cards ────────────────────────── */
   .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:13px 14px; cursor:pointer; transition:border-color .15s, transform .15s}
   .card:hover{border-color:var(--line2); transform:translateY(-2px)}
   .card .top{display:flex; gap:10px; align-items:center}
-  .avatar{width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#1E2A3D,#16202F); border:1px solid var(--line2); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; color:var(--cyan)}
+  .avatar{width:36px; height:36px; border-radius:50%; background:linear-gradient(135deg,#1E2A3D,#16202F); border:1px solid var(--line2); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; color:var(--cyan); overflow:hidden; flex:none}
+  .avatar img{width:100%; height:100%; object-fit:cover}
   .card .sym{font-weight:800; font-size:14px}
   .card .name{font-size:10.5px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:130px}
   .card .price{margin-left:auto; text-align:right}
@@ -83,7 +88,6 @@
   .pill.amber{color:var(--amber); border-color:#FBBF2455; background:#FBBF2412}
   .pill.violet{color:var(--violet); border-color:#A78BFA55; background:#A78BFA12}
   .pill.gray{color:var(--dim2); border-color:var(--line2); background:transparent}
-  /* ── tables & lists ─────────────────────── */
   table{width:100%; border-collapse:collapse; font-size:11.5px}
   th{font-size:9.5px; letter-spacing:1.2px; color:var(--dim); text-align:right; padding:9px 12px; border-bottom:1px solid var(--line); font-weight:600}
   th:first-child, td:first-child{text-align:left}
@@ -94,14 +98,12 @@
   .narow .n{font-weight:700}
   .narow .m{font-size:10px; color:var(--dim)}
   .narow .r{margin-left:auto; display:flex; gap:6px; align-items:center}
-  /* ── status box ─────────────────────────── */
-  .notice{border:1px solid var(--line2); border-radius:12px; padding:22px; margin-top:18px; background:linear-gradient(180deg,#121a29,#101623)}
-  .notice h2{font-size:16px; margin-bottom:10px}
-  .notice li{margin:7px 0 7px 18px; font-size:13px; color:var(--dim2)}
+  .notice{border:1px solid var(--line2); border-radius:12px; padding:18px 22px; margin-top:16px; background:linear-gradient(180deg,#121a29,#101623)}
+  .notice h2{font-size:14.5px; margin-bottom:10px}
+  .notice li{margin:6px 0 6px 18px; font-size:12.5px; color:var(--dim2)}
   .notice code{background:#0A0F18; padding:2px 7px; border-radius:6px; color:var(--cyan); font-size:11.5px; word-break:break-all}
   .err{margin-top:14px; border:1px solid #F8717144; background:#F8717110; color:var(--red); font-size:12px; padding:10px 14px; border-radius:10px}
   .foot{margin-top:26px; font-size:10.5px; color:var(--dim); line-height:1.6; border-top:1px solid var(--line); padding-top:14px}
-  /* ── modal ──────────────────────────────── */
   .mback{position:fixed; inset:0; background:#000A; display:none; align-items:center; justify-content:center; padding:18px; z-index:50}
   .mback.on{display:flex}
   .modal{background:var(--panel); border:1px solid var(--line2); border-radius:14px; max-width:820px; width:100%; max-height:86vh; overflow:auto; padding:20px 22px}
@@ -117,55 +119,51 @@
 <div class="wrap">
   <header>
     <div>
-      <div class="logo">🎯 Memecoin <span class="radar">Radar</span></div>
-      <div class="tag">Live Solana memecoin momentum — social velocity × market depth, with organic-vs-manufactured forensics and measured signal reliability.</div>
+      <div class="logo">🎯 Memecoin <span class="radar">Radar</span> <span class="mode direct" id="modeTag">DIRECT MARKET DATA</span></div>
+      <div class="tag" id="modeLine">Live Solana memecoins straight from DexScreener — no setup needed. Connect a Radar backend for scores, forensics & calibration.</div>
     </div>
     <div class="hdr-right">
-      <span class="dot" id="dot"></span><span class="conn" id="connText">not connected</span>
-      <input type="text" id="apiInput" placeholder="API origin, e.g. https://xxx.up.railway.app">
-      <button class="btn" onclick="connect()">Connect</button>
-      <button class="btn ghost" onclick="copyShare()" title="Copy a shareable link carrying this API origin">⤴ Share link</button>
+      <span class="dot" id="dot"></span><span class="conn" id="connText">loading…</span>
+      <input type="text" id="apiInput" placeholder="Radar API origin (optional), e.g. https://xxx.up.railway.app">
+      <button class="btn" onclick="connect()">Connect engine</button>
+      <button class="btn ghost" onclick="copyShare()" title="Copy a shareable link carrying the API connection">⤴ Share link</button>
+      <button class="btn ghost" id="disconnectBtn" style="display:none" onclick="disconnect()">Back to direct mode</button>
     </div>
   </header>
 
-  <div id="setupBox" class="notice" style="display:none">
-    <h2>🔌 Connect this page to a Memecoin Radar backend</h2>
-    <ul>
-      <li><b>1. Deploy the backend (one time, ~10 min):</b> follow <code>DEPLOYMENT.md</code> in the repo — Railway gives you a URL like <code>https://memecoin-radar-api.up.railway.app</code>.</li>
-      <li><b>2. Paste it above</b> and press <b>Connect</b> — saved in this browser (localStorage only).</li>
-      <li><b>3. To share the site:</b> press <b>Share link</b> — it copies a URL like<br><code>https://yoursite.netlify.app/?api=https%3A%2F%2Fmemecoin-radar-api.up.railway.app</code><br>Anyone opening it connects automatically, no setup on their side.</li>
-    </ul>
-    <div id="setupErr"></div>
-  </div>
   <div id="errBox"></div>
 
-  <div id="app" style="display:none">
-    <div class="grid-stats" id="stats"></div>
+  <div class="grid-stats" id="stats"></div>
 
-    <section>
-      <div class="panel"><h3>🔥 Trending now <small>· composite social × depth momentum, refreshed <span id="upd">—</span></small></h3>
-        <div class="grid-tokens" id="tokens" style="padding:12px"></div>
-      </div>
-    </section>
+  <section>
+    <div class="panel"><h3 id="tokensTitle">🔥 Boosted &amp; hot right now <small>· refreshed <span id="upd">—</span></small></h3>
+      <div class="grid-tokens" id="tokens" style="padding:12px"><div class="skel">Loading live market data…</div></div>
+    </div>
+  </section>
 
-    <section class="grid-2">
-      <div class="panel"><h3>🧪 Signal calibration — measured, not claimed <small>· what actually happened after past signals</small></h3>
-        <div id="calib"></div>
+  <section class="grid-2" id="radarPanels">
+    <div class="panel" id="calibPanel"><h3>🧪 Signal calibration — measured, not claimed <small>· what actually happened after past signals</small></h3>
+      <div id="calib"><div class="skel">Requires a connected Radar backend.</div></div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:12px">
+      <div class="notice" id="unlockPanel">
+        <h2>🔓 What a connected Radar engine adds</h2>
+        <ul>
+          <li><b>Scores that explain themselves:</b> Trend, FOMO and Risk 0–100 with per-component breakdowns (`why` endpoint).</li>
+          <li><b>Forensics:</b> wash-trading suspicion, sybil pressure, coordination — the organic-vs-manufactured verdict on every token.</li>
+          <li><b>Regimes &amp; change-points:</b> markup / distribution / chop classification + social↔price lead-lag in minutes.</li>
+          <li><b>Measured reliability:</b> every signal gets labeled against what actually happened +1h / +4h; hit-rates shown here.</li>
+          <li><b>Deploy:</b> ~10 min on Railway using the repo's <code>DEPLOYMENT.md</code>, then paste the URL above and press <b>Connect engine</b>.</li>
+        </ul>
       </div>
-      <div style="display:flex; flex-direction:column; gap:12px">
-        <div class="panel"><h3>🌱 Emerging <small>· early momentum, still under the radar</small></h3>
-          <div id="emerging"></div>
-        </div>
-        <div class="panel"><h3>📣 Narratives <small>· where attention is clustering</small></h3>
-          <div id="narratives"></div>
-        </div>
-      </div>
-    </section>
-  </div>
+      <div class="panel" id="emergPanel" style="display:none"><h3>🌱 Emerging <small>· early momentum</small></h3><div id="emerging"></div></div>
+      <div class="panel" id="narrPanel" style="display:none"><h3>📣 Narratives</h3><div id="narratives"></div></div>
+    </div>
+  </section>
 
   <div class="foot">
-    <b>What this is:</b> an analytics page sampling the Memecoin Radar API every 60s. Scores († Trend / FOMO / Risk / Organic 0–100) are interpretive composites of public market data (DexScreener) and social telemetry. “Organic” measures wash-trading / sybil / coordination heuristics, not legitimacy of the asset. Calibration shows <i>historical</i> hit rates — they say how much trust each band has <i>earned</i>, nothing about future returns.
-    <b>Not financial advice.</b> Memecoins are extremely high risk; most go to zero. Data may be delayed, incomplete, or (in this demo's early history) partly simulated.
+    <b>What this is:</b> an analytics page, refreshed every 60s. In <b>Direct mode</b> all numbers come from DexScreener's public API (prices, volume, liquidity, boosts, transactions). In <b>Radar mode</b> they additionally come from the Memecoin Radar engine, which computes interpretive scores and labels signals against realized outcomes. Calibration shows <i>historical</i> hit rates — how much trust each band has <i>earned</i>, nothing about future returns.
+    <b>Not financial advice.</b> Memecoins are extremely high risk; most go to zero. Data may be delayed or incomplete.
   </div>
 </div>
 
@@ -175,43 +173,68 @@
 
 <script>
 'use strict';
-/* ───────────── API base resolution: ?api= param > localStorage > none ───────────── */
+/* ═════════════ connection manager ═════════════ */
 const $ = id => document.getElementById(id);
+const DEX = 'https://api.dexscreener.com';
 function getParamBase(){ const p = new URLSearchParams(location.search).get('api'); return p ? p.replace(/\/+$/,'') : null; }
 function savedBase(){ try{ return localStorage.getItem('radar_api') || null; }catch(e){ return null; } }
-function setBase(b){ try{ b ? localStorage.setItem('radar_api', b) : localStorage.removeItem('radar_api'); }catch(e){} }
-let API = getParamBase() || savedBase() || '';
+function setSaved(b){ try{ b ? localStorage.setItem('radar_api', b) : localStorage.removeItem('radar_api'); }catch(e){} }
+let API = getParamBase() || savedBase() || '';      // '' => direct mode
+let MODE = API ? 'radar' : 'direct';
 $('apiInput').value = API;
 
 function connect(){
   const v = $('apiInput').value.trim().replace(/\/+$/,'');
-  if(!/^https?:\/\//.test(v)){ setupError('Enter a full URL starting with http:// or https://'); return; }
-  API = v; setBase(v); setStatus('wait','connecting…'); boot();
+  if(!/^https?:\/\//.test(v)){ showError('Enter a full URL starting with http:// or https://'); return; }
+  API = v; setSaved(v); setMode('radar'); setStatus('wait','connecting…'); refresh(true);
 }
-function setupError(m){ $('setupErr').innerHTML = m ? '<div class="err">⚠ '+esc(m)+'</div>' : ''; }
+function disconnect(){ API=''; setSaved(''); $('apiInput').value=''; setMode('direct'); refresh(true); }
 function copyShare(){
-  const b = (getParamBase()||savedBase()||$('apiInput').value.trim().replace(/\/+$/,''));
-  if(!b){ setupError('Connect to an API first, then the share link will carry it.'); $('setupBox').style.display='block'; return; }
+  const b = API || $('apiInput').value.trim().replace(/\/+$/,'');
+  if(!b){ alert('In Direct mode the page URL is already self-sufficient — just share it as-is.\nOnce you connect a Radar engine, this button copies a link carrying that connection.'); return; }
   const u = location.origin + location.pathname + '?api=' + encodeURIComponent(b);
   (navigator.clipboard ? navigator.clipboard.writeText(u) : Promise.reject())
     .then(()=>{ $('connText').textContent = 'share link copied ✓'; setTimeout(paintStatus,1800); })
     .catch(()=>prompt('Copy this link:', u));
 }
 
-/* ───────────── status + fetch ───────────── */
-function setStatus(cls, txt){ $('dot').className='dot '+cls; $('connText').textContent = txt; }
+/* ═════════════ status / modes ═════════════ */
 let lastHost = '';
+function setStatus(cls, txt){ $('dot').className='dot '+cls; $('connText').textContent = txt; }
 function paintStatus(){
-  if(!API){ setStatus('','not connected'); return; }
-  if(!lastHost){ setStatus('wait','connecting…'); } else { setStatus('ok','live · '+lastHost); }
+  if(MODE==='radar'){
+    if(!lastHost) setStatus('wait','connecting…'); else setStatus('ok','live · '+lastHost);
+  } else { setStatus('ok','live · dexscreener.com'); }
 }
-async function api(path){
-  const r = await fetch(API + path, {headers:{'Accept':'application/json'}});
+function setMode(m){
+  MODE = m;
+  if(m==='radar'){
+    $('modeTag').textContent='RADAR ENGINE'; $('modeTag').className='mode radar';
+    $('modeLine').textContent='Full engine: scores, forensics, regimes and measured calibration.';
+    $('unlockPanel').style.display='none'; $('emergPanel').style.display='block'; $('narrPanel').style.display='block';
+    $('tokensTitle').innerHTML='🔥 Trending now <small>· composite social × depth momentum, refreshed <span id="upd">—</span></small>';
+    $('disconnectBtn').style.display='inline-block'; lastHost='';
+  } else {
+    $('modeTag').textContent='DIRECT MARKET DATA'; $('modeTag').className='mode direct';
+    $('modeLine').textContent='Live Solana memecoins straight from DexScreener — no setup needed. Connect a Radar backend for scores, forensics & calibration.';
+    $('unlockPanel').style.display='block'; $('emergPanel').style.display='none'; $('narrPanel').style.display='none';
+    $('tokensTitle').innerHTML='🔥 Boosted &amp; hot right now <small>· refreshed <span id="upd">—</span></small>';
+    $('calib').innerHTML='<div class="skel">Requires a connected Radar backend — the calibration engine labels every signal against what actually happened next, then shows hit-rates here.</div>';
+    $('disconnectBtn').style.display='none';
+  }
+}
+function showError(m){ $('errBox').innerHTML = m ? '<div class="err">⚠ '+esc(m)+'</div>' : ''; }
+
+/* ═════════════ fetch helpers ═════════════ */
+async function jget(url){
+  const r = await fetch(url, {headers:{'Accept':'application/json'}});
   if(!r.ok) throw new Error(r.status + ' ' + r.statusText);
   return r.json();
 }
+const api = p => jget(API + p);
+const dex = p => jget(DEX + p);
 
-/* ───────────── formatting helpers ───────────── */
+/* ═════════════ formatting ═════════════ */
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const nfix = (v,d=2) => (v===null||v===undefined||isNaN(v)) ? '—' : Number(v).toLocaleString(undefined,{maximumFractionDigits:d});
 function fmtPrice(p){ if(!p) return '—'; p=Number(p); if(p>=1) return '$'+nfix(p,4); if(p>=0.0001) return '$'+p.toPrecision(3); return '$'+p.toExponential(2); }
@@ -224,18 +247,14 @@ function organicPill(o){
 }
 function scoreColor(v, invert){ v=Number(v)||0; return invert ? (v>=70?'var(--red)':v>=40?'var(--amber)':'var(--green)') : (v>=70?'var(--cyan)':v>=40?'var(--violet)':'var(--dim2)'); }
 function bar(v, invert){ v=Math.max(0,Math.min(100,Number(v)||0)); return '<div class="bar"><div style="width:'+v+'%;background:'+scoreColor(v,invert)+'"></div></div>'; }
-
-/* ───────────── renderers ───────────── */
-function renderStats(ov, cal){
-  const s = [];
-  s.push(['Tracked tokens', nfix(ov?.tracked ?? ov?.tracked_tokens ?? ov?.tokens, 0)]);
-  s.push(['Breadth (1h up)', ov?.breadth!==undefined ? fmtPct((ov.breadth>1?ov.breadth:ov.breadth*100), false) : '—']);
-  s.push(['Sector momentum', ov?.sector_momentum!==undefined ? nfix(ov.sector_momentum,0)+'/100 · '+esc(ov.phase||'') : '—']);
-  const suff = cal?.data_sufficiency, retro = Math.round((cal?.retro_share??0)*100);
-  s.push(['Calibration', suff ? suff : '—', cal?.total_outcomes!==undefined ? nfix(cal.total_outcomes,0)+' labeled outcomes'+(retro? ' · '+retro+'% retro-seeded':'') : '']);
-  $('stats').innerHTML = s.map(x=>'<div class="stat"><div class="k">'+x[0]+'</div><div class="v">'+esc(x[1])+'</div>'+(x[2]?'<div style="font-size:10px;color:var(--dim)">'+esc(x[2])+'</div>':'')+'</div>').join('');
+function timeAgo(ts){ if(!ts) return '—'; const s=(Date.now()-ts)/1000; if(s<3600) return Math.max(1,Math.round(s/60))+'m'; if(s<86400) return Math.round(s/3600)+'h'; return Math.round(s/86400)+'d'; }
+function avatar(t, img){
+  if(img) return '<div class="avatar"><img src="'+esc(img)+'" alt="" onerror="this.parentNode.innerHTML=\''+esc((t||'?').slice(0,2).toUpperCase())+'\'"></div>';
+  return '<div class="avatar">'+esc((t||'?').slice(0,2).toUpperCase())+'</div>';
 }
-function badgeRow(t){
+
+/* ═════════════ RADAR MODE ═════════════ */
+function radarBadgeRow(t){
   const b=[];
   if(t.emerging) b.push('<span class="pill violet">early</span>');
   if(t.trend>=65) b.push('<span class="pill cyan">trending</span>');
@@ -245,10 +264,10 @@ function badgeRow(t){
   const o = organicPill(t.organic); if(o) b.push(o);
   return b.join(' ');
 }
-function tokenCard(t){
-  const chg = Number(t.price_change_h24 ?? t.change_24h ?? t.price_change_24h ?? t.chg24);
-  return '<div class="card" onclick="openToken(\''+esc(t.address)+'\')">'
-    +'<div class="top"><div class="avatar">'+esc((t.symbol||'?').slice(0,2).toUpperCase())+'</div>'
+function radarCard(t){
+  const chg = Number(t.price_change_h24 ?? t.change_24h ?? t.chg24);
+  return '<div class="card" onclick="openRadarToken(\''+esc(t.address)+'\')">'
+    +'<div class="top">'+avatar(t.symbol, t.image_url)
     +'<div><div class="sym">$'+esc(t.symbol||'?')+'</div><div class="name">'+esc(t.name||'')+'</div></div>'
     +'<div class="price"><div class="p num">'+fmtPrice(t.price)+'</div>'
     +'<div class="num chg '+(chg>=0?'up':'dn')+'" style="font-size:11px">'+(isNaN(chg)?'—':fmtPct(chg))+'</div>'
@@ -258,25 +277,22 @@ function tokenCard(t){
     +'<span>FOMO</span>'+bar(t.fomo,true)+'<span class="bval num" style="color:'+scoreColor(t.fomo,true)+'">'+nfix(t.fomo,0)+'</span>'
     +'<span>RISK</span>'+bar(t.risk,true)+'<span class="bval num" style="color:'+scoreColor(t.risk,true)+'">'+nfix(t.risk,0)+'</span>'
     +'</div>'
-    +'<div class="badges">'+badgeRow(t)+'</div></div>';
-}
-function renderTokens(items){
-  $('tokens').innerHTML = items.length ? items.map(tokenCard).join('') : '<div class="skel">No tokens tracked yet — the backend populates within a minute of boot.</div>';
+    +'<div class="badges">'+radarBadgeRow(t)+'</div></div>';
 }
 function renderEmerging(items){
   if(!items.length){ $('emerging').innerHTML='<div class="skel">Nothing emerging right now.</div>'; return; }
   $('emerging').innerHTML = items.slice(0,6).map(t=>
-    '<div class="narow"><div class="avatar" style="width:28px;height:28px;font-size:11px">'+esc((t.symbol||'?').slice(0,2).toUpperCase())+'</div>'
+    '<div class="narow">'+avatar(t.symbol).replace('width:36px','width:28px')
     +'<div><div class="n">$'+esc(t.symbol||'?')+'</div><div class="m">trend '+nfix(t.trend,0)+' · fomo '+nfix(t.fomo,0)+'</div></div>'
     +'<div class="r">'+organicPill(t.organic)+'</div></div>').join('');
 }
 function renderNarratives(items){
   if(!items.length){ $('narratives').innerHTML='<div class="skel">No narrative clusters yet.</div>'; return; }
   $('narratives').innerHTML = items.slice(0,6).map(n=>{
-    const name = n.name || n.label || n.title || '—';
-    const meta = [n.token_count!==undefined?n.token_count+' tokens':null, n.tokens_count!==undefined?n.tokens_count+' tokens':null, n.strong_candidates!==undefined?n.strong_candidates+' strong':null].filter(Boolean).join(' · ');
-    const heat = n.strength ?? n.score ?? n.heat;
-    const g = n.mentions_growth ?? n.growth_1h ?? n.growth;
+    const name = n.name || n.label || '—';
+    const meta = [n.token_count!==undefined?n.token_count+' tokens':null, n.strong_candidates!==undefined?n.strong_candidates+' strong':null].filter(Boolean).join(' · ');
+    const heat = n.strength ?? n.score;
+    const g = n.mentions_growth ?? n.growth_1h;
     return '<div class="narow"><div><div class="n">'+esc(name)+'</div><div class="m">'+esc(meta)+'</div></div>'
       +'<div class="r">'+(heat!==undefined?'<span class="pill cyan">heat '+nfix(heat,0)+'</span>':'')
       +(g!==undefined?'<span class="pill '+(g>=0?'green':'red')+'">'+fmtPct(g)+' mentions 1h</span>':'')+'</div></div>';
@@ -284,10 +300,10 @@ function renderNarratives(items){
 }
 function renderCalib(cal){
   if(!cal){ $('calib').innerHTML='<div class="skel">Calibration data unavailable.</div>'; return; }
-  const hz = cal.horizons && (cal.horizons['14400'] || cal.horizons[14400] || cal.horizons['3600']);
+  const hz = cal.horizons && (cal.horizons['14400'] || cal.horizons['3600']);
   const rows = (hz?.trend_curve || []).filter(b=>b.n>0);
-  let html = '<div style="padding:6px 14px 4px; font-size:10.5px; color:var(--dim)">By Trend-score band (next 4h): <b style="color:var(--ink)">continuation</b> vs <b style="color:var(--ink)">reversal/rug</b> share of historical snapshots.</div><table><thead><tr><th>TREND BAND</th><th>N</th><th>CONTINUED</th><th>REVERSAL</th><th>MED. RETURN</th><th>MED. DRAWDOWN</th></tr></thead><tbody>';
-  if(!rows.length) html += '<tr><td colspan="6" style="text-align:center;color:var(--dim);padding:16px">Outcomes are still being labeled on this backend (first rug/reversal labels appear after ~1–4h of live data).</td></tr>';
+  let html = '<div style="padding:6px 14px 4px; font-size:10.5px; color:var(--dim)">By Trend-score band (next 4h): <b style="color:var(--ink)">continuation</b> vs <b style="color:var(--ink)">reversal/rug</b> share of historical snapshots.'+(cal.data_sufficiency?' Sufficiency: <b style="color:var(--ink)">'+esc(cal.data_sufficiency)+'</b> ('+nfix(cal.total_outcomes,0)+' outcomes).':'')+'</div><table><thead><tr><th>TREND BAND</th><th>N</th><th>CONTINUED</th><th>REVERSAL</th><th>MED. RETURN</th><th>MED. DRAWDOWN</th></tr></thead><tbody>';
+  if(!rows.length) html += '<tr><td colspan="6" style="text-align:center;color:var(--dim);padding:16px">Outcomes are still being labeled on this backend (first labels appear after ~1–4h of live data).</td></tr>';
   rows.forEach(b=>{
     html += '<tr><td class="num">'+esc(b.bucket)+'</td><td class="num">'+b.n+'</td>'
       +'<td class="num" style="color:'+(b.continuation_rate>=40?'var(--green)':'var(--dim2)')+'">'+nfix(b.continuation_rate,0)+'%</td>'
@@ -297,7 +313,7 @@ function renderCalib(cal){
   html += '</tbody></table>';
   const rules = (cal.signal_rules||[]).filter(r=>r.n>0).slice(0,4);
   if(rules.length){
-    html += '<div style="padding:10px 14px 4px; font-size:10.5px; color:var(--dim)">Signal rule hit-rates (all horizons):</div>'
+    html += '<div style="padding:10px 14px 4px; font-size:10.5px; color:var(--dim)">Signal rule hit-rates:</div>'
       + rules.map(r=>'<div class="narow"><div class="n" style="font-size:11.5px">'+esc(r.rule)+'</div>'
         +'<div class="r"><span class="m" style="font-size:10px;margin-right:6px">n='+r.n+'</span>'
         +'<span class="pill '+(r.hit_rate_pct>=50?'green':r.hit_rate_pct>=30?'amber':'red')+'">'+nfix(r.hit_rate_pct,0)+'% hit</span>'
@@ -305,10 +321,80 @@ function renderCalib(cal){
   }
   $('calib').innerHTML = html;
 }
+function radarStats(ov, cal){
+  const s = [];
+  s.push(['Tracked tokens', nfix(ov?.tracked ?? ov?.tracked_tokens, 0)]);
+  s.push(['Breadth (1h up)', ov?.breadth!==undefined ? fmtPct((ov.breadth>1?ov.breadth:ov.breadth*100), false) : '—']);
+  s.push(['Sector momentum', ov?.sector_momentum!==undefined ? nfix(ov.sector_momentum,0)+'/100 · '+esc(ov.phase||'') : '—']);
+  const retro = Math.round((cal?.retro_share??0)*100);
+  s.push(['Calibration', cal?.data_sufficiency || '—', cal?.total_outcomes!==undefined ? nfix(cal.total_outcomes,0)+' labeled outcomes'+(retro?' · '+retro+'% retro-seeded':'') : '']);
+  $('stats').innerHTML = s.map(x=>'<div class="stat"><div class="k">'+x[0]+'</div><div class="v">'+esc(x[1])+'</div>'+(x[2]?'<div style="font-size:10px;color:var(--dim)">'+esc(x[2])+'</div>':'')+'</div>').join('');
+}
 
-/* ───────────── token detail modal ───────────── */
+/* ═════════════ DIRECT MODE (DexScreener) ═════════════ */
+function directStats(tokens, boostCount){
+  const ups = tokens.filter(t=>(t.priceChange?.h24??0)>0).length;
+  const vol = tokens.reduce((a,t)=>a+(t.volume?.h24||0),0);
+  const avg = tokens.length ? tokens.reduce((a,t)=>a+(t.priceChange?.h24||0),0)/tokens.length : 0;
+  const s=[['Tokens scanned', nfix(tokens.length,0)],['Up over 24h', tokens.length? nfix(ups/tokens.length*100,0)+'%':'—'],
+           ['Avg 24h change', fmtPct(avg)],['Combined vol 24h','$'+fmtBig(vol)],
+           ['Boosted tokens', nfix(boostCount,0),'DexScreener paid boosts']];
+  $('stats').innerHTML = s.map(x=>'<div class="stat"><div class="k">'+x[0]+'</div><div class="v">'+esc(x[1])+'</div>'+(x[2]?'<div style="font-size:10px;color:var(--dim)">'+esc(x[2])+'</div>':'')+'</div>').join('');
+}
+function directPills(t, boost){
+  const b=[];
+  const buys = t.txns?.h24?.buys ?? 0, sells = t.txns?.h24?.sells ?? 0, tot = buys+sells;
+  const share = tot>0 ? buys/tot : null;
+  if(boost) b.push('<span class="pill cyan">boosted ×'+nfix(boost,0)+'</span>');
+  if(share!==null) b.push('<span class="pill '+(share>=0.6?'green':share<=0.4?'red':'gray')+'">buyers '+nfix(share*100,0)+'%</span>');
+  if(t.pairCreatedAt){ const h=(Date.now()-t.pairCreatedAt)/36e5; if(h<6) b.push('<span class="pill violet">fresh · '+timeAgo(t.pairCreatedAt)+'</span>'); }
+  if((t.liquidity?.usd??0)<5000 && (t.liquidity?.usd??0)>0) b.push('<span class="pill red">thin liquidity</span>');
+  return b.join(' ');
+}
+function directCard(t, boost){
+  const chg = t.priceChange?.h24;
+  const buys = t.txns?.h24?.buys ?? 0, sells = t.txns?.h24?.sells ?? 0, tot=buys+sells;
+  const share = tot>0 ? buys/tot*100 : 0;
+  return '<div class="card" onclick="openDirectToken(\''+esc(t.baseToken.address)+'\')">'
+    +'<div class="top">'+avatar(t.baseToken.symbol, t.info?.imageUrl)
+    +'<div><div class="sym">$'+esc(t.baseToken.symbol||'?')+'</div><div class="name">'+esc(t.baseToken.name||'')+'</div></div>'
+    +'<div class="price"><div class="p num">'+fmtPrice(t.priceUsd)+'</div>'
+    +'<div class="num chg '+((chg??0)>=0?'up':'dn')+'" style="font-size:11px">'+fmtPct(chg)+'</div>'
+    +'<div style="font-size:9.5px;color:var(--dim)" class="num">vol24h $'+fmtBig(t.volume?.h24)+'</div></div></div>'
+    +'<div class="scores">'
+    +'<span>BUYERS 24H</span>'+bar(share,false)+'<span class="bval num">'+nfix(share,0)+'%</span>'
+    +'<span>LIQUIDITY</span><div class="bar"><div style="width:'+Math.min(100,(t.liquidity?.usd||0)/2000)+'%;background:var(--cyan)"></div></div><span class="bval num">$'+fmtBig(t.liquidity?.usd)+'</span>'
+    +'<span>1H CHANGE</span><div class="bar"><div style="width:'+Math.min(100,Math.max(0,50+(t.priceChange?.h1||0)))+'%;background:'+((t.priceChange?.h1||0)>=0?'var(--green)':'var(--red)')+'"></div></div><span class="bval num chg '+((t.priceChange?.h1||0)>=0?'up':'dn')+'">'+fmtPct(t.priceChange?.h1)+'</span>'
+    +'</div>'
+    +'<div class="badges">'+directPills(t, boost)+'</div></div>';
+}
+let directCache = {};   // address -> pair, for modal
+async function loadDirect(){
+  const [boosts, profiles] = await Promise.all([
+    dex('/token-boosts/top/v1').catch(()=>[]),
+    dex('/token-profiles/latest/v1').catch(()=>[]),
+  ]);
+  const boostAmt = {}; boosts.forEach(x=>{ boostAmt[x.tokenAddress]=x.amount||x.totalAmount||1; });
+  const addrs = [];
+  const seen = new Set();
+  const push = x => { if(x.chainId==='solana' && x.tokenAddress && !seen.has(x.tokenAddress)){ seen.add(x.tokenAddress); addrs.push(x.tokenAddress); } };
+  boosts.forEach(push); profiles.slice(0,30).forEach(push);
+  if(!addrs.length) throw new Error('DexScreener returned no tokens');
+  const batches=[]; for(let i=0;i<addrs.length && i<60;i+=30) batches.push(addrs.slice(i,i+30).join(','));
+  const pairArrays = await Promise.all(batches.map(b=>dex('/tokens/v1/solana/'+b)));
+  const pairs = pairArrays.flat().filter(Boolean);
+  const byToken = {};
+  pairs.forEach(p=>{ const a=p.baseToken?.address; if(!a) return; if(!byToken[a] || (p.liquidity?.usd||0) > (byToken[a].liquidity?.usd||0)) byToken[a]=p; });
+  const tokens = addrs.map(a=>byToken[a]).filter(Boolean)
+    .sort((x,y)=>(boostAmt[y.baseToken.address]?1e12:0)+(y.volume?.h24||0) - ((boostAmt[x.baseToken.address]?1e12:0)+(x.volume?.h24||0)));
+  directCache = {}; tokens.forEach(t=>directCache[t.baseToken.address]=t);
+  directStats(tokens, boosts.length);
+  $('tokens').innerHTML = tokens.length ? tokens.slice(0,24).map(t=>directCard(t, boostAmt[t.baseToken.address])).join('') : '<div class="skel">No boosted tokens right now.</div>';
+}
+
+/* ═════════════ modals ═════════════ */
 function closeModal(){ $('mback').classList.remove('on'); }
-async function openToken(addr){
+async function openRadarToken(addr){
   $('mback').classList.add('on');
   $('modal').innerHTML = '<div class="skel">Loading token intelligence…</div>';
   try{
@@ -316,10 +402,10 @@ async function openToken(addr){
     const d = sc.status==='fulfilled' ? sc.value : {};
     const f = d.forensics || {}, c = f.components || {};
     const wash=c.wash_trading||{}, syb=c.sybil_pressure||{}, co=c.coordination||{}, ll=c.lead_lag||{}, rg=c.regime||{};
-    let h = '<div class="mh"><div class="avatar">'+esc((d.symbol||'?').slice(0,2).toUpperCase())+'</div>'
+    let h = '<div class="mh">'+avatar(d.symbol)
       +'<div><div style="font-size:17px;font-weight:800">$'+esc(d.symbol||'')+'</div><div style="font-size:10px;color:var(--dim)" class="num">'+esc(addr)+'</div></div>'
       +'<button class="btn ghost" style="margin-left:auto" onclick="closeModal()">✕ Close</button></div>'
-      +'<div class="badges" style="margin:0 0 14px">'+badgeRow({...d, organic:f.organic_score, regime:rg.regime})+'</div>'
+      +'<div class="badges" style="margin:0 0 14px">'+radarBadgeRow({...d, organic:f.organic_score, regime:rg.regime})+'</div>'
       +'<div class="mrow"><div class="k">Trend / FOMO / Risk</div><div class="num">'+nfix(d.trend,0)+' / '+nfix(d.fomo,0)+' ('+esc(d.fomo_class||'—')+') / '+nfix(d.risk,0)+' ('+esc(d.risk_class||'—')+')</div></div>'
       +'<div class="mrow"><div class="k">Confidence</div><div>'+esc(d.confidence||'—')+'</div></div>'
       +'<div class="mrow"><div class="k">Organic score</div><div><b class="num">'+nfix(f.organic_score,0)+'</b>/100 — '+esc(f.verdict||'')+'</div></div>'
@@ -328,49 +414,76 @@ async function openToken(addr){
       +'<div class="mrow"><div class="k">Coordination</div><div class="num">'+nfix((co.score??0)*100,0)+'% · cross-token authors '+nfix(co.cross_token_authors,0)+'</div></div>'
       +'<div class="mrow"><div class="k">Lead / lag</div><div>'+(ll.best_lag===null||ll.best_lag===undefined?'insufficient data':(ll.best_lag>0?'social leads price by ':'price leads social by ')+Math.abs(ll.lead_minutes)+'m (r='+nfix(ll.strength,2)+')')+'</div></div>'
       +'<div class="mrow"><div class="k">Regime</div><div>'+esc(rg.regime||'—')+(rg.detail?' — <span style="color:var(--dim2)">'+esc(rg.detail)+'</span>':'')+'</div></div>';
-    if(why.status==='fulfilled' && why.value){ 
+    if(why.status==='fulfilled' && why.value){
       const w = typeof why.value==='string' ? why.value : (why.value.why || why.value.explanation || JSON.stringify(why.value));
       h += '<div class="why">💡 <b>Why these scores:</b><br>'+esc(w)+'</div>';
     }
     $('modal').innerHTML = h;
   }catch(e){ $('modal').innerHTML = '<div class="err">Failed to load token detail: '+esc(e.message)+'</div>'; }
 }
+function openDirectToken(addr){
+  const t = directCache[addr]; if(!t) return;
+  const buys = t.txns?.h24?.buys ?? 0, sells = t.txns?.h24?.sells ?? 0;
+  const links = (t.info?.socials||[]).map(s=>'<a href="'+esc(s.url)+'" target="_blank" rel="noopener">'+(s.type==='twitter'?'𝕏':s.type==='telegram'?'✈️ TG':esc(s.type||'link'))+'</a>').join(' · ');
+  $('mback').classList.add('on');
+  $('modal').innerHTML = '<div class="mh">'+avatar(t.baseToken.symbol, t.info?.imageUrl)
+    +'<div><div style="font-size:17px;font-weight:800">$'+esc(t.baseToken.symbol)+'</div><div style="font-size:11px;color:var(--dim)">'+esc(t.baseToken.name)+' · '+esc(t.dexId||'')+'</div></div>'
+    +'<button class="btn ghost" style="margin-left:auto" onclick="closeModal()">✕ Close</button></div>'
+    +'<div class="mrow"><div class="k">Price</div><div class="num">'+fmtPrice(t.priceUsd)+' &nbsp; <span class="chg '+((t.priceChange?.h24||0)>=0?'up':'dn')+'">'+fmtPct(t.priceChange?.h24)+' 24h</span> · '+fmtPct(t.priceChange?.h1)+' 1h</div></div>'
+    +'<div class="mrow"><div class="k">Liquidity</div><div class="num">$'+fmtBig(t.liquidity?.usd)+'</div></div>'
+    +'<div class="mrow"><div class="k">Volume 24h / 1h</div><div class="num">$'+fmtBig(t.volume?.h24)+' / $'+fmtBig(t.volume?.h1)+'</div></div>'
+    +'<div class="mrow"><div class="k">Market cap / FDV</div><div class="num">$'+fmtBig(t.marketCap)+' / $'+fmtBig(t.fdv)+'</div></div>'
+    +'<div class="mrow"><div class="k">Transactions 24h</div><div class="num">'+nfix(buys,0)+' buys · '+nfix(sells,0)+' sells ('+nfix((buys+sells)>0?buys/(buys+sells)*100:0,0)+'% buys)</div></div>'
+    +'<div class="mrow"><div class="k">Pair age</div><div>'+timeAgo(t.pairCreatedAt)+' old</div></div>'
+    +'<div class="mrow"><div class="k">Address</div><div class="num" style="font-size:10px;word-break:break-all">'+esc(addr)+'</div></div>'
+    +'<div class="mrow"><div class="k">Links</div><div><a href="'+esc(t.url||'#')+'" target="_blank" rel="noopener">View on DexScreener ↗</a>'+(links?' · '+links:'')+'</div></div>'
+    +'<div class="why">🔬 <b>Want the forensic layer?</b> Connect a Radar engine (field in the header) to get wash-trading suspicion, sybil pressure, coordination detection, regime classification and the calibration track record for this token.</div>';
+}
 
-/* ───────────── boot + poll ───────────── */
-let calCache = null, ovCache = null, timer = null;
+/* ═════════════ boot + poll ═════════════ */
+async function refreshRadar(first){
+  const [tr, em, na, cal, ov] = await Promise.allSettled([
+    api('/api/tokens/trending?limit=18'),
+    api('/api/tokens/emerging'),
+    api('/api/narratives/trending'),
+    api('/api/calibration/overview'),
+    api('/api/market/overview'),
+  ]);
+  if(tr.status!=='fulfilled') throw new Error(tr.reason?.message || 'API unreachable');
+  try{ lastHost = new URL(API).host; }catch(e){ lastHost = API; }
+  renderCalib._c = cal.status==='fulfilled' ? cal.value : renderCalib._c;
+  renderCalib._o = ov.status==='fulfilled'  ? ov.value  : renderCalib._o;
+  radarStats(renderCalib._o, renderCalib._c); renderCalib(renderCalib._c);
+  $('tokens').innerHTML = (tr.value.items||[]).length ? (tr.value.items||[]).map(radarCard).join('') : '<div class="skel">No tokens tracked yet — the backend populates within a minute of boot.</div>';
+  renderEmerging(em.status==='fulfilled' ? (em.value.items||[]) : []);
+  renderNarratives(na.status==='fulfilled' ? (na.value.items||[]) : []);
+}
 async function refresh(first){
+  setStatus('wait', MODE==='radar' ? 'connecting…' : 'refreshing…');
   try{
-    const [tr, em, na, cal, ov] = await Promise.allSettled([
-      api('/api/tokens/trending?limit=18'),
-      api('/api/tokens/emerging'),
-      api('/api/narratives/trending'),
-      api('/api/calibration/overview'),
-      api('/api/market/overview'),
-    ]);
-    if(tr.status!=='fulfilled') throw new Error(tr.reason?.message || 'API unreachable');
-    try{ lastHost = new URL(API).host; }catch(e){ lastHost = API; }
-    $('setupBox').style.display='none'; $('app').style.display='block'; $('errBox').innerHTML='';
-    paintStatus();
-    renderTokens(tr.value.items || tr.value || []);
-    renderEmerging(em.status==='fulfilled' ? (em.value.items || em.value || []) : []);
-    renderNarratives(na.status==='fulfilled' ? (na.value.items || na.value || []) : []);
-    calCache = cal.status==='fulfilled' ? cal.value : calCache;
-    ovCache  = ov.status==='fulfilled'  ? ov.value  : ovCache;
-    renderStats(ovCache, calCache); renderCalib(calCache);
-    const now = new Date();
-    $('upd').textContent = now.toTimeString().slice(0,8);
+    if(MODE==='radar') await refreshRadar(first); else await loadDirect();
+    showError(''); paintStatus();
+    $('upd') && ($('upd').textContent = new Date().toTimeString().slice(0,8));
   }catch(e){
-    if(first){ $('app').style.display='none'; $('setupBox').style.display='block'; setupError('Could not reach the API at «'+API+'» — '+e.message+'. Check the URL, or deploy the backend first (DEPLOYMENT.md).'); }
-    else { setStatus('bad','connection lost — retrying…'); $('errBox').innerHTML='<div class="err">⚠ API unreachable at '+esc(API)+' ('+esc(e.message)+'). Showing last good data; retrying every 60s.</div>'; }
+    setStatus('bad','feed error — retrying…');
+    if(MODE==='radar' && first){
+      showError('Radar engine at «'+API+'» unreachable ('+e.message+'). Falling back to Direct market mode — fix the URL or press "Back to direct mode".');
+      setMode('direct');
+      try{ await loadDirect(); setStatus('ok','live · dexscreener.com'); showError('Radar engine unreachable — showing direct DexScreener data instead. Check the API URL, then Connect engine again.'); }catch(e2){}
+    } else if(MODE==='direct' && first){
+      showError('Could not reach DexScreener ('+e.message+'). The page retries every 60s — if this persists, an extension/VPN may be blocking api.dexscreener.com.');
+    } else {
+      showError('Feed hiccup ('+e.message+') — showing last good data; retrying every 60s.');
+      paintStatus();
+    }
   }
 }
-function boot(){
-  if(timer) clearInterval(timer);
-  if(!API){ $('app').style.display='none'; $('setupBox').style.display='block'; setStatus('','not connected'); return; }
-  refresh(true); timer = setInterval(()=>refresh(false), 60000);
-}
-window.openToken = openToken; window.closeModal = closeModal; window.connect = connect; window.copyShare = copyShare;
-boot();
+let timer=null;
+window.openRadarToken=openRadarToken; window.openDirectToken=openDirectToken;
+window.closeModal=closeModal; window.connect=connect; window.disconnect=disconnect; window.copyShare=copyShare;
+setMode(API ? 'radar' : 'direct');
+refresh(true);
+timer = setInterval(()=>refresh(false), 60000);
 </script>
 </body>
 </html>
