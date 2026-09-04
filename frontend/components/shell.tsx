@@ -151,27 +151,31 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 bg-bg/95 backdrop-blur border-b border-line">
-        <div className="max-w-[1500px] mx-auto px-4 h-12 flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2 shrink-0">
-            <span className="text-lg">🛰️</span>
-            <span className="font-extrabold tracking-[0.12em] text-[13px] text-ink">
-              MEMECOIN<span className="text-cyanx">RADAR</span>
-            </span>
-          </Link>
-          <nav className="hidden md:flex items-center gap-1">
+        <div className="max-w-[1500px] mx-auto px-4">
+          <div className="h-12 flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-2 shrink-0">
+              <span className="text-lg">🛰️</span>
+              <span className="font-extrabold tracking-[0.12em] text-[13px] text-ink">
+                MEMECOIN<span className="text-cyanx">RADAR</span>
+              </span>
+            </Link>
+            <div className="flex-1" />
+            <SearchBox />
+            <LivePulse />
+            <AlertBell />
+          </div>
+          {/* navigation — visible on ALL viewports (was hidden below md → invisible on mobile);
+              horizontal scroll keeps density on narrow screens */}
+          <nav className="nav-scroll flex items-center gap-1 overflow-x-auto pb-1.5 -mb-px">
             {NAV.map((n) => (
               <Link key={n.href} href={n.href}
-                    className={`px-3 py-1.5 rounded-md text-[11px] font-bold tracking-wider uppercase transition-colors ${
+                    className={`shrink-0 px-3 py-1.5 rounded-md text-[11px] font-bold tracking-wider uppercase transition-colors ${
                       (n.href === "/" ? pathname === "/" : pathname.startsWith(n.href))
                         ? "bg-cyanx/10 text-cyanx border border-cyanx/20" : "text-dim hover:text-ink"}`}>
                 {n.label}
               </Link>
             ))}
           </nav>
-          <div className="flex-1" />
-          <SearchBox />
-          <LivePulse />
-          <AlertBell />
         </div>
       </header>
       <main className="max-w-[1500px] mx-auto px-4 py-4">{children}</main>
