@@ -3,19 +3,47 @@ import { useEffect, useRef, useState } from "react";
 
 const TOKEN_KEY = "mcr_token";
 
-async function ensureToken(): Promise<string | null> {
-  if (typeof window === "undefined") return null;
-  let tok = window.localStorage.getItem(TOKEN_KEY);
-  if (tok) return tok;
+// In-memory fallback: sandboxed/preview iframes may block localStorage entirely.
+// Also dedupes concurrent token mints (each page fires several hooks at once).
+let memToken: string | null = null;
+let tokenPromise: Promise<string | null> | null = null;
+
+function readStored(): string | null {
+  try { return window.localStorage.getItem(TOKEN_KEY); } catch { return null; }
+}
+function writeStored(tok: string) {
+  memToken = tok;
+  try { window.localStorage.setItem(TOKEN_KEY, tok); } catch { /* iframe-blocked storage */ }
+}
+function clearStored() {
+  memToken = null;
+  try { window.localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
+}
+
+async function mintToken(): Promise<string | null> {
   try {
     const r = await fetch("/api/auth/demo", { method: "POST" });
     if (!r.ok) return null;
     const d = await r.json();
-    window.localStorage.setItem(TOKEN_KEY, d.token);
+    writeStored(d.token);
     return d.token;
   } catch {
     return null;
   }
+}
+
+async function ensureToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  const tok = memToken || readStored();
+  if (tok) return tok;
+  if (!tokenPromise) {
+    tokenPromise = (async () => {
+      const t = await mintToken();
+      tokenPromise = null;
+      return t;
+    })();
+  }
+  return tokenPromise;
 }
 
 export async function api<T = any>(path: string, opts: RequestInit = {}, auth = true): Promise<T> {
@@ -27,7 +55,7 @@ export async function api<T = any>(path: string, opts: RequestInit = {}, auth = 
   }
   let r = await fetch(`/api${path}`, { ...opts, headers });
   if (r.status === 401 && auth) {
-    window.localStorage.removeItem(TOKEN_KEY);
+    clearStored();
     tok = await ensureToken();
     if (tok) headers["Authorization"] = `Bearer ${tok}`;
     r = await fetch(`/api${path}`, { ...opts, headers });

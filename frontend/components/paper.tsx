@@ -241,6 +241,17 @@ export function SignalsPanel({ limit = 14 }: { limit?: number }) {
   );
 }
 
+/* ------------------------------------------------------------- error strip */
+export function ErrStrip({ error, label }: { error?: string | null; label: string }) {
+  if (!error) return null;
+  const need803 = /401|403/.test(error);
+  return (
+    <div className="rounded-md border border-redx/40 bg-redx/10 px-3 py-2 text-[10px] text-redx leading-snug">
+      ⚠ <span className="font-bold">{label}</span> — {need803 ? "not signed in (demo session) — retrying automatically…" : <>backend unreachable (<span className="num">{error}</span>) — retrying automatically…</>}
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------- bars */
 export function Bar({ pct, color = "#34D399", h = 6 }: { pct: number; color?: string; h?: number }) {
   return (

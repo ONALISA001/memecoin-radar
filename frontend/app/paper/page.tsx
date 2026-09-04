@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useApi } from "@/lib/api";
 import { Panel } from "@/components/ui";
-import { EquityCurve, PositionsTable, SignalsPanel, SimStrip, StatTile,
+import { EquityCurve, ErrStrip, PositionsTable, SignalsPanel, SimStrip, StatTile,
          TradeTimeline, usd, pnlCls, pnlSign } from "@/components/paper";
 
 function usePaperSummary() { return useApi("/paper/summary", 10000); }
@@ -11,15 +11,16 @@ function usePaperSummary() { return useApi("/paper/summary", 10000); }
 export default function PaperDashboard() {
   const [hours, setHours] = useState(24);
   const [posKey, setPosKey] = useState(0);
-  const { data: s } = usePaperSummary();
+  const { data: s, error: sErr } = usePaperSummary();
   const { data: eq } = useApi(`/paper/equity?hours=${hours}`, 20000);
-  const { data: positions } = useApi(`/paper/positions?k=${posKey}`, 15000);
+  const { data: positions, error: pErr } = useApi(`/paper/positions?k=${posKey}`, 15000);
   const { data: cal } = useApi("/paper/analytics/calendar", 30000);
   const { data: sigStats } = useApi("/paper/signals/stats", 20000);
 
   return (
     <div className="space-y-3">
       <SimStrip />
+      <ErrStrip error={sErr} label="Account summary" />
       {/* TOP (§28): equity, pnl, return, win rate, drawdown, open positions */}
       <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
         <StatTile label="Virtual Equity" value={usd(s?.virtual_equity)} cls={pnlCls(s ? s.total_pnl : null)} />
