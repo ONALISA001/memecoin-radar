@@ -317,3 +317,152 @@ class SystemLog(Base):
     level = Column(String(8))
     source = Column(String(64))
     message = Column(String(500))
+
+
+# ---------------------------------------------------------------- v4 paper trading
+class StrategyVersion(Base):
+    """Immutable strategy configuration snapshot (v4 §22). Trades link here so
+    historical trades always keep the exact config that produced them."""
+    __tablename__ = "strategy_versions"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(64))                # e.g. "Momentum"
+    version = Column(String(16))             # e.g. "4.0"
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    config_json = Column(JSON)               # full frozen configuration
+
+
+class DemoAccount(Base):
+    """Virtual-funds demo account (v4 §2). No path from here touches a chain,
+    wallet, key or exchange — execution is virtual accounting only (§26)."""
+    __tablename__ = "demo_accounts"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    label = Column(String(64), default="AI Paper Trader")
+    starting_cash = Column(Float, default=10000.0)
+    cash = Column(Float, default=10000.0)
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_event_id = Column(Integer, default=0)     # idempotent signal cursor (§31)
+    settings_json = Column(JSON)                    # §3 user-configurable settings
+    strategy_version_id = Column(Integer, ForeignKey("strategy_versions.id"))
+    peak_equity = Column(Float, default=10000.0)    # for drawdown tracking
+    day_ts = Column(Integer, default=0)             # UTC day bucket for daily loss
+    day_realized = Column(Float, default=0.0)
+    consec_losses = Column(Integer, default=0)
+    consec_wins = Column(Integer, default=0)
+
+
+class PaperSignal(Base):
+    """AI signal handed to the risk engine (v4 §4). Deduped on
+    (account, source_event) — reprocessing the same event can never create a
+    second signal/position (§31)."""
+    __tablename__ = "paper_signals"
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("demo_accounts.id"), index=True)
+    token_id = Column(Integer, ForeignKey("tokens.id"), index=True)
+    ts = Column(Integer, index=True)
+    action = Column(String(8))               # BUY | SELL
+    kind = Column(String(32))                # source event kind
+    source_event_id = Column(Integer)        # signal_events.id — dedupe anchor
+    price = Column(Float)                    # price at signal time
+    confidence = Column(Float)               # 0–100
+    importance = Column(String(8))
+    importance_score = Column(Integer)
+    risk_score = Column(Float)
+    market_regime = Column(String(24))
+    metrics_json = Column(JSON)              # §4 signal factor metrics
+    why_json = Column(JSON)                  # §5 structured explanation
+    concern = Column(String(300))
+    status = Column(String(12), default="pending", index=True)  # approved | rejected
+    reject_reason = Column(String(200))
+    risk_decision_json = Column(JSON)        # every check the risk engine ran (§6)
+    __table_args__ = (
+        UniqueConstraint("account_id", "source_event_id", name="uq_signal_source"),
+        Index("ix_papersig_feed", "account_id", "ts"),
+    )
+
+
+class PaperPosition(Base):
+    """Position lifecycle = the trade ledger (v4 §9)."""
+    __tablename__ = "paper_positions"
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("demo_accounts.id"), index=True)
+    signal_id = Column(Integer, ForeignKey("paper_signals.id"))
+    strategy_version_id = Column(Integer, ForeignKey("strategy_versions.id"))
+    token_id = Column(Integer, ForeignKey("tokens.id"), index=True)
+    status = Column(String(8), default="open", index=True)      # open | closed
+    entry_ts = Column(Integer, index=True)
+    signal_price = Column(Float)
+    entry_price = Column(Float)              # after slippage (§7)
+    qty = Column(Float)
+    size_usd = Column(Float)                 # notional requested
+    cost_usd = Column(Float)                 # size − entry fee
+    entry_fee = Column(Float)
+    slippage_pct = Column(Float)
+    stop_price = Column(Float)
+    target_price = Column(Float)
+    trail_pct = Column(Float)                # 0/None = trailing disabled
+    peak_price = Column(Float)
+    ai_confidence = Column(Float)
+    risk_score = Column(Float)
+    market_regime = Column(String(24))
+    metrics_json = Column(JSON)              # signal factors at entry (§13)
+    why_json = Column(JSON)                  # decision explanation (§5)
+    max_hold_secs = Column(Integer)
+    # close side
+    exit_ts = Column(Integer)
+    exit_price = Column(Float)
+    exit_reason = Column(String(32), index=True)   # STOP_LOSS | TAKE_PROFIT | TRAILING_STOP |
+                                                   # SELL_SIGNAL | CONFIDENCE_COLLAPSE |
+                                                   # RISK_EXIT | LIQUIDITY_EXIT | MAX_HOLD |
+                                                   # MANUAL | SLIPPAGE_EXEC
+    exit_fee = Column(Float)
+    realized_pnl = Column(Float)
+    pnl_pct = Column(Float)
+    hold_secs = Column(Integer)
+
+
+class PaperTradeEvent(Base):
+    """Chronological event stream per account (v4 §14)."""
+    __tablename__ = "paper_trade_events"
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("demo_accounts.id"), index=True)
+    position_id = Column(Integer, ForeignKey("paper_positions.id"), index=True)
+    signal_id = Column(Integer, ForeignKey("paper_signals.id"))
+    ts = Column(Integer, index=True)
+    kind = Column(String(12), index=True)    # SIGNAL RISK BUY SELL POSITION PROFIT LOSS SYSTEM
+    title = Column(String(200))
+    detail = Column(String(500))
+    data_json = Column(JSON)
+
+
+class EquitySnapshot(Base):
+    """Portfolio equity time series (§16 charts, §30 PerformanceSnapshot)."""
+    __tablename__ = "equity_snapshots"
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey("demo_accounts.id"), index=True)
+    ts = Column(Integer, index=True)
+    equity = Column(Float)
+    cash = Column(Float)
+    invested = Column(Float)
+    unrealized = Column(Float)
+    realized_cum = Column(Float)
+    drawdown_pct = Column(Float)
+    __table_args__ = (Index("ix_equity_acc_ts", "account_id", "ts", unique=True),)
+
+
+class BacktestRun(Base):
+    """Strategy backtests over recorded signal+price history (§20) and the
+    frame series for historical replay (§21)."""
+    __tablename__ = "backtest_runs"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    mode = Column(String(8), default="backtest")   # backtest | replay
+    start_ts = Column(Integer)
+    end_ts = Column(Integer)
+    params_json = Column(JSON)                      # capital + strategy overrides
+    result_json = Column(JSON)                      # summary stats
+    frames_json = Column(JSON)                      # replay mode: per-tick frames
+    status = Column(String(12), default="done")
+    note = Column(String(300))

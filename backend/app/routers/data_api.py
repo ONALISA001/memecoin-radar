@@ -266,7 +266,7 @@ def screener(
 
 
 _SIGNAL_CATEGORIES = {"new", "momentum", "volume", "flow", "whales", "holders",
-                      "liquidity", "ath", "reversal", "distribution", "risk", "pattern"}
+                      "liquidity", "ath", "reversal", "distribution", "risk", "pattern", "paper"}
 _IMPORTANCE_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
 
 

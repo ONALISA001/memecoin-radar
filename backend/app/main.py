@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import INGEST_INTERVAL_SECONDS
 from .database import Base, SessionLocal, engine
-from .routers import data_api, user_api
+from .routers import data_api, paper_api, user_api
 from .security import hash_password
 from .services import ingestion
 
@@ -122,6 +122,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(data_api.router, prefix="/api", tags=["data"])
 app.include_router(user_api.router, prefix="/api", tags=["user"])
+app.include_router(paper_api.router, prefix="/api", tags=["paper"])
 
 
 @app.get("/")

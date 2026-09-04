@@ -1,0 +1,467 @@
+"""Paper-trading engine (v4 phases 1–3). Runs inside the ingestion tick:
+
+    new enriched SignalEvents (v3 intel)  → PaperSignal (deduped by event id)
+      → risk engine approval / rejection  → simulated execution (slippage+fees)
+      → position management (SL/TP/trailing/signal/health/time exits)
+      → ledger + timeline events + equity snapshots + live-feed integration
+
+All money is virtual; no chain interaction exists anywhere in this package.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from datetime import datetime, timezone
+
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
+
+from ..models import (DemoAccount, EquitySnapshot, PaperPosition, PaperSignal,
+                      PaperTradeEvent, SignalEvent, StrategyVersion, Token)
+from . import config as PC
+from . import execution as X
+from . import risk as R
+
+log = logging.getLogger("paper")
+
+EXIT_REASONS = ("STOP_LOSS", "TAKE_PROFIT", "TRAILING_STOP", "SELL_SIGNAL",
+                "CONFIDENCE_COLLAPSE", "RISK_EXIT", "LIQUIDITY_EXIT", "MAX_HOLD",
+                "MANUAL")
+
+
+# ------------------------------------------------------------------ setup
+def get_or_create_account(db, user_id: int, start_cash: float = 10000.0) -> DemoAccount:
+    acct = db.execute(select(DemoAccount).where(
+        DemoAccount.user_id == user_id, DemoAccount.active == True)  # noqa: E712
+        .order_by(DemoAccount.id.desc()).limit(1)).scalar_one_or_none()
+    if acct is None:
+        ver = _strategy_version(db, PC.merged_settings(None))
+        acct = DemoAccount(user_id=user_id, label="AI Paper Trader",
+                           starting_cash=start_cash, cash=start_cash,
+                           settings_json={}, strategy_version_id=ver.id,
+                           # start at the present edge — never trade stale
+                           # hours-old signals (§31/§34)
+                           last_event_id=db.execute(select(func.max(SignalEvent.id))).scalar() or 0)
+        db.add(acct)
+        db.flush()
+        _event(db, acct, None, None, "SYSTEM",
+               "Demo account created — virtual funds only",
+               f"Starting capital ${start_cash:,.2f}. PAPER TRADING · SIMULATION · no real funds ever touch a market.",
+               {"starting_capital": start_cash})
+    return acct
+
+
+def _strategy_version(db, settings: dict) -> StrategyVersion:
+    import hashlib, json as _json
+    h = hashlib.sha1(_json.dumps(settings, sort_keys=True).encode()).hexdigest()[:8]
+    ver = db.execute(select(StrategyVersion).where(StrategyVersion.name == PC.STRATEGY_NAME)
+                     .order_by(StrategyVersion.id.desc()).limit(1)).scalar_one_or_none()
+    if ver is None:
+        ver = StrategyVersion(name=PC.STRATEGY_NAME, version=PC.STRATEGY_BASE_VERSION,
+                              config_json=settings)
+        db.add(ver)
+        db.flush()
+    else:
+        cur = hashlib.sha1(_json.dumps(ver.config_json, sort_keys=True).encode()).hexdigest()[:8]
+        if cur != h and settings != PC.merged_settings(ver.config_json):
+            base = ver.version.split(".")
+            base[-1] = str(int(base[-1]) + 1) if base[-1].isdigit() else "1"
+            new = StrategyVersion(name=PC.STRATEGY_NAME, version=".".join(base),
+                                  config_json=settings)
+            db.add(new)
+            db.flush()
+            return new
+    return ver
+
+
+def apply_settings(db, acct: DemoAccount, overrides: dict) -> str:
+    """Persist user settings; bumps strategy version if risk/strategy knobs changed (§22)."""
+    acct.settings_json = overrides or {}
+    settings = PC.merged_settings(overrides)
+    ver = _strategy_version(db, settings)
+    acct.strategy_version_id = ver.id
+    return f"{ver.name} v{ver.version}"
+
+
+def settings_for(acct: DemoAccount) -> dict:
+    return PC.merged_settings(acct.settings_json or {})
+
+
+# ------------------------------------------------------------------ helpers
+def _event(db, acct, pos, sig, kind: str, title: str, detail: str, data: dict) -> PaperTradeEvent:
+    ev = PaperTradeEvent(account_id=acct.id,
+                         position_id=getattr(pos, "id", None),
+                         signal_id=getattr(sig, "id", None),
+                         ts=_now_ts, kind=kind, title=title[:190],
+                         detail=(detail or "")[:495], data_json=data or {})
+    db.add(ev)
+    return ev
+
+
+_now_ts = 0  # set per tick — single clock per tick keeps timestamps consistent
+
+
+def _now_ts_utc() -> int:
+    return int(time.time())
+
+
+def _feed_row(db, token_id: int, kind: str, key: str, title: str, detail: str,
+              severity: str, importance: str, importance_score: int, confidence,
+              metrics: dict):
+    """Project paper-trading events into the Live Intelligence Feed (§15)."""
+    db.add(SignalEvent(
+        token_id=token_id, ts=_now_ts, kind=kind, key=key, title=title[:190],
+        detail=(detail or "")[:590], severity=severity, metrics_json=metrics or {},
+        category="paper", importance=importance, importance_score=importance_score,
+        confidence=round(confidence) if confidence else None,
+        signal_text=(detail or "")[:290], why_json=[], concern=None,
+        chain_json=None, checklist_json=[]))
+
+
+def portfolio_state(db, acct, market: dict) -> dict:
+    pos = db.execute(select(PaperPosition).where(
+        PaperPosition.account_id == acct.id,
+        PaperPosition.status == "open")).scalars().all()
+    invested, unreal = 0.0, 0.0
+    for p in pos:
+        px = _price(market, p.token_id)
+        invested += p.qty * px
+        unreal += (px - p.entry_price) * p.qty
+    equity = acct.cash + invested
+    peak = max(acct.peak_equity or equity, equity)
+    dd = 100.0 * (peak - equity) / peak if peak > 0 else 0.0
+    return {"positions": pos, "open_count": len(pos), "invested": invested,
+            "unrealized": unreal, "equity": equity, "cash": acct.cash,
+            "drawdown_pct": dd, "peak": peak}
+
+
+def _price(market: dict, token_id: int) -> float:
+    return float((market.get(token_id) or {}).get("price") or 0.0)
+
+
+def _market_regime(mi: dict | None) -> str:
+    sig = ((mi or {}).get("confluence") or {}).get("signal")
+    return {"emerging_momentum": "BULLISH", "potential_distribution": "DISTRIBUTION"}.get(sig, "NEUTRAL")
+
+
+# ------------------------------------------------------------------ tick
+def run_tick(db, now: int, market: dict) -> dict:
+    """Process all accounts for one ingestion tick. Idempotent via the
+    per-account last_event_id cursor + unique (account, source_event)."""
+    global _now_ts
+    _now_ts = now
+    stats = {"signals": 0, "approved": 0, "rejected": 0, "bought": 0, "sold": 0, "accounts": 0}
+    accounts = db.execute(select(DemoAccount).where(DemoAccount.active == True)).scalars().all()  # noqa: E712
+    if not accounts:
+        return stats
+    stats["accounts"] = len(accounts)
+    for acct in accounts:
+        try:
+            _run_account(db, acct, now, market, stats)
+        except Exception as exc:  # one account must never break the tick
+            log.exception("paper tick failed for account %s: %s", acct.id, exc)
+    return stats
+
+
+def _run_account(db, acct: DemoAccount, now: int, market: dict, stats: dict) -> None:
+    settings = settings_for(acct)
+    day = now - (now % 86400)
+    if acct.day_ts != day:
+        acct.day_ts = day
+        acct.day_realized = 0.0
+
+    # ① ingest new buy/sell intel events since cursor (idempotent)
+    rows = db.execute(select(SignalEvent).where(
+        SignalEvent.id > (acct.last_event_id or 0),
+        SignalEvent.category.isnot(None),
+        SignalEvent.category != "paper",
+        SignalEvent.kind.in_(PC.BUY_KINDS + PC.SELL_KINDS))
+        .order_by(SignalEvent.id.asc()).limit(500)).scalars().all()
+    sell_hits: dict[int, SignalEvent] = {}
+    for ev in rows:
+        if ev.kind in PC.SELL_KINDS and (ev.severity == "danger" or ev.importance_score >= 60):
+            prev = sell_hits.get(ev.token_id)
+            if prev is None or (ev.importance_score or 0) > (prev.importance_score or 0):
+                sell_hits[ev.token_id] = ev
+        if ev.kind in PC.BUY_KINDS:
+            sig = _ingest_buy_signal(db, acct, ev, now, market, stats)
+            if sig is not None:
+                stats["signals"] += 1
+                _risk_and_maybe_execute(db, acct, settings, sig, ev, now, market, stats)
+    acct.last_event_id = max([acct.last_event_id or 0] + [r.id for r in rows])
+
+    # ② manage open positions
+    pf = portfolio_state(db, acct, market)
+    for p in list(pf["positions"]):
+        _manage_exit(db, acct, settings, p, now, market, sell_hits, stats)
+
+    # ③ equity snapshot + drawdown peak (daily cadence of writes is enough at
+    #    5-min ticks; still idempotent via unique (account, ts))
+    pf = portfolio_state(db, acct, market)
+    acct.peak_equity = max(acct.peak_equity or 0.0, pf["peak"])
+    if not db.execute(select(EquitySnapshot.id).where(
+            EquitySnapshot.account_id == acct.id, EquitySnapshot.ts == now)).first():
+        snap = EquitySnapshot(account_id=acct.id, ts=now, equity=round(pf["equity"], 4),
+                              cash=round(pf["cash"], 4), invested=round(pf["invested"], 4),
+                              unrealized=round(pf["unrealized"], 4),
+                              realized_cum=round((pf["equity"] - pf["unrealized"])
+                                                 - acct.starting_cash - 0, 4),
+                              drawdown_pct=round(pf["drawdown_pct"], 3))
+        try:
+            with db.begin_nested():  # savepoint — duplicate snapshot (same tick
+                db.add(snap)          # reprocessed in this session) is ignored
+        except IntegrityError:
+            pass
+
+
+def _ingest_buy_signal(db, acct, ev: SignalEvent, now: int, market: dict,
+                       stats: dict) -> PaperSignal | None:
+    """SignalEvent → PaperSignal with dedupe (§31). Returns None if duplicate
+    or if the account already holds this token (no pyramiding)."""
+    if db.execute(select(PaperSignal.id).where(
+            PaperSignal.account_id == acct.id,
+            PaperSignal.source_event_id == ev.id)).first():
+        return None
+    mkt = market.get(ev.token_id) or {}
+    m = dict(ev.metrics_json or {})
+    # merge live market facts (execution layer needs pool + volume figures)
+    m.setdefault("liquidity", mkt.get("liq"))
+    m.setdefault("volume_24h", mkt.get("volume_24h"))
+    m.setdefault("mcap", mkt.get("mcap"))
+    checks = ev.checklist_json or []
+    why = [f"✓ {c['label']} ({c['value']})" if c.get("passed") else f"⚠ {c['label']} ({c['value']})"
+           for c in checks]
+    sig = PaperSignal(
+        account_id=acct.id, token_id=ev.token_id, ts=now, action="BUY",
+        kind=ev.kind, source_event_id=ev.id, price=_price(market, ev.token_id),
+        confidence=ev.confidence or 0, importance=ev.importance,
+        importance_score=ev.importance_score or 0,
+        risk_score=mkt.get("risk"),
+        market_regime=mkt.get("regime", "NEUTRAL"),
+        metrics_json=m, why_json=why, concern=ev.concern, status="pending")
+    db.add(sig)
+    try:
+        with db.begin_nested():  # savepoint: a duplicate insert rolls back only
+            db.flush()           # this signal, never the whole tick (§31/§33)
+    except IntegrityError:
+        # unique (account, source_event) — event already processed this session
+        db.expunge(sig)
+        db.session.remove if False else None
+        return None
+    return sig
+
+
+def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEvent,
+                            now: int, market: dict, stats: dict) -> None:
+    sym = _symbol(db, sig.token_id)
+    pf = portfolio_state(db, acct, market)
+    acct_state = {"trading_allowed": not (acct.settings_json or {}).get("paused", False),
+                  "day_realized": acct.day_realized or 0.0,
+                  "consec_losses": acct.consec_losses or 0}
+    sig_metrics = dict(sig.metrics_json or {})
+    checks = ev.checklist_json or []
+    decision = R.evaluate_signal(
+        settings, {"confidence": sig.confidence, "risk_score": sig.risk_score or 100,
+                   "metrics": sig_metrics,
+                   "why_passed": sum(1 for c in checks if c.get("passed")),
+                   "importance": sig.importance}, pf, acct_state)
+    # already holding this token?
+    if decision["approved"] and db.execute(select(PaperPosition.id).where(
+            PaperPosition.account_id == acct.id, PaperPosition.token_id == sig.token_id,
+            PaperPosition.status == "open")).first():
+        R.chk(decision, "no duplicate token position", False,
+              f"already holding ${sym}")
+    if not decision["approved"]:
+        reason = decision["rejects"][0] if decision["rejects"] else "rejected"
+        sig.status, sig.reject_reason, sig.risk_decision_json = "rejected", reason, decision
+        stats["rejected"] += 1
+        _event(db, acct, None, sig, "RISK", f"🚫 SIGNAL REJECTED — ${sym}",
+               f"{ev.title}. Reason: {reason}. Confidence {sig.confidence:.0f}% vs required "
+               f"{settings['min_confidence']:.0f}% (full checklist stored).",
+               {"checks": decision["checks"]})
+        db.flush()
+        return
+    # position sizing: proposed → capped by per-trade loss limit
+    size = R.position_size(settings, pf)
+    stop_pct = float(settings["stop_loss_pct"])
+    size = R.loss_cap_size(settings, pf, size, stop_pct)
+    if size < float(settings["execution"]["min_order_usd"]):
+        sig.status = "rejected"
+        sig.reject_reason = f"order ${size:.2f} below minimum ${settings['execution']['min_order_usd']:.0f}"
+        sig.risk_decision_json = decision
+        stats["rejected"] += 1
+        _event(db, acct, None, sig, "RISK", f"🚫 SIGNAL REJECTED — ${sym}",
+               f"Computed size ${size:.2f} below minimum order size "
+               f"(insufficient free cash above reserve).", {"size": size})
+        db.flush()
+        return
+    price = _price(market, sig.token_id)
+    if price <= 0:
+        sig.status = "rejected"
+        sig.reject_reason = "market data unavailable at decision time"
+        sig.risk_decision_json = decision
+        stats["rejected"] += 1
+        _event(db, acct, None, sig, "RISK", f"🚫 SIGNAL SKIPPED — ${sym}",
+               "WAITING FOR MARKET DATA — no fill attempted (§34).", {})
+        db.flush()
+        return
+    mkt = market.get(sig.token_id) or {}
+    fill = X.buy_fill(price, size, mkt.get("liq") or 0, mkt.get("price_chg_1h") or 0,
+                      settings["execution"])
+    acct.cash = round(acct.cash - size, 6)
+    ver_id = acct.strategy_version_id
+    pos = PaperPosition(
+        account_id=acct.id, signal_id=sig.id, strategy_version_id=ver_id,
+        token_id=sig.token_id, entry_ts=now, signal_price=price,
+        entry_price=fill["exec_price"], qty=fill["qty"], size_usd=size,
+        cost_usd=fill["cost"], entry_fee=fill["fee"], slippage_pct=fill["slip_pct"],
+        stop_price=round(fill["exec_price"] * (1 - stop_pct / 100.0), 12),
+        target_price=round(fill["exec_price"] * (1 + float(settings["take_profit_pct"]) / 100.0), 12),
+        trail_pct=float(settings["trailing_stop_pct"]) or None,
+        peak_price=fill["exec_price"],
+        ai_confidence=sig.confidence, risk_score=sig.risk_score,
+        market_regime=sig.market_regime, metrics_json=sig_metrics,
+        why_json=sig.why_json, max_hold_secs=int(settings["max_hold_hours"] * 3600))
+    db.add(pos)
+    sig.status = "approved"
+    sig.risk_decision_json = decision
+    db.flush()
+    stats["approved"] += 1
+    stats["bought"] += 1
+    detail = (f"Signal ${price:.8g} → fill ${fill['exec_price']:.8g} (slip {fill['slip_pct']:.2f}%) · "
+              f"size ${size:,.2f} · fee ${fill['fee']:.2f} · stop ${pos.stop_price:.8g} · "
+              f"target ${pos.target_price:.8g} · regime {sig.market_regime}")
+    _event(db, acct, pos, sig, "BUY", f"🟢 PAPER BUY — ${sym}",
+           f"{ev.title} · conf {sig.confidence:.0f}% · {detail}", {
+               "size": size, **fill, "stop": pos.stop_price, "target": pos.target_price})
+    _feed_row(db, pos.token_id, "paper_buy", f"pos{pos.id}",
+              f"🤖 PAPER BUY — ${sym} · conf {sig.confidence:.0f}%",
+              f"AI paper trader bought ${size:,.0f} (simulated, virtual funds): {ev.signal_text or ev.title}",
+              "positive", sig.importance or "LOW", min(70, (sig.importance_score or 35) - 10),
+              sig.confidence, {"size_usd": size, "exec_price": fill["exec_price"],
+                               "stop": pos.stop_price, "target": pos.target_price,
+                               "signal_kind": sig.kind, "regime": sig.market_regime})
+
+
+def _manage_exit(db, acct, settings, p: PaperPosition, now: int, market: dict,
+                 sell_hits: dict, stats: dict) -> bool:
+    mkt = market.get(p.token_id) or {}
+    px = _price(market, p.token_id)
+    if px <= 0:
+        return False
+    p.peak_price = max(p.peak_price or p.entry_price, px)
+    reason = None
+    if px <= (p.stop_price or 0):
+        reason = "STOP_LOSS"
+    elif p.target_price and px >= p.target_price:
+        reason = "TAKE_PROFIT"
+    elif p.trail_pct and px <= p.peak_price * (1 - p.trail_pct / 100.0) and p.peak_price > p.entry_price * 1.02:
+        reason = "TRAILING_STOP"
+    elif p.token_id in sell_hits:
+        reason = "SELL_SIGNAL"
+    elif (mkt.get("momentum") is not None and p.metrics_json.get("momentum") is not None
+          and mkt["momentum"] <= p.metrics_json["momentum"] - float(settings["confidence_collapse_pts"])):
+        reason = "CONFIDENCE_COLLAPSE"
+    elif mkt.get("sellp") is not None and mkt["sellp"] >= float(settings["sell_pressure_exit"]):
+        reason = "RISK_EXIT"
+    elif (mkt.get("liq_chg_3h") is not None
+          and mkt["liq_chg_3h"] <= float(settings["liquidity_exit_pct"])):
+        reason = "LIQUIDITY_EXIT"
+    elif now - p.entry_ts >= (p.max_hold_secs or 86400):
+        reason = "MAX_HOLD"
+    if reason is None:
+        return False
+    _close_position(db, acct, settings, p, px, mkt, now, reason, stats)
+    return True
+
+
+def _close_position(db, acct, settings, p: PaperPosition, px: float, mkt: dict,
+                    now: int, reason: str, stats: dict) -> None:
+    fill = X.sell_fill(px, p.qty, mkt.get("liq") or 0, mkt.get("price_chg_1h") or 0,
+                       settings["execution"])
+    proceeds = fill["proceeds"]
+    pnl = round(proceeds - p.cost_usd - 0, 6)   # entry fee already inside cost math
+    pnl_pct = 100.0 * pnl / max(p.size_usd, 1e-9)
+    p.status = "closed"
+    p.exit_ts = now
+    p.exit_price = fill["exec_price"]
+    p.exit_reason = reason
+    p.exit_fee = fill["fee"]
+    p.realized_pnl = pnl
+    p.pnl_pct = round(pnl_pct, 3)
+    p.hold_secs = now - p.entry_ts
+    acct.cash = round(acct.cash + proceeds, 6)
+    acct.day_realized = round((acct.day_realized or 0) + pnl, 6)
+    if pnl >= 0:
+        acct.consec_wins = (acct.consec_wins or 0) + 1
+        acct.consec_losses = 0
+    else:
+        acct.consec_losses = (acct.consec_losses or 0) + 1
+        acct.consec_wins = 0
+    stats["sold"] += 1
+    sym = _symbol(db, p.token_id)
+    reason_txt = {"STOP_LOSS": "Stop loss reached", "TAKE_PROFIT": "Take-profit reached",
+                  "TRAILING_STOP": "Trailing stop triggered",
+                  "SELL_SIGNAL": "AI sell signal / distribution event",
+                  "CONFIDENCE_COLLAPSE": "AI confidence collapsed vs entry",
+                  "RISK_EXIT": "Risk threshold exceeded (sell pressure)",
+                  "LIQUIDITY_EXIT": "Liquidity deteriorated",
+                  "MAX_HOLD": "Maximum holding period reached",
+                  "MANUAL": "Closed manually (simulated)"}.get(reason, reason)
+    kind = "PROFIT" if pnl >= 0 else "LOSS"
+    detail = (f"{reason_txt} · entry ${p.entry_price:.8g} → exit ${fill['exec_price']:.8g} "
+              f"(slip {fill['slip_pct']:.2f}%) · fees ${(p.entry_fee + fill['fee']):.2f} · "
+               f"P&L {pnl:+.2f} ({pnl_pct:+.1f}%) · held {p.hold_secs // 60}m")
+    _event(db, acct, p, None, "SELL",
+           f"{'💰 PROFIT REALIZED' if pnl >= 0 else '🔻 LOSS REALIZED'} — ${sym} {pnl:+.2f}",
+           detail, {"pnl": pnl, "pnl_pct": pnl_pct, "reason": reason,
+                    "entry_fee": p.entry_fee, "exit_fee": fill["fee"]})
+    total_fee = (p.entry_fee or 0) + fill["fee"]
+    _feed_row(db, p.token_id, f"paper_{'win' if pnl >= 0 else 'loss'}", f"pos{p.id}",
+              f"{'💰' if pnl >= 0 else '🔻'} PAPER {'PROFIT' if pnl >= 0 else 'LOSS'} — ${sym} {pnl:+.0f}$ ({pnl_pct:+.0f}%)",
+              f"{reason_txt} after {max(p.hold_secs // 60, 1)}m (simulated, virtual funds). "
+              f"Entry conf {p.ai_confidence:.0f}%, risk {p.risk_score or 0:.0f}. Fees+slip modeled (${total_fee:.2f} fees).",
+              "positive" if pnl >= 0 else "danger",
+              "HIGH" if abs(pnl_pct) >= 15 else "MEDIUM",
+              min(85, 55 + int(abs(pnl_pct))), p.ai_confidence,
+              {"pnl": pnl, "pnl_pct": pnl_pct, "hold_secs": p.hold_secs,
+               "exit_reason": reason, "entry_price": p.entry_price,
+               "exit_price": p.exit_price})
+
+
+def _symbol(db, token_id: int) -> str:
+    sym = db.execute(select(Token.symbol).where(Token.id == token_id)).scalar()
+    return sym or str(token_id)
+
+
+def manual_close(db, acct, position_id: int, now: int, market: dict) -> PaperPosition | None:
+    global _now_ts
+    _now_ts = now
+    p = db.execute(select(PaperPosition).where(
+        PaperPosition.id == position_id, PaperPosition.account_id == acct.id,
+        PaperPosition.status == "open")).scalar_one_or_none()
+    if not p:
+        return None
+    settings = settings_for(acct)
+    stats: dict = {"sold": 0}
+    _close_position(db, acct, settings, p, _price(market, p.token_id) or p.entry_price,
+                    market.get(p.token_id) or {}, now, "MANUAL", stats)
+    return p
+
+
+def reset_account(db, acct: DemoAccount, start_cash: float = 10000.0) -> None:
+    """§23: hard reset — clear positions, signals, events, equity history."""
+    from ..models import EquitySnapshot as Eq, PaperTradeEvent as PTE
+    for model, col in ((PaperPosition, PaperPosition.account_id),
+                       (PaperSignal, PaperSignal.account_id),
+                       (PaperTradeEvent, PTE.account_id),
+                       (EquitySnapshot, Eq.account_id)):
+        db.execute(model.__table__.delete().where(col == acct.id))
+    acct.cash = acct.starting_cash = start_cash
+    acct.peak_equity = start_cash
+    acct.day_realized = 0.0
+    acct.consec_losses = acct.consec_wins = 0
+    acct.last_event_id = db.execute(select(func.max(SignalEvent.id))).scalar() or 0
+    _event(db, acct, None, None, "SYSTEM", "Demo account reset",
+           f"Portfolio cleared. New starting capital ${start_cash:,.2f} (virtual).",
+           {"starting_capital": start_cash})

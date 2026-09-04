@@ -9,6 +9,7 @@ import { timeAgo } from "@/lib/format";
 const NAV = [
   { href: "/", label: "Dashboard" },
   { href: "/feed", label: "Intelligence" },
+  { href: "/paper", label: "Paper Trader" },
   { href: "/new", label: "New Coins" },
   { href: "/screener", label: "Screener" },
   { href: "/narratives", label: "Narratives" },

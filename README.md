@@ -6,6 +6,55 @@ social / market / on-chain / news data into *explainable* signals so you can do 
 
 ---
 
+## What it does (v4 — AI Paper Trading & Strategy Simulation)
+
+A complete virtual-funds trading laboratory wired directly into the v3 intelligence
+engine (v4 §1: MARKET DATA → INTEL → SIGNAL → RISK → EXECUTION → LEDGER → ANALYTICS).
+`backend/app/paper/` contains one shared strategy core (`config`, `risk`, `execution`,
+`engine`, `backtest`) reused by live paper trading, backtests and replay (§1/§20/§21).
+
+- **Demo account (§2/§3)**: $10k virtual cash, lazy-per-user, every setting editable via
+  API (capital, position caps, strategy filters, risk limits, execution model) — no code
+  changes. Reset with confirmation + CSV/JSON export (§23–24).
+- **Signals (§4–5)**: enriched v3 SignalEvents become `PaperSignal` rows with confidence,
+  factor metrics and structured ✓/⚠ explanations; nothing fabricated — missing data is
+  stored as unavailable (§34).
+- **Risk engine (§6/§25)**: 14 gates (confidence, liquidity, volume, mcap, risk score,
+  bullish signals, position/exposure caps, daily loss, drawdown, consecutive losses…).
+  Every signal ends `approved` or `rejected` with a persisted reason — the user can audit
+  *AI wanted* vs *risk allowed* at `/api/paper/signals/stats`.
+- **Execution (§7/§8)**: memecoin-aware cost model — base slippage + order-size price
+  impact (size/pool) + volatility slip, thin-book penalty, fees both sides. Fill = price
+  × (1±slip); never a real transaction (§26).
+- **Exits (§10)**: stop-loss, take-profit, trailing stop, AI sell-signal (danger intel
+  events), confidence collapse, risk-threshold, liquidity deterioration, max-hold,
+  manual — each with exact UTC timestamps and reason (§32).
+- **Ledger & timeline (§9/§14)**: `PaperPosition` (full accounting incl. slippage/fees),
+  per-trade `PaperTradeEvent` stream, and trade events projected into the Live
+  Intelligence Feed (`category=paper`) telling detection→decision→execution→result (§15).
+- **Analytics (§16–19/§25)**: `/api/paper/analytics` — win rate, profit factor,
+  drawdown, avg/median P&L & hold, fees-vs-slippage split, exit-reason mix, **confidence
+  buckets** (does higher confidence win?), **signal effectiveness** (which factors
+  correlate with outcomes), calendar P&L; §19 forward returns come from the v3 outcome
+  labeling of paper feed events.
+- **Backtest & replay (§20–21)**: `POST /api/paper/backtest` runs the same strategy core
+  over recorded signal+price history (structurally look-ahead-free; data gaps counted,
+  not filled), returns equity curve/top trades and optional replay frames consumed by the
+  interactive replay player (play/pause/2x–10x/scrub).
+- **Versioning (§22)**: settings changes mint a new immutable `StrategyVersion`; trades
+  keep their original config forever.
+- **Reliability (§31/§33)**: per-account event cursor + unique (account, source_event)
+  make reprocessing impossible; savepoint-guarded writes survive duplicate inserts;
+  37-test suite `backend/scripts/test_paper.py` covers signals/risk/execution/positions/
+  accounting/reliability — all green.
+- **UI**: `/paper` dashboard (equity curve, open positions, live signals, risk audit,
+  timeline), `/paper/trades` ledger, `/paper/trades/[id]` trade analysis with signal
+  metrics + decision explanation + risk-decision checklist, `/paper/analytics`,
+  `/paper/backtest` (+replay), `/paper/settings`. Every surface labeled
+  **PAPER TRADING · SIMULATION · VIRTUAL FUNDS**.
+
+Previous summaries below for the intelligence platform the trader builds on.
+
 ## What it does (v3 — Real-Time Event Intelligence)
 
 v3 turns the v2 signal feed into a full event-detection engine (`app/engine/intel.py`,

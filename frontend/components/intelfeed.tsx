@@ -23,6 +23,7 @@ export const CAT_META: Record<string, { icon: string; label: string; color: stri
   distribution:  { icon: "🔴", label: "Distribution",  color: "#F87171" },
   risk:          { icon: "⚠️", label: "Risk",          color: "#F87171" },
   pattern:       { icon: "🧩", label: "Chain",         color: "#E879F9" },
+  paper:         { icon: "🤖", label: "Paper trade",   color: "#C084FC" },
   uncategorized: { icon: "•",  label: "Event",         color: "#64748B" },
 };
 export const IMP_STYLE: Record<string, { color: string; label: string }> = {

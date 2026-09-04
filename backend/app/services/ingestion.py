@@ -37,6 +37,7 @@ from ..models import (Alert, DataSource, HolderSnapshot, LiquiditySnapshot,
                       SocialPost, SocialSnapshot, SystemLog, Token, TokenPair,
                       TrendScore, VolumeSnapshot, WalletActivity, Watchlist,
                       SignalEvent)
+from ..paper import engine as paper_engine
 from ..providers.base import HEALTH, RawToken
 from ..providers.dexscreener import DexscreenerProvider
 from ..providers.mock_providers import (FALLBACK_TOKENS, Sim, bucket_of,
@@ -438,9 +439,30 @@ def _score_all(db, now_b: int) -> dict:
         ev_labeled = intel_engine.label_event_outcomes(db, now_b)
     except Exception as exc:
         log.warning("event outcome labeling failed: %s", exc)
+    # v4: paper-trading engine — consumes this tick's intel events through the
+    # risk layer; idempotent per account cursor (§31)
+    paper_stats: dict = {}
+    try:
+        market: dict[int, dict] = {}
+        for p in payloads:
+            d, mi = p["d"], p["mi"]
+            conf_sig = (mi.get("confluence") or {}).get("signal")
+            market[p["token_id"]] = {
+                "price": d.get("price_now"), "liq": d.get("liq_now"), "mcap": d.get("mcap_now"),
+                "volume_24h": d.get("volume_24h"), "price_chg_1h": d.get("price_chg_1h"),
+                "momentum": (mi.get("momentum") or {}).get("score"),
+                "sellp": (mi.get("sell_pressure") or {}).get("score"),
+                "liq_chg_3h": d.get("liq_chg_3h"), "risk": p.get("risk"),
+                "regime": {"emerging_momentum": "BULLISH",
+                           "potential_distribution": "DISTRIBUTION"}.get(conf_sig, "NEUTRAL"),
+            }
+        paper_stats = paper_engine.run_tick(db, now_b, market)
+    except Exception as exc:
+        log.warning("paper engine tick failed (non-fatal): %s", exc)
     db.flush()
     return {"tokens": len(tokens), "emerging": new_emerging, "alerts_fired": created_alerts,
-            "labels": labels, "event_labels": ev_labeled, "breadth": round(breadth, 3)}
+            "labels": labels, "event_labels": ev_labeled, "breadth": round(breadth, 3),
+            "paper": paper_stats}
 
 
 # --------------------------------------------------------------------------
@@ -529,3 +551,28 @@ async def tick() -> dict:
             stats = {"error": str(exc)}
     stats["seconds"] = round(time.time() - t0, 2)
     return stats
+
+
+def latest_market_map(db) -> dict:
+    """Latest per-token market facts for the paper engine's exit checks and
+    the paper API's mark-to-market (v4). Built from stored TrendScore
+    summaries — no fabricated values (§34)."""
+    sub = (select(TrendScore.token_id, func.max(TrendScore.ts).label("mts"))
+           .group_by(TrendScore.token_id).subquery())
+    rows = db.execute(
+        select(TrendScore)
+        .join(sub, (TrendScore.token_id == sub.c.token_id) & (TrendScore.ts == sub.c.mts))
+    ).scalars().all()
+    out: dict[int, dict] = {}
+    for sc in rows:
+        c = sc.components_json or {}
+        s = c.get("summary") or {}
+        regime = ((c.get("forensics") or {}).get("components") or {}).get("regime", {}).get("regime")
+        out[sc.token_id] = {
+            "price": s.get("price"), "liq": s.get("liquidity"), "mcap": s.get("mcap"),
+            "volume_24h": s.get("volume_24h"), "price_chg_1h": s.get("price_change_h1"),
+            "momentum": s.get("momentum"), "sellp": s.get("sellp"),
+            "liq_chg_3h": None,
+            "risk": sc.risk, "regime": regime or "NEUTRAL",
+        }
+    return out
