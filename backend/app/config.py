@@ -23,7 +23,18 @@ def _load_dotenv(path: str) -> None:
 
 _load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'radar.db')}")
+_db = os.getenv("DATABASE_URL", "").strip()
+if _db.startswith("postgres://"):                 # some hosts still hand out the old scheme
+    _db = "postgresql://" + _db[len("postgres://"):]
+if not _db:
+    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"):
+        # Fail loudly: silently using a SQLite file inside the container would
+        # lose all data on every redeploy.
+        raise RuntimeError(
+            "DATABASE_URL is empty on Railway. In the API service > Variables, set it "
+            "with 'Add Reference' to the Postgres service's DATABASE_URL.")
+    _db = f"sqlite:///{os.path.join(BASE_DIR, 'radar.db')}"
+DATABASE_URL = _db
 
 # Ingestion
 INGEST_INTERVAL_SECONDS = int(os.getenv("INGEST_INTERVAL_SECONDS", "60"))
