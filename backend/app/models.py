@@ -300,6 +300,25 @@ class SignalEventOutcome(Base):
     __table_args__ = (Index("ix_evout_unique", "event_id", "horizon_secs"),)
 
 
+class TokenRiskCheck(Base):
+    """Real on-chain risk facts from Solana RPC (Helius). One row per check;
+    latest row per token is what the API serves."""
+    __tablename__ = "token_risk_checks"
+    id = Column(Integer, primary_key=True)
+    token_id = Column(Integer, ForeignKey("tokens.id"), index=True, nullable=False)
+    checked_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    ok = Column(Boolean, default=False)
+    error = Column(String(200))
+    mint_authority = Column(String(64))      # None/"" = renounced (good)
+    freeze_authority = Column(String(64))    # None/"" = none (good)
+    supply = Column(Float)
+    decimals = Column(Integer)
+    top1_pct = Column(Float)
+    top10_pct = Column(Float)
+    holders_sampled = Column(Integer)
+    token_2022 = Column(Boolean, default=False)
+
+
 class DataSource(Base):
     __tablename__ = "data_sources"
     id = Column(Integer, primary_key=True)

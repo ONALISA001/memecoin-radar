@@ -17,7 +17,8 @@ import traceback
 
 from sqlalchemy import delete, func, select
 
-from ..config import (ANOMALY_Z, BACKFILL_HOURS, DEXSCREENER_ENABLED,
+from ..config import (HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
+                      ANOMALY_Z, BACKFILL_HOURS, DEXSCREENER_ENABLED,
                       SNAPSHOT_BUCKET_SECONDS as BUCKET)
 from ..database import SessionLocal
 from ..engine import alerts as alerts_engine
@@ -39,6 +40,7 @@ from ..models import (Alert, DataSource, HolderSnapshot, LiquiditySnapshot,
                       SignalEvent)
 from ..paper import engine as paper_engine
 from ..providers.base import HEALTH, RawToken
+from ..providers import helius as helius_mod
 from ..providers.dexscreener import DexscreenerProvider
 from ..providers.mock_providers import (FALLBACK_TOKENS, Sim, bucket_of,
                                         generate_articles, generate_posts,
@@ -99,6 +101,8 @@ def _mock_addr(sym: str) -> str:
 def _fallback_universe() -> list[RawToken]:
     out = []
     for i, (name, sym, chain) in enumerate(FALLBACK_TOKENS):
+        if SOLANA_ONLY and chain != "solana":
+            continue
         out.append(RawToken(
             address=_mock_addr(sym), chain=chain, name=name, symbol=sym,
             url="", description=f"{name} — simulated discovery token (DexScreener unreachable).",
@@ -111,6 +115,8 @@ def _fallback_ticks() -> dict[str, dict]:
     import random as _r
     ticks = {}
     for i, (name, sym, chain) in enumerate(FALLBACK_TOKENS):
+        if SOLANA_ONLY and chain != "solana":
+            continue
         r = _r.Random(sha_seed(sym))
         addr = _mock_addr(sym)
         mcap = 10 ** r.uniform(4.2, 8.0)
@@ -466,6 +472,58 @@ def _score_all(db, now_b: int) -> dict:
 
 
 # --------------------------------------------------------------------------
+async def onchain_checks() -> dict:
+    """Quota-guarded REAL on-chain risk checks via Helius (no-op without a key).
+    Checks never-checked tokens first, then the stalest; max N per tick."""
+    import datetime as _dt
+    from ..models import TokenRiskCheck
+    if not helius_mod.enabled():
+        with SessionLocal() as db:
+            upsert_source(db, "helius", "onchain", "down",
+                          {"note": "not configured — set HELIUS_API_KEY for real on-chain risk checks"})
+            db.commit()
+        return {"helius": "disabled"}
+    now = _dt.datetime.utcnow()
+    with SessionLocal() as db:
+        toks = db.execute(select(Token).where(Token.chain == "solana")).scalars().all()
+        todo = []
+        for t in toks:
+            if t.address.startswith("Mock"):
+                continue
+            last = db.execute(select(TokenRiskCheck).where(TokenRiskCheck.token_id == t.id)
+                              .order_by(TokenRiskCheck.checked_at.desc()).limit(1)).scalar_one_or_none()
+            if last is None:
+                todo.append((0.0, t.id, t.address)); continue
+            age_h = (now - last.checked_at.replace(tzinfo=None)).total_seconds() / 3600
+            wait = HELIUS_RECHECK_HOURS if last.ok else 1.0
+            if age_h >= wait:
+                todo.append((-age_h, t.id, t.address))
+        todo.sort()
+        batch = todo[:HELIUS_MAX_CHECKS_PER_TICK]
+    prov = helius_mod.HeliusProvider()
+    done = failed = 0
+    for _, tid, addr in batch:
+        r = await prov.check_token(addr)
+        with SessionLocal() as db:
+            db.add(TokenRiskCheck(
+                token_id=tid, ok=r.ok, error=r.error[:200], mint_authority=r.mint_authority,
+                freeze_authority=r.freeze_authority, supply=r.supply, decimals=r.decimals,
+                top1_pct=r.top1_pct, top10_pct=r.top10_pct, holders_sampled=r.holders_sampled,
+                token_2022=r.token_2022))
+            db.commit()
+        done += 1 if r.ok else 0
+        failed += 0 if r.ok else 1
+    with SessionLocal() as db:
+        db.execute(delete(TokenRiskCheck).where(
+            TokenRiskCheck.checked_at < now - _dt.timedelta(days=7)))   # retention
+        status = "ok" if (done or not failed) else "degraded"
+        upsert_source(db, "helius", "onchain", status,
+                      {"note": "real on-chain risk checks (mint/freeze authority, holder concentration)",
+                       "last_batch": {"ok": done, "failed": failed, "pending": max(0, len(todo) - len(batch))}})
+        db.commit()
+    return {"helius": {"ok": done, "failed": failed}}
+
+
 async def tick() -> dict:
     t0 = time.time()
     raws, ticks, fallback = await discover_tokens()
@@ -517,7 +575,10 @@ async def tick() -> dict:
             db.flush()
 
             # live bucket for every tracked token
-            tokens = db.execute(select(Token).order_by(Token.id)).scalars().all()
+            q = select(Token).order_by(Token.id)
+            if SOLANA_ONLY:
+                q = q.where(Token.chain == "solana")
+            tokens = db.execute(q).scalars().all()
             for token in tokens:
                 sim = Sim.from_state(token.address, token.state_json or {})
                 write_live_bucket(db, token, sim, ticks.get(token.address), now_b)
@@ -549,6 +610,10 @@ async def tick() -> dict:
                 log_line(db2, "error", "ingestion", f"tick failed: {exc}")
                 db2.commit()
             stats = {"error": str(exc)}
+    try:
+        stats.update(await onchain_checks())
+    except Exception as exc:                      # on-chain checks must never break a tick
+        log.error("onchain_checks failed: %s", exc)
     stats["seconds"] = round(time.time() - t0, 2)
     return stats
 

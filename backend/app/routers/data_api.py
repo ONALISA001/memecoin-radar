@@ -629,6 +629,33 @@ def token_holders(address: str, db: Session = Depends(get_db)):
             "source": "mock:chain-sim", "mock": True}
 
 
+@router.get("/tokens/{address}/onchain-risk")
+def token_onchain_risk(address: str, db: Session = Depends(get_db)):
+    """REAL on-chain risk facts from Solana RPC (Helius). Not simulated."""
+    from ..models import TokenRiskCheck
+    from ..providers import helius as helius_mod
+    token = get_token_or_404(db, address)
+    last = db.execute(select(TokenRiskCheck).where(TokenRiskCheck.token_id == token.id)
+                      .order_by(TokenRiskCheck.checked_at.desc()).limit(1)).scalar_one_or_none()
+    if last is None:
+        return {"available": False, "mock": False,
+                "reason": "not checked yet" if helius_mod.enabled()
+                          else "Helius not configured (set HELIUS_API_KEY)"}
+    return {"available": bool(last.ok), "mock": False, "source": "helius",
+            "checked_at": last.checked_at.isoformat() if last.checked_at else None,
+            "error": last.error or None,
+            "label": helius_mod.risk_label(last), "flags": helius_mod.risk_flags(last),
+            "facts": None if not last.ok else {
+                "mint_authority": last.mint_authority, "freeze_authority": last.freeze_authority,
+                "mint_renounced": not last.mint_authority,
+                "freeze_disabled": not last.freeze_authority,
+                "supply": last.supply, "decimals": last.decimals,
+                "top1_pct": last.top1_pct, "top10_pct": last.top10_pct,
+                "accounts_sampled": last.holders_sampled, "token_2022": bool(last.token_2022)},
+            "caveat": "Largest accounts may include the liquidity-pool vault or burn wallets, "
+                      "so concentration is an upper bound."}
+
+
 @router.get("/tokens/{address}/risk")
 def token_risk_events(address: str, db: Session = Depends(get_db)):
     token = get_token_or_404(db, address)

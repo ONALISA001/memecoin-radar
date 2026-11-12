@@ -244,6 +244,34 @@ function AnalysisPanel({ address }: { address: string }) {
   );
 }
 
+function OnchainRiskPanel({ address }: { address: string }) {
+  const { data } = useApi(`/tokens/${address}/onchain-risk`, 60000);
+  const sevCls: Record<string, string> = { high: "text-redx", medium: "text-amberx", low: "text-greenx" };
+  const f = data?.facts;
+  return (
+    <Panel title={<span>🛡️ On-chain risk <span className="badge badge-green !text-[8px] ml-1">real · Helius</span></span>}>
+      {!data && <Empty text="Loading…" />}
+      {data && !data.available && <Empty text={data.error ? `Check failed: ${data.error}` : (data.reason || "Not available.")} />}
+      {data?.available && f && (
+        <div className="px-3.5 py-2 text-[11px] space-y-1.5">
+          <div className="flex justify-between"><span className="text-dim">Overall</span>
+            <span className={`font-bold uppercase ${sevCls[data.label] || ""}`}>{data.label}</span></div>
+          <div className="flex justify-between"><span className="text-dim">Mint authority</span>
+            <span className={f.mint_renounced ? "text-greenx" : "text-redx"}>{f.mint_renounced ? "renounced ✓" : "ACTIVE ✗"}</span></div>
+          <div className="flex justify-between"><span className="text-dim">Freeze authority</span>
+            <span className={f.freeze_disabled ? "text-greenx" : "text-redx"}>{f.freeze_disabled ? "none ✓" : "ACTIVE ✗"}</span></div>
+          <div className="flex justify-between"><span className="text-dim">Top holder</span><span className="num">{fmtPct(f.top1_pct)}</span></div>
+          <div className="flex justify-between"><span className="text-dim">Top 10 holders</span><span className="num">{fmtPct(f.top10_pct)}</span></div>
+          {data.flags?.map((fl: any) => (
+            <div key={fl.id} className={`text-[10px] ${sevCls[fl.severity] || ""}`}>⚠ {fl.message}</div>
+          ))}
+          <div className="text-[9px] text-dim pt-1">{data.caveat} Checked {timeAgo(Math.floor(new Date(data.checked_at).getTime() / 1000))}.</div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function WhalesPanel({ address }: { address: string }) {
   const { data } = useApi(`/tokens/${address}/holders`, 30000);
   const whales = data?.whales || [];
@@ -385,6 +413,7 @@ export default function TokenPage({ address }: { address: string }) {
               </div>
             </Panel>
           )}
+          <OnchainRiskPanel address={d.address} />
           <WhalesPanel address={d.address} />
           <PostsPanel address={d.address} />
           <RiskEventsPanel address={d.address} />

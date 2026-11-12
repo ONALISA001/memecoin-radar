@@ -15,10 +15,10 @@ from typing import Any
 
 import httpx
 
-from ..config import DEXSCREENER_BASE, MAX_TRACKED_TOKENS
+from ..config import DEXSCREENER_BASE, MAX_TRACKED_TOKENS, SOLANA_ONLY
 from .base import HEALTH, MarketTick, RawToken
 
-CHAINS = ("solana", "ethereum", "base", "bsc")
+CHAINS = ("solana",) if SOLANA_ONLY else ("solana", "ethereum", "base", "bsc")
 
 
 class DexscreenerProvider:
@@ -49,7 +49,7 @@ class DexscreenerProvider:
                 chain = str(it.get("chainId", "")).lower()
                 if chain == "bsc":
                     chain = "bnb"  # UI label
-                if chain not in CHAINS and chain != "bnb":
+                if chain not in CHAINS and not (chain == "bnb" and not SOLANA_ONLY):
                     continue
                 addr = it.get("tokenAddress") or ""
                 if not addr:

@@ -4,6 +4,25 @@ import os
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+
+def _load_dotenv(path: str) -> None:
+    """Tiny .env loader (no extra dependency). Real environment variables win."""
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                v = v.strip().strip('"').strip("'")
+                if v:                      # blank value (e.g. DATABASE_URL=) = use the default
+                    os.environ.setdefault(k.strip(), v)
+    except FileNotFoundError:
+        pass
+
+
+_load_dotenv(os.path.join(BASE_DIR, ".env"))
+
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'radar.db')}")
 
 # Ingestion
@@ -16,6 +35,20 @@ MAX_TRACKED_TOKENS = int(os.getenv("MAX_TRACKED_TOKENS", "40"))
 DEXSCREENER_ENABLED = os.getenv("DEXSCREENER_ENABLED", "1") == "1"
 DEXSCREENER_BASE = "https://api.dexscreener.com"
 MOCK_SOCIAL_ENABLED = os.getenv("MOCK_SOCIAL_ENABLED", "1") == "1"
+
+# Solana-only research scope (HARD CONSTRAINT for the MVP). Set SOLANA_ONLY=0 to
+# re-enable Ethereum/Base/BNB discovery.
+SOLANA_ONLY = os.getenv("SOLANA_ONLY", "1") == "1"
+
+# Helius (real on-chain risk checks). Disabled automatically when no key is set.
+# Quota guard: at most HELIUS_MAX_CHECKS_PER_TICK tokens per ingest tick, and a
+# token is re-checked at most every HELIUS_RECHECK_HOURS hours. Each check is
+# 2 RPC calls.
+HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "").strip()
+HELIUS_RPC_URL = os.getenv(
+    "HELIUS_RPC_URL", "https://mainnet.helius-rpc.com/?api-key={key}")
+HELIUS_MAX_CHECKS_PER_TICK = int(os.getenv("HELIUS_MAX_CHECKS_PER_TICK", "3"))
+HELIUS_RECHECK_HOURS = float(os.getenv("HELIUS_RECHECK_HOURS", "6"))
 
 # Security
 DEMO_MODE = os.getenv("DEMO_MODE", "1") == "1"
