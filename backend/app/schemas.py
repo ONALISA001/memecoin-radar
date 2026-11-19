@@ -19,7 +19,7 @@ class AlertCreate(BaseModel):
     value: float
     scope: Literal["all", "watchlist", "address"] = "all"
     address: Optional[str] = None
-    channel_type: Literal["browser", "webhook"] = "browser"
+    channel_type: Literal["browser", "webhook", "telegram"] = "browser"
     webhook_url: Optional[str] = Field(default=None, max_length=512)
 
     @field_validator("metric")

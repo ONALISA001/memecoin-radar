@@ -5,7 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+import time
+
 from ..config import DEMO_MODE
+from ..engine import telegram
 from ..database import get_db
 from ..models import Alert, AlertEvent, Token, TrendScore, User, Watchlist
 from ..schemas import AlertCreate, AlertPatch, WatchlistAdd
@@ -163,6 +166,9 @@ def alerts_create(body: AlertCreate, db: Session = Depends(get_db),
         if not body.webhook_url:
             raise HTTPException(400, "webhook_url required")
         channel["url"] = body.webhook_url
+    if body.channel_type == "telegram" and not telegram.is_configured():
+        raise HTTPException(400, "telegram is not configured on the server "
+                                 "(set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)")
     a = Alert(user_id=user.id, name=body.name, condition_json=condition,
               channel_json=channel, enabled=True)
     db.add(a)
@@ -192,6 +198,32 @@ def alerts_delete(alert_id: int, db: Session = Depends(get_db),
         raise HTTPException(404, "alert not found")
     db.delete(a)
     db.commit()
+    return {"ok": True}
+
+
+_tg_last_test = 0.0
+
+
+@router.get("/alerts/telegram/status")
+def telegram_status(user: User = Depends(get_current_user)):
+    """Whether the server has Telegram credentials (never returns them)."""
+    return {"configured": telegram.is_configured()}
+
+
+@router.post("/alerts/telegram/test")
+def telegram_test(user: User = Depends(get_current_user)):
+    """Send a test message to the configured chat so the setup can be verified."""
+    if not telegram.is_configured():
+        raise HTTPException(400, "telegram is not configured on the server "
+                                 "(set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)")
+    global _tg_last_test
+    now = time.time()
+    if now - _tg_last_test < 30:   # the demo login is public: don't let it spam the chat
+        raise HTTPException(429, "wait 30s between telegram tests")
+    _tg_last_test = now
+    res = telegram.send_text("✅ <b>MemeCoin Radar</b> — Telegram alerts connected.")
+    if not res.get("ok"):
+        raise HTTPException(502, f"telegram send failed: {res.get('error')}")
     return {"ok": True}
 
 

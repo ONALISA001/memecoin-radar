@@ -82,3 +82,9 @@ EMERGING_MIN_SOCIAL_G = 70.0    # % 1h
 EMERGING_MIN_VOLUME_G = 60.0    # % 1h
 ANOMALY_Z = 3.0
 ALERT_COOLDOWN_SECONDS = 1800
+
+# Telegram delivery (server-side only; never sent to the frontend). Set both in
+# Railway → Variables. The bot must be an admin of the channel / member of the chat.
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+TELEGRAM_MAX_PER_TICK = int(os.getenv("TELEGRAM_MAX_PER_TICK", "8"))   # flood guard

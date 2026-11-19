@@ -29,6 +29,14 @@ function CreateAlert({ onCreated }: { onCreated: () => void }) {
   const [webhook, setWebhook] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [tgMsg, setTgMsg] = useState("");
+  const { data: tg } = useApi("/alerts/telegram/status", 0);
+
+  async function testTelegram() {
+    setTgMsg("Sending…");
+    try { await apiPost("/alerts/telegram/test", {}); setTgMsg("✅ Sent — check your Telegram channel."); }
+    catch (e: any) { setTgMsg(`❌ ${e.message}`); }
+  }
 
   async function submit() {
     setBusy(true); setErr("");
@@ -77,11 +85,22 @@ function CreateAlert({ onCreated }: { onCreated: () => void }) {
             <select className="sel w-full mt-1" value={channel} onChange={(e) => setChannel(e.target.value)}>
               <option value="browser">browser (bell)</option>
               <option value="webhook">webhook (Discord/Slack)</option>
+              <option value="telegram" disabled={tg && !tg.configured}>
+                telegram{tg && !tg.configured ? " (not configured)" : ""}
+              </option>
             </select>
           </div>
           {scope === "address" && (
             <input className="inp col-span-2" placeholder="token contract address"
                    value={address} onChange={(e) => setAddress(e.target.value)} />
+          )}
+          {channel === "telegram" && (
+            <div className="col-span-2 flex items-center gap-2">
+              <button type="button" className="btn !py-1 !px-2 !text-[10px]" onClick={testTelegram}>
+                send test message
+              </button>
+              <span className="text-[10px] text-dim">{tgMsg}</span>
+            </div>
           )}
           {channel === "webhook" && (
             <input className="inp col-span-2" placeholder="https://discord.com/api/webhooks/…"
@@ -94,7 +113,7 @@ function CreateAlert({ onCreated }: { onCreated: () => void }) {
         </button>
         <p className="text-[10px] text-dim leading-relaxed">
           Evaluated every ingestion tick (60s) with a 30-minute per-token cooldown.
-          Telegram &amp; email channels are Phase-5 adapters on the same interface.
+          Telegram sends to the channel configured on the server. Email is a later adapter.
         </p>
       </div>
     </Panel>
