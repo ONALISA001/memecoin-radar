@@ -155,7 +155,7 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
         flags.append(f"Only ~{lp:.0f}% of LP reported burned/locked")
     contract = min(15, p_contract)
 
-    # ---- deployer risk /10 (no real source yet → unavailable, scored 0) ----
+    # ---- launch & deployer risk /10 (launch forensics; unknown → scored 0) ----
     p_deployer = 0.0
     if facts.get("deployer_suspicious"):
         p_deployer += 6
@@ -167,7 +167,33 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
         p_deployer += 4 if prev >= 5 else 2 if prev >= 3 else 0
         if prev >= 3:
             flags.append(f"Deployer linked to ~{prev} previous launches")
+    # Launch forensics (wallet-level, Helius): bundles, snipers, shared/creator funders.
+    lf = facts.get("launch") or {}
+    lf_ok = lf.get("status") == "ok"
+    if lf_ok:
+        g = lambda k: lf.get(k) or 0  # noqa: E731
+        p_deployer += 6 if g("funded_by_creator") >= 1 else 0
+        p_deployer += 4 if g("bundle_pct") >= 15 else 2 if g("bundle_pct") >= 5 else 0
+        p_deployer += 3 if g("sniper_pct") >= 25 else 1 if g("sniper_pct") >= 10 else 0
+        p_deployer += 3 if g("shared_funder_wallets") >= 3 else 1 if g("shared_funder_wallets") == 2 else 0
+        p_deployer += 1 if g("snipers_hold_pct") >= 10 else 0
+        for f in lf.get("flags") or []:
+            if f["severity"] == "high":
+                flags.append(f["message"].rstrip("."))
+                events.append({"category": "deployer", "severity": "warn", "message": f["message"]})
     deployer = min(10, p_deployer)
+    if lf_ok:
+        dep_value = (f"bundle {lf.get('bundle_pct') or 0:.0f}% · snipers {lf.get('sniper_pct') or 0:.0f}%"
+                     f" · dev bought {lf.get('dev_buy_pct') or 0:.1f}%"
+                     + (f" · {lf['funded_by_creator']} buyers funded by creator" if lf.get("funded_by_creator") else "")
+                     + (f" · {lf['shared_funder_wallets']} share a funder" if (lf.get("shared_funder_wallets") or 0) >= 2 else ""))
+        dep_src = "helius:launch-forensics"
+    elif prev is not None:
+        dep_value, dep_src = f"{prev} prior launches", src
+    else:
+        dep_value = {"too_active": "launch out of reach (too many transactions)",
+                     "error": "launch analysis failed, will retry"}.get(lf.get("status"), "unavailable")
+        dep_src = "unavailable"
 
     # ---- market behavior /10 ----
     p_beh = 0.0
@@ -255,9 +281,8 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
             {"label": "Contract permissions", "points": round(contract, 1), "max": 15,
              "value": "mint " + _onoff(mint) + " · freeze " + _onoff(freeze),
              "source": src},
-            {"label": "Deployer history", "points": round(deployer, 1), "max": 10,
-             "value": f"{prev} prior launches" if prev is not None else "unavailable",
-             "source": src if prev is not None else "unavailable"},
+            {"label": "Launch & deployer", "points": round(deployer, 1), "max": 10,
+             "value": dep_value, "source": dep_src},
             {"label": "Market behavior", "points": round(behavior, 1), "max": 10,
              "value": f"1h {pc:+.0f}%, buy share {d['buy_share_1h']:.0%}"},
             {"label": soc_label, "points": round(social, 1), "max": 10,

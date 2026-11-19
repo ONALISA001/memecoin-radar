@@ -720,6 +720,25 @@ def token_onchain_risk(address: str, db: Session = Depends(get_db)):
                        "so concentration is an upper bound.")}
 
 
+@router.get("/tokens/{address}/launch-forensics")
+def token_launch_forensics(address: str, db: Session = Depends(get_db)):
+    """REAL wallet-level launch analysis (Helius): bundles, snipers, funders."""
+    from ..models import TokenLaunchForensics
+    from ..providers.launch_forensics import forensic_flags
+    token = get_token_or_404(db, address)
+    row = db.execute(select(TokenLaunchForensics).where(
+        TokenLaunchForensics.token_id == token.id)).scalar_one_or_none()
+    if row is None:
+        return {"available": False, "mock": False, "reason": "not analysed yet"}
+    from ..services.launch_forensics import FIELDS
+    return {"available": row.status == "ok", "mock": False, "source": "helius",
+            "analysed_at": row.analysed_at.isoformat() if row.analysed_at else None,
+            **{f: getattr(row, f) for f in FIELDS},
+            "flags": forensic_flags(row), "wallets": row.wallets_json or [],
+            "caveat": ("Heuristics from the token's first transactions. Bundles = bought in the launch "
+                       "block; snipers = within a few slots. Holdings are as of the analysis time.")}
+
+
 _TM_CACHE: dict[tuple, tuple[float, dict]] = {}
 _TM_TTL = 300  # seconds; the pool only changes every 5-min bucket
 

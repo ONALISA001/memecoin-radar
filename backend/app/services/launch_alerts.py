@@ -62,6 +62,23 @@ def launch_verdict(facts: dict) -> tuple[str | None, list[str]]:
         bad.append(f"top-10 wallets {w10:.0f}%")
     if w1 > config.LAUNCH_MAX_TOP1_WALLET_PCT:
         bad.append(f"largest wallet {w1:.0f}%")
+    if bad:
+        return "fail", bad
+    # Launch forensics: wait for it (it runs in the same tick, right before this),
+    # fail on clear manipulation, and never block when it could not be done.
+    if config.LAUNCH_FORENSICS_ENABLED:
+        lf = facts.get("launch")
+        if lf is None:
+            return None, []
+        if lf.get("status") == "ok":
+            if (lf.get("funded_by_creator") or 0) >= 1:
+                bad.append(f"creator funded {lf['funded_by_creator']} early buyer(s)")
+            if (lf.get("bundle_pct") or 0) >= config.LAUNCH_MAX_BUNDLE_PCT:
+                bad.append(f"bundled launch {lf['bundle_pct']:.0f}%")
+            if (lf.get("sniper_pct") or 0) >= config.LAUNCH_MAX_SNIPER_PCT:
+                bad.append(f"snipers {lf['sniper_pct']:.0f}%")
+            if (lf.get("shared_funder_wallets") or 0) >= 3:
+                bad.append(f"{lf['shared_funder_wallets']} early buyers share a funder")
     return ("fail" if bad else "pass"), bad
 
 
@@ -78,6 +95,17 @@ def _exit_line(facts: dict) -> str:
         return "⚠️ No Jupiter route yet"
     return (f"✓ Sell route found · {sol:g} SOL round trip -{loss:.1f}%" if loss is not None
             else "✓ Sell route found")
+
+
+def _launch_line(facts: dict) -> str:
+    lf = facts.get("launch") or {}
+    if lf.get("status") != "ok":
+        return "⚠️ Launch wallets NOT analysed" + (" (too many transactions)" if lf.get("status") == "too_active" else "")
+    parts = [f"bundle {lf.get('bundle_pct') or 0:.0f}%", f"snipers {lf.get('sniper_pct') or 0:.0f}%",
+             f"dev bought {lf.get('dev_buy_pct') or 0:.1f}%"]
+    if (lf.get("shared_funder_wallets") or 0) >= 2:
+        parts.append(f"{lf['shared_funder_wallets']} share a funder")
+    return "✓ Launch wallets: " + " · ".join(parts)
 
 
 def format_launch(token: Token, facts: dict, s: dict) -> str:
@@ -97,9 +125,10 @@ def format_launch(token: Token, facts: dict, s: dict) -> str:
         "✓ Mint authority renounced · ✓ No freeze authority · "
         + ("✓ Token-2022, no risky extensions" if facts.get("token_2022") else "✓ Standard SPL token"),
         _exit_line(facts),
+        _launch_line(facts),
         f"✓ Top-10 wallets {facts['top10_wallet_pct']:.0f}% · largest {facts['top1_wallet_pct']:.0f}% "
         f"(pools & burn excluded)",
-        "⚠️ Not a buy signal. LP lock and deployer history are NOT checked; fresh launches are "
+        "⚠️ Not a buy signal. LP lock is NOT checked; fresh launches are "
         "extremely volatile and most go to zero.",
         f"<code>{e(token.address)}</code>",
         f'<a href="https://dexscreener.com/solana/{e(token.address)}">DexScreener</a>',

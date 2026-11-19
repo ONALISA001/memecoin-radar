@@ -77,7 +77,7 @@ async def run():
         check("unchecked token => contract 'unknown' + unverified penalty",
               c and "unknown" in c["value"] and c["points"] == R.CONTRACT_UNVERIFIED_POINTS
               and c["source"] == "unverified", str(c))
-        d, _ = risk_comp(db, a, "Deployer history")
+        d, _ = risk_comp(db, a, "Launch & deployer")
         check("deployer history unavailable (not simulated)", d and d["value"] == "unavailable" and d["points"] == 0)
         ctx = TokenContext.build(db, a, sc.ts)
         check("new real token is not 'emerging' without recorded history",

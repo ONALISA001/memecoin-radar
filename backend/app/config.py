@@ -114,6 +114,21 @@ JUPITER_QUOTE_URL = os.getenv(
     "JUPITER_QUOTE_URL",
     "https://api.jup.ag/swap/v1/quote" if JUPITER_API_KEY else "https://lite-api.jup.ag/swap/v1/quote").strip()
 EXIT_CHECK_SOL = float(os.getenv("EXIT_CHECK_SOL", "0.1"))
+# Launch forensics (bundles, snipers, shared funders, creator-funded buyers). Runs ONCE per
+# token (launch facts never change), only after its Helius check, and only for tokens that
+# did not already fail a hard safety check. Free plan: ~50-80 credits per token.
+LAUNCH_FORENSICS_ENABLED = os.getenv("LAUNCH_FORENSICS_ENABLED", "1") == "1"
+LAUNCH_FORENSICS_PER_TICK = int(os.getenv("LAUNCH_FORENSICS_PER_TICK", "2"))
+LAUNCH_FORENSICS_MAX_AGE_H = float(os.getenv("LAUNCH_FORENSICS_MAX_AGE_H", "72"))  # older coins skipped
+LAUNCH_EARLY_TX = int(os.getenv("LAUNCH_EARLY_TX", "40"))            # oldest transactions read
+LAUNCH_EARLY_BUYERS = int(os.getenv("LAUNCH_EARLY_BUYERS", "20"))
+LAUNCH_SNIPER_SLOTS = int(os.getenv("LAUNCH_SNIPER_SLOTS", "3"))      # ~1.2 s after creation
+LAUNCH_FUNDER_CHECKS = int(os.getenv("LAUNCH_FUNDER_CHECKS", "5"))    # biggest early buyers traced
+LAUNCH_MAX_SIG_PAGES = int(os.getenv("LAUNCH_MAX_SIG_PAGES", "15"))   # 1000 signatures per page
+LAUNCH_USE_GTFA = os.getenv("LAUNCH_USE_GTFA", "1") == "1"           # try the Developer-plan fast path
+# Fresh-launch alert thresholds from launch forensics
+LAUNCH_MAX_BUNDLE_PCT = float(os.getenv("LAUNCH_MAX_BUNDLE_PCT", "15"))
+LAUNCH_MAX_SNIPER_PCT = float(os.getenv("LAUNCH_MAX_SNIPER_PCT", "25"))
 # Fresh-launch alerts: allow Token-2022 tokens whose extensions were read and are all harmless
 LAUNCH_ALLOW_CLEAN_TOKEN_2022 = os.getenv("LAUNCH_ALLOW_CLEAN_TOKEN_2022", "1") == "1"
 

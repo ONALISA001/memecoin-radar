@@ -6,6 +6,7 @@ fd, dbpath = tempfile.mkstemp(suffix=".db"); os.close(fd)
 os.environ["DATABASE_URL"] = f"sqlite:///{dbpath}"
 os.environ["HELIUS_API_KEY"] = "SECRETKEY123"
 os.environ["JUPITER_API_KEY"] = "JUPKEY456"
+os.environ["LAUNCH_FORENSICS_ENABLED"] = "0"   # gated separately in test_launch_forensics.py
 
 import httpx  # noqa: E402
 from app.providers import helius as H  # noqa: E402

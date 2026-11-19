@@ -349,6 +349,35 @@ class TokenRiskCheck(Base):
     exit_error = Column(String(200))
 
 
+class TokenLaunchForensics(Base):
+    """Wallet-level launch analysis (bundles, snipers, funders). One row per token:
+    launch facts never change, so a token is analysed once (errors retried)."""
+    __tablename__ = "token_launch_forensics"
+    id = Column(Integer, primary_key=True)
+    token_id = Column(Integer, ForeignKey("tokens.id"), unique=True, index=True, nullable=False)
+    analysed_at = Column(DateTime(timezone=True), server_default=func.now())
+    status = Column(String(16))              # ok | too_active | no_data | error
+    error = Column(String(200))
+    method = Column(String(8))               # gtfa | rpc
+    creator = Column(String(64))
+    launch_slot = Column(BigInteger)
+    launch_time = Column(BigInteger)
+    dev_buy_pct = Column(Float)
+    bundle_wallets = Column(Integer)
+    bundle_pct = Column(Float)
+    sniper_wallets = Column(Integer)
+    sniper_pct = Column(Float)
+    early_buyers = Column(Integer)
+    early_pct = Column(Float)
+    fresh_early_wallets = Column(Integer)
+    shared_funder_wallets = Column(Integer)
+    funded_by_creator = Column(Integer)
+    funder_checked = Column(Integer)
+    dev_holds_pct = Column(Float)            # at analysis time
+    snipers_hold_pct = Column(Float)         # at analysis time
+    wallets_json = Column(JSON)              # evidence: [{wallet, role, slot_offset, pct, funder?, fresh?}]
+
+
 class DataSource(Base):
     __tablename__ = "data_sources"
     id = Column(Integer, primary_key=True)

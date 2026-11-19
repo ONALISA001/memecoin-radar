@@ -5,6 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 fd, dbpath = tempfile.mkstemp(suffix=".db"); os.close(fd)
 os.environ["DATABASE_URL"] = f"sqlite:///{dbpath}"
 os.environ["HELIUS_API_KEY"] = "SECRETKEY123"
+os.environ["LAUNCH_FORENSICS_ENABLED"] = "0"   # gated separately in test_launch_forensics.py
 os.environ["SOLANA_ONLY"] = "1"
 os.environ["MAX_TRACKED_TOKENS"] = "6"
 os.environ["NEW_POOL_SLOTS"] = "2"
