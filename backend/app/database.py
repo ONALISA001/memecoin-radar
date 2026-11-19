@@ -22,6 +22,17 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 Base = declarative_base()
 
 
+def migrate_postgres() -> None:
+    """create_all() never alters tables that already exist. Fix columns that were
+    created too narrow in earlier versions (idempotent; no-op on SQLite)."""
+    if engine.dialect.name != "postgresql":
+        return
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        # epoch-milliseconds (~1.7e12) overflows a 32-bit INTEGER on Postgres
+        conn.execute(text("ALTER TABLE IF EXISTS tokens ALTER COLUMN token_created_at TYPE BIGINT"))
+
+
 def get_db():
     db = SessionLocal()
     try:

@@ -1,6 +1,6 @@
 """Database models — §27. Time-series snapshots are the backbone (§33)."""
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, ForeignKey, JSON, Text,
+    Column, Integer, BigInteger, String, Float, DateTime, ForeignKey, JSON, Text,
     UniqueConstraint, Index, Boolean,
 )
 from sqlalchemy.sql import func
@@ -33,7 +33,7 @@ class Token(Base):
     archetype = Column(String(32))           # simulation archetype label (mock providers)
     state_json = Column(JSON)                # persisted simulator state (deterministic mocks)
     first_seen_at = Column(DateTime(timezone=True), server_default=func.now())
-    token_created_at = Column(Integer)       # epoch ms from provider
+    token_created_at = Column(BigInteger)    # epoch ms from provider (needs 64-bit on Postgres)
     new_token_evented = Column(Boolean, default=False)  # v3: "new token" event emitted once ever
 
     __table_args__ = (Index("ix_tokens_chain_addr", "chain", "address"),)

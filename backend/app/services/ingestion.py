@@ -556,11 +556,11 @@ async def tick() -> dict:
                     setattr(token, fld, getattr(raw, fld) or getattr(token, fld))
                 token.name = (raw.name or token.name or raw.symbol or "?")[:160]
                 token.symbol = (raw.symbol or token.symbol or "?")[:32]
-                token.image_url = raw.image_url or token.image_url
+                token.image_url = (raw.image_url or token.image_url or "")[:512] or None
                 token.description = raw.description or token.description
-                token.dex = raw.dex or token.dex or ""
-                token.pair_address = raw.pair_address or token.pair_address or ""
-                token.url = raw.url or token.url or ""
+                token.dex = (raw.dex or token.dex or "")[:64]
+                token.pair_address = (raw.pair_address or token.pair_address or "")[:128]
+                token.url = (raw.url or token.url or "")[:512]
                 token.token_created_at = raw.token_created_at or token.token_created_at
                 if raw.pair_address:
                     pair = db.execute(select(TokenPair).where(

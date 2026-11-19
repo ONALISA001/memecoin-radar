@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import INGEST_INTERVAL_SECONDS
-from .database import Base, SessionLocal, engine
+from .database import Base, SessionLocal, engine, migrate_postgres
 from .routers import data_api, paper_api, user_api
 from .security import hash_password
 from .services import ingestion
@@ -28,6 +28,8 @@ log = logging.getLogger("main")
 def _ensure_column(table: str, column: str, ddl: str):
     """Idempotent column add for live SQLite DBs (dev migrations)."""
     from sqlalchemy import text
+    if engine.dialect.name != "sqlite":      # PRAGMA is SQLite-only; Postgres tables are created complete
+        return
     with engine.begin() as conn:
         cols = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})"))}
         if column not in cols:
@@ -38,6 +40,7 @@ def _ensure_column(table: str, column: str, ddl: str):
 def ensure_schema_and_demo_user():
     from .models import User
     Base.metadata.create_all(engine)
+    migrate_postgres()
     try:
         _ensure_column("trend_scores", "kind", "kind VARCHAR(8) DEFAULT 'live'")
         # v3 intelligence events (additive, idempotent)
