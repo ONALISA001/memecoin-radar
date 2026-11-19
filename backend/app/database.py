@@ -22,9 +22,14 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 Base = declarative_base()
 
 
-# Columns added to token_risk_checks after it first shipped: (name, SQL type).
-_RISK_CHECK_ADDED = [("top1_wallet_pct", "DOUBLE PRECISION"), ("top10_wallet_pct", "DOUBLE PRECISION"),
-                     ("excluded_pct", "DOUBLE PRECISION")]
+# Columns added after their table first shipped: {table: [(name, postgres type, sqlite type)]}.
+_ADDED_COLUMNS = {
+    "token_risk_checks": [("top1_wallet_pct", "DOUBLE PRECISION", "FLOAT"),
+                          ("top10_wallet_pct", "DOUBLE PRECISION", "FLOAT"),
+                          ("excluded_pct", "DOUBLE PRECISION", "FLOAT")],
+    "tokens": [("discovery_source", "VARCHAR(16)", "VARCHAR(16)"),
+               ("launch_alert", "VARCHAR(8)", "VARCHAR(8)")],
+}
 
 
 def migrate_postgres() -> None:
@@ -34,12 +39,14 @@ def migrate_postgres() -> None:
     from sqlalchemy import inspect, text
     if engine.dialect.name == "sqlite":
         insp = inspect(engine)
-        if insp.has_table("token_risk_checks"):
-            have = {c["name"] for c in insp.get_columns("token_risk_checks")}
-            with engine.begin() as conn:
-                for name, _ in _RISK_CHECK_ADDED:
+        with engine.begin() as conn:
+            for table, cols in _ADDED_COLUMNS.items():
+                if not insp.has_table(table):
+                    continue
+                have = {c["name"] for c in insp.get_columns(table)}
+                for name, _, sqlite_type in cols:
                     if name not in have:
-                        conn.execute(text(f"ALTER TABLE token_risk_checks ADD COLUMN {name} FLOAT"))
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {sqlite_type}"))
         return
     if engine.dialect.name != "postgresql":
         return
@@ -49,8 +56,9 @@ def migrate_postgres() -> None:
         # real holder counts (added after token_risk_checks first shipped)
         conn.execute(text("ALTER TABLE IF EXISTS token_risk_checks ADD COLUMN IF NOT EXISTS holders_count INTEGER"))
         conn.execute(text("ALTER TABLE IF EXISTS token_risk_checks ADD COLUMN IF NOT EXISTS holders_capped BOOLEAN DEFAULT FALSE"))
-        for name, typ in _RISK_CHECK_ADDED:     # real-wallet concentration
-            conn.execute(text(f"ALTER TABLE IF EXISTS token_risk_checks ADD COLUMN IF NOT EXISTS {name} {typ}"))
+        for table, cols in _ADDED_COLUMNS.items():
+            for name, pg_type, _ in cols:
+                conn.execute(text(f"ALTER TABLE IF EXISTS {table} ADD COLUMN IF NOT EXISTS {name} {pg_type}"))
 
 
 def get_db():

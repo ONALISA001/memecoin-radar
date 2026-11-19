@@ -12,19 +12,24 @@ const SORTS: [string, string][] = [
   ["vol_accel", "Biggest volume acceleration"], ["low_risk", "Lowest risk"],
   ["activity", "Most active"], ["discussed", "Most discussed"],
 ];
+const SOURCES: [string, string][] = [["", "All sources"], ["new_pool", "🌱 Fresh pools"], ["promoted", "📣 Promoted"]];
 const AGES: [string, string][] = [["", "Any age"], ["1", "< 1h"], ["6", "< 6h"], ["24", "< 24h"], ["72", "< 3d"], ["168", "< 7d"]];
 
 export default function NewCoinsPage() {
   const [sort, setSort] = useState("newest");
   const [age, setAge] = useState("");
-  const { data, loading } = useApi(`/tokens/new?sort=${sort}&limit=48${age ? `&max_age_h=${age}` : ""}`, 30000);
+  const [source, setSource] = useState("");
+  const { data, loading } = useApi(`/tokens/new?sort=${sort}&limit=48${age ? `&max_age_h=${age}` : ""}${source ? `&source=${source}` : ""}`, 30000);
   const items = data?.items || [];
   return (
     <div className="space-y-4">
       <div className="panel p-4 flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-extrabold">🆕 New Memecoins</h1>
-        <span className="text-[11px] text-dim">Recently launched/tracked tokens with momentum, sell-pressure and risk context.</span>
+        <span className="text-[11px] text-dim">🌱 fresh pools are found minutes after launch; 📣 promoted coins come from paid DexScreener boosts.</span>
         <div className="flex-1" />
+        <select className="btn !py-1 bg-panel" value={source} onChange={(e) => setSource(e.target.value)}>
+          {SOURCES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
         <select className="btn !py-1 bg-panel" value={age} onChange={(e) => setAge(e.target.value)}>
           {AGES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
@@ -43,6 +48,12 @@ export default function NewCoinsPage() {
               <div className="min-w-0">
                 <div className="font-bold text-[13px] truncate">${t.symbol} <span className="text-dim font-normal text-[10.5px]">{t.name}</span></div>
                 <div className="text-[9.5px] text-dim num">{t.dex} · {ageStr(t.age_hours)} old</div>
+                <div className="flex gap-1 mt-0.5">
+                  {t.discovery_source === "new_pool" && <span className="badge badge-green !text-[8px]">🌱 fresh pool</span>}
+                  {(t.discovery_source === "boost" || t.discovery_source === "profile") && <span className="badge badge-amber !text-[8px]">📣 promoted</span>}
+                  {t.launch_alert === "sent" && <span className="badge badge-green !text-[8px]">✓ passed launch checks</span>}
+                  {t.launch_alert === "skipped" && <span className="badge badge-amber !text-[8px]">⚠ failed launch checks</span>}
+                </div>
               </div>
               <div className="ml-auto text-right">
                 <div className="num text-[12.5px] font-bold">${priceStr(t.price)}</div>

@@ -5,6 +5,9 @@ Endpoints used (public):
   GET /token-profiles/latest/v1     → newest token profiles   (discovery)
   GET /tokens/v1/{chain}/{addrs}    → pair stats for up to 30 addresses
 
+Boosts/profiles are PAID promotion, so they surface coins late. Fresh pools
+from GeckoTerminal (providers/geckoterminal.py) are merged in by ingestion.
+
 Published limits are ~300 req/min for token endpoints, 60 req/min for boost
 endpoints; we make ≤ 4 requests per 60-second tick and back off on errors.
 """
@@ -67,7 +70,7 @@ class DexscreenerProvider:
                 self._get(client, "/token-profiles/latest/v1"),
                 return_exceptions=True,
             )
-        for payload in (boosted, profiles):
+        for source, payload in (("boost", boosted), ("profile", profiles)):
             if isinstance(payload, Exception) or not isinstance(payload, list):
                 continue
             for it in payload:
@@ -88,7 +91,7 @@ class DexscreenerProvider:
                     name="", symbol="", image_url=icon,
                     url=it.get("url") or "",
                     description=(it.get("description") or "")[:600],
-                    extra={"boosts": it.get("totalAmount") or it.get("amount") or 0},
+                    extra={"boosts": it.get("totalAmount") or it.get("amount") or 0, "source": source},
                 ))
         HEALTH.report(self.name, self.kind, True, f"discovered {len(out)} candidates")
         # rank by boosts to prioritise currently-attended tokens
