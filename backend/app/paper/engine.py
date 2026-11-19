@@ -465,7 +465,10 @@ def _manage_exit(db, acct, settings, p: PaperPosition, now: int, market: dict,
     p.peak_price = max(p.peak_price or p.entry_price, px)
     be = float(settings.get("breakeven_at_pct") or 0)
     if be > 0 and p.peak_price >= p.entry_price * (1 + be / 100.0):
-        be_px = round(p.entry_price * 1.008, 12)      # entry + round-trip fees
+        ex = settings["execution"]
+        rt = 2 * (float(ex.get("fee_pct", 0.3)) + float(ex.get("base_slippage_pct", 1.0))
+                  + float(ex.get("half_spread_pct", 0.0)))
+        be_px = round(p.entry_price * (1 + rt / 100.0), 12)   # entry + round-trip costs
         if (p.stop_price or 0) < be_px:
             p.stop_price = be_px
     arm = 1 + max(2.0, float(settings.get("trail_activate_pct") or 0)) / 100.0

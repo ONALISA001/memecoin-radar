@@ -61,11 +61,26 @@ def reset_lab(db, user_id: int) -> None:
             else acct.settings_json
 
 
+def mean_ci(values: list[float], n_boot: int = 2000, seed: int = 7) -> tuple[float, float] | None:
+    """95% bootstrap interval for the average trade return (needs ≥10 trades).
+    If the whole range is above 0 the strategy has shown an edge; if it spans 0
+    the results so far are compatible with luck."""
+    if len(values) < 10:
+        return None
+    import random
+    rnd = random.Random(seed)
+    n = len(values)
+    means = sorted(sum(rnd.choice(values) for _ in range(n)) / n for _ in range(n_boot))
+    return round(means[int(0.025 * n_boot)], 2), round(means[int(0.975 * n_boot) - 1], 2)
+
+
 def _stats(db, acct: DemoAccount, market: dict) -> dict:
     pf = PE.portfolio_state(db, acct, market)
     closed = db.execute(select(PaperPosition).where(PaperPosition.account_id == acct.id,
                                                     PaperPosition.status == "closed")).scalars().all()
     pnls = [p.realized_pnl or 0.0 for p in closed]
+    rets = [p.pnl_pct or 0.0 for p in closed]
+    ci = mean_ci(rets)
     wins, losses = [x for x in pnls if x >= 0], [x for x in pnls if x < 0]
     max_dd = db.execute(select(func.max(EquitySnapshot.drawdown_pct))
                         .where(EquitySnapshot.account_id == acct.id)).scalar() or 0.0
@@ -85,6 +100,9 @@ def _stats(db, acct: DemoAccount, market: dict) -> dict:
         "best": round(max(pnls), 2) if pnls else None, "worst": round(min(pnls), 2) if pnls else None,
         "max_drawdown_pct": round(max(max_dd, pf["drawdown_pct"]), 2),
         "exits": exits, "halt": PE.halt_status(acct),
+        "avg_trade_pct": round(sum(rets) / len(rets), 2) if rets else None,
+        "avg_trade_ci95": list(ci) if ci else None,
+        "edge": (None if not ci else "positive" if ci[0] > 0 else "negative" if ci[1] < 0 else "unclear"),
     }
 
 
@@ -101,9 +119,11 @@ def compare(db, user_id: int, market: dict) -> dict:
         rows.append(row)
     main_row = {"key": "main", "name": "Your main account", "summary": "Your own settings.",
                 "running": True, **_stats(db, main, market)}
-    # rank by return, but flag samples too small to mean anything
+    # rank by return, but flag samples too small to mean anything; a strategy only
+    # "leads" if it has enough trades AND its 95% range of average trade is above 0
     for r in rows:
         r["enough_trades"] = (r.get("trades") or 0) >= 30
+        r["proven_edge"] = bool(r["enough_trades"] and r.get("edge") == "positive")
     return {"running": bool(accts), "presets": rows, "main": main_row, "min_trades_for_verdict": 30,
             "ts": int(time.time())}
 

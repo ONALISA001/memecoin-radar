@@ -19,7 +19,7 @@ from sqlalchemy import delete, func, select
 
 from ..config import (HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
                       MAX_TRACKED_TOKENS, NEW_POOLS_ENABLED, NEW_POOL_MAX_AGE_H,
-                      NEWS_REFRESH_MINUTES, NEWS_RSS_ENABLED,
+                      NEWS_REFRESH_MINUTES, NEWS_RSS_ENABLED, USE_SIMULATED_SOCIAL,
                       NEW_POOL_MIN_LIQUIDITY_USD, NEW_POOL_MIN_TXNS_H1, NEW_POOL_SLOTS,
                       ANOMALY_Z, BACKFILL_HOURS, DEXSCREENER_ENABLED,
                       SNAPSHOT_BUCKET_SECONDS as BUCKET)
@@ -256,6 +256,8 @@ def write_live_bucket(db, token: Token, sim: Sim, tick: dict | None, now_b: int,
                               top10_pct=c["top10_pct"], deployer_pct=c["deployer_pct"],
                               new_wallets=c["new_wallets"], active_wallets=c["active_wallets"],
                               whale_net_usd=c["whale_net_usd"]))
+    if onchain is not None and not USE_SIMULATED_SOCIAL:
+        return              # real coin: no simulated social rows at all
     s = sim.bucket_social(now_b)
     db.add(SocialSnapshot(token_id=token.id, ts=now_b, mentions=s["mentions"],
                           unique_accounts=s["unique_accounts"], engagement=s["engagement"],
@@ -376,6 +378,10 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
         news_active = any(news_flags.get(n) for n in ni["names"])
         ctx.available["news"] = news_active
         facts = contract_facts.get(t.id) or unverified_facts()   # REAL Helius facts
+        lv0 = (live or {}).get(t.address) or {}
+        if lv0.get("volume_h24") is not None and ctx.d.get("liq_now"):
+            # live DexScreener 24h volume (recorded history only covers the time we've tracked)
+            ctx.d["vol24_liq_live"] = lv0["volume_h24"] / ctx.d["liq_now"]
 
         trend_payload = scoring_engine.calculate_trend_score(ctx, ni, mkt)
         fomo_payload = fomo_engine.calculate_fomo(ctx, news_active)
@@ -508,7 +514,8 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
     # content generators for active tokens
     for t in tokens:
         sim = Sim.from_state(t.address, t.state_json or {})
-        post = live_post(sim, t.symbol or "", (t.description or "").split()[:2] or [], now_b)
+        post = live_post(sim, t.symbol or "", (t.description or "").split()[:2] or [], now_b) \
+            if (is_mock(t) or USE_SIMULATED_SOCIAL) else None      # no fake posts for real coins
         if post:
             db.add(SocialPost(token_id=t.id, **post))
         if is_mock(t):     # simulated whale trades only for the demo universe
@@ -738,8 +745,15 @@ async def tick() -> dict:
                           {"mode": "fallback-sim" if fallback else "live",
                            "note": "real market data" if not fallback else
                                    "unreachable — simulated market universe"})
-            upsert_source(db, "x-social-sim", "social", "mock",
-                          {"note": "MOCK — replace with X API provider in Phase 2"})
+            if fallback or USE_SIMULATED_SOCIAL:
+                upsert_source(db, "x-social-sim", "social", "mock",
+                              {"note": "MOCK — simulated social (demo universe / USE_SIMULATED_SOCIAL)"})
+            else:
+                upsert_source(db, "attention-real", "social", "ok",
+                              {"note": "no free X/Twitter source: attention = unique buyers "
+                                       "(GeckoTerminal), bot/wash check = trades per unique trader; "
+                                       "influencers/engagement unavailable"})
+                db.execute(delete(DataSource).where(DataSource.name == "x-social-sim"))
             if fallback:
                 upsert_source(db, "solana-chain-sim", "onchain", "mock",
                               {"note": "demo universe only (DexScreener unreachable)"})

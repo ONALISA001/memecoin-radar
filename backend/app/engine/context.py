@@ -54,6 +54,7 @@ class TokenContext:
     sentiment: dict[int, float] = field(default_factory=dict)
     influencers: dict[int, float] = field(default_factory=dict)
     lowq: dict[int, float] = field(default_factory=dict)
+    social_proxy: bool = False      # True: attention inputs are REAL unique buyers, not social posts
 
     # derived accelerations & levels
     d: dict[str, float] = field(default_factory=dict)
@@ -100,6 +101,13 @@ class TokenContext:
             ctx.influencers[r.ts] = r.influencer_posts or 0.0
             ctx.lowq[r.ts] = r.low_quality_share or 0.0
 
+        if not (token.address or "").startswith("Mock") and not config.USE_SIMULATED_SOCIAL:
+            # No real social source: never let (old) simulated social rows into the scores.
+            ctx.social_proxy = True
+            ctx.mentions = dict(ctx.new_wallets)        # unique buyers per 5 min (real)
+            ctx.uniques = dict(ctx.active_wallets)      # unique traders per 5 min (real)
+            ctx.engagement, ctx.sentiment, ctx.influencers, ctx.lowq = {}, {}, {}, {}
+            ctx.sources["social"] = "real:unique-buyers"
         ctx.available = {
             "market": bool(ctx.price and ctx.volume and ctx.liquidity),
             "social": bool(ctx.mentions),
@@ -120,11 +128,20 @@ class TokenContext:
         _, _, d["engagement_g_1h"] = tsx.window_growth(self.engagement, now, 3600)
         _, _, d["engagement_g_15m"] = tsx.window_growth(self.engagement, now, 900)
         d["uniques_1h"], d["uniques_prev_1h"], d["uniques_g_1h"] = tsx.window_growth(self.uniques, now, 3600)
+        _, _, d["uniques_g_15m"] = tsx.window_growth(self.uniques, now, 900)
         d["influencers_1h"] = tsx.ssum(self.influencers, now - 3600, now)
         d["influencers_24h"] = tsx.ssum(self.influencers, now - 86400, now)
         d["sentiment_avg_6h"] = tsx.ema([v for t, v in tsx.series_list(self.sentiment, now - 21600)]) \
             if self.sentiment else 0.0
         d["lowq_24h"] = (tsx.rolling_stats(list(self.lowq.values()))[0] if self.lowq else 0.5)
+        if self.social_proxy:
+            # bot/wash-likeness from REAL data: trades per unique trader over the last hour
+            # (1.5 → 0, 4.5 → 0.5, ≥7.5 → 1). Unknown (no trader data) → neutral 0.3.
+            tr = tsx.ssum(self.uniques, now - 3600, now)
+            tx = tsx.ssum(self.txns, now - 3600, now)
+            d["trades_per_trader"] = (tx / tr) if tr > 0 else None
+            d["lowq_24h"] = (min(1.0, max(0.0, (d["trades_per_trader"] - 1.5) / 6.0))
+                             if d["trades_per_trader"] is not None else 0.3)
         # market
         d["history_h"] = tsx.history_hours(self.price, now)   # real-data coverage
         d["volume_1h"], d["volume_prev_1h"], d["volume_g_1h"] = tsx.window_growth(self.volume, now, 3600)

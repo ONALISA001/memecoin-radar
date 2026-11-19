@@ -21,9 +21,12 @@ def build_analysis(ctx: TokenContext, trend_payload: dict, fomo_payload: dict,
     observed = [
         f"{sym}: price ${d['price_now']:.8g}, market cap ${d['mcap_now']:,.0f}, "
         f"liquidity ${d['liq_now']:,.0f} (source: {ctx.sources['market']}).",
-        f"Social mentions (1h): {d['mentions_1h']:.0f} vs {d['mentions_prev_1h']:.0f} prior hour "
-        f"({d['mentions_g_1h']:+.0f}%), unique accounts {d['uniques_1h']:.0f} "
-        f"(source: {ctx.sources['social']}, simulated).",
+        (f"Attention (no real social source): unique buyers (1h) {d['mentions_1h']:.0f} vs "
+         f"{d['mentions_prev_1h']:.0f} prior hour ({d['mentions_g_1h']:+.0f}%), unique traders "
+         f"{d['uniques_1h']:.0f} (source: GeckoTerminal, real)." if ctx.social_proxy else
+         f"Social mentions (1h): {d['mentions_1h']:.0f} vs {d['mentions_prev_1h']:.0f} prior hour "
+         f"({d['mentions_g_1h']:+.0f}%), unique accounts {d['uniques_1h']:.0f} "
+         f"(source: {ctx.sources['social']}, simulated)."),
         f"Trading volume (1h): ${d['volume_1h']:,.0f} vs ${d['volume_prev_1h']:,.0f} prior hour "
         f"({d['volume_g_1h']:+.0f}%); buy share {d['buy_share_1h']:.0%}.",
         f"Holders: {d['holders_now']:.0f} ({d['holders_g_1h']:+.1f}% 1h, {d['holders_g_24h']:+.1f}% 24h) "

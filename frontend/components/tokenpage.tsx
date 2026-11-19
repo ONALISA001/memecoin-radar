@@ -318,8 +318,12 @@ function PostsPanel({ address }: { address: string }) {
   const { data } = useApi(`/tokens/${address}/social`, 30000);
   const posts = data?.posts || [];
   return (
-    <Panel title={<span>𝕏 Social feed <span className="badge badge-amber !text-[8px] ml-1">simulated</span></span>}>
-      {posts.length === 0 && <Empty text="No posts captured." />}
+    <Panel title={<span>𝕏 Social feed {data?.mock
+      ? <span className="badge badge-amber !text-[8px] ml-1">simulated</span>
+      : <span className="badge !text-[8px] ml-1">no source</span>}</span>}>
+      {posts.length === 0 && <Empty text={data?.mock === false
+        ? "No free real X/Twitter source is connected, so no posts are shown and social posts don't count in any score. Attention is measured from real unique buyers instead."
+        : "No posts captured."} />}
       {posts.slice(0, 10).map((p: any, i: number) => (
         <div key={i} className="px-3.5 py-2 border-b border-line/50">
           <div className="flex items-center gap-2 text-[10px] text-dim">

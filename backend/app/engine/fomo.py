@@ -26,6 +26,13 @@ def calculate_fomo(ctx: TokenContext, news_active: bool = False) -> dict:
     c_infl = 10 * min(1.0, d["influencers_1h"] / 3.0)
     c_eng = 10 * sat(max(d["engagement_g_15m"], 0), 250)
     c_news = 5.0 if news_active and d["mentions_g_1h"] > 50 else 0.0
+    if ctx.social_proxy:
+        # No real influencer/engagement source: those 20 points use REAL crowd data instead.
+        traders, buyers = d["uniques_1h"], d["mentions_1h"]
+        dom = buyers / traders if traders > 0 else 0.5
+        c_infl = 10 * min(1.0, max(0.0, (dom - 0.5) / 0.25))      # 50% → 0, 75%+ → 10
+        c_eng = 10 * sat(max(d["uniques_g_15m"], 0), 250)
+        c_news = 5.0 if news_active else 0.0
 
     score = max(0.0, min(100.0, c_social + c_vol + c_price + c_txn + c_holders
                            + c_infl + c_eng + c_news))
@@ -34,8 +41,8 @@ def calculate_fomo(ctx: TokenContext, news_active: bool = False) -> dict:
         "fomo": round(score, 1),
         "classification": cls,
         "components": [
-            {"label": "Social acceleration (15m)", "points": round(c_social, 1), "max": 20,
-             "value": f"{d['mentions_g_15m']:+.0f}%"},
+            {"label": "Unique-buyer acceleration (15m)" if ctx.social_proxy else "Social acceleration (15m)",
+             "points": round(c_social, 1), "max": 20, "value": f"{d['mentions_g_15m']:+.0f}%"},
             {"label": "Volume acceleration (15m)", "points": round(c_vol, 1), "max": 20,
              "value": f"{d['volume_g_15m']:+.0f}%"},
             {"label": "Price acceleration (15m)", "points": round(c_price, 1), "max": 10,
@@ -44,10 +51,15 @@ def calculate_fomo(ctx: TokenContext, news_active: bool = False) -> dict:
              "value": f"{d['txns_g_15m']:+.0f}%"},
             {"label": "New-holder acceleration (1h)", "points": round(c_holders, 1), "max": 15,
              "value": f"{d['holders_g_1h']:+.1f}%"},
-            {"label": "Influencer activity", "points": round(c_infl, 1), "max": 10,
-             "value": f"{d['influencers_1h']:.0f} posts"},
-            {"label": "Engagement acceleration", "points": round(c_eng, 1), "max": 10,
-             "value": f"{d['engagement_g_15m']:+.0f}%"},
+            ({"label": "Buyer dominance (unique wallets, 1h)", "points": round(c_infl, 1), "max": 10,
+              "value": f"{(d['mentions_1h'] / d['uniques_1h']) if d['uniques_1h'] > 0 else 0:.0%} of traders buying"}
+             if ctx.social_proxy else
+             {"label": "Influencer activity", "points": round(c_infl, 1), "max": 10,
+              "value": f"{d['influencers_1h']:.0f} posts"}),
+            ({"label": "Unique-trader acceleration (15m)", "points": round(c_eng, 1), "max": 10,
+              "value": f"{d['uniques_g_15m']:+.0f}%"} if ctx.social_proxy else
+             {"label": "Engagement acceleration", "points": round(c_eng, 1), "max": 10,
+              "value": f"{d['engagement_g_15m']:+.0f}%"}),
             {"label": "News/search activity", "points": round(c_news, 1), "max": 5,
              "value": "active" if news_active else "quiet"},
         ],

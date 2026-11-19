@@ -16,7 +16,7 @@ import math
 
 def slippage_pct(size_usd: float, liquidity_usd: float, price_chg_1h: float,
                  side: str, exec_cfg: dict) -> float:
-    base = float(exec_cfg.get("base_slippage_pct", 0.35))
+    base = float(exec_cfg.get("base_slippage_pct", 1.0)) + float(exec_cfg.get("half_spread_pct", 0.0))
     impact = 0.0
     liq = max(float(liquidity_usd or 0.0), 1.0)
     impact = float(exec_cfg.get("impact_weight", 0.6)) * 100.0 * float(size_usd) / liq

@@ -135,6 +135,13 @@ check("lab reset clears lab positions only", db.query(PaperPosition).filter(
     PaperPosition.account_id.in_([a.id for a in accts.values()])).count() == 0
       and db.query(PaperPosition).filter_by(account_id=main.id).count() == 2)
 
+# --- confidence ranges -------------------------------------------------------------------
+check("no range under 10 trades", LAB.mean_ci([5.0] * 9) is None)
+lo, hi = LAB.mean_ci([4.0, 6.0, 5.0, 3.0, 7.0, 5.5, 4.5, 6.5, 5.0, 5.0, 4.8, 5.2])
+check("consistent winners => range above 0", 0 < lo < 5.13 < hi, f"{lo} {hi}")
+lo, hi = LAB.mean_ci([30.0, -12.0, -12.0, 25.0, -12.0, -12.0, 40.0, -12.0, -12.0, -12.0])
+check("a few big wins among many losses => range spans 0 (luck can't be ruled out)", lo < 0 < hi, f"{lo} {hi}")
+
 # --- units the engine really receives from an ingestion tick -------------------------
 import asyncio  # noqa: E402
 from app.providers.base import RawToken  # noqa: E402

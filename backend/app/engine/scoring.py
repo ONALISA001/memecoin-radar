@@ -18,6 +18,21 @@ def calculate_social_score(ctx: TokenContext) -> tuple[float, dict]:
     p_infl = min(2.0, d["influencers_1h"] * 0.7)
     p_cross = 2.0 if (d["mentions_24h"] > 0 and (d["influencers_24h"] > 0 or ctx.available.get("news"))) \
         else (1.0 if d["mentions_24h"] > 10 else 0.0)
+    if ctx.social_proxy:                      # REAL attention: unique buyers / traders
+        return round(p_growth + p_vel + p_uniq + p_cross, 1), {
+            "max": 25, "title": "Attention (unique buyers)",
+            "drivers": [
+                {"label": "Unique-buyer growth (1h)", "points": round(p_growth, 1), "max": 8,
+                 "value": f"{d['mentions_1h']:.0f} vs {d['mentions_prev_1h']:.0f} ({d['mentions_g_1h']:+.0f}%)"},
+                {"label": "Unique-buyer velocity (15m)", "points": round(p_vel, 1), "max": 5,
+                 "value": f"{d['mentions_g_15m']:+.0f}%"},
+                {"label": "Engagement growth", "points": 0, "max": 4, "value": "no real source"},
+                {"label": "Unique-trader growth", "points": round(p_uniq, 1), "max": 4,
+                 "value": f"{d['uniques_g_1h']:+.0f}%"},
+                {"label": "Influencer activity", "points": 0, "max": 2, "value": "no real source"},
+                {"label": "In the news / DEX activity", "points": round(p_cross, 1), "max": 2,
+                 "value": "yes" if p_cross >= 2 else "partial" if p_cross else "no"},
+            ]}
     detail = {
         "max": 25,
         "drivers": [
