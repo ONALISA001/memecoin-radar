@@ -6,6 +6,26 @@ social / market / on-chain / news data into *explainable* signals so you can do 
 
 ---
 
+## Time Machine (replay a trade before you take it)
+
+Ported from the Day Trader skill's `trader-timemachine` and adapted to 24/7 memecoins.
+`GET /api/tokens/{address}/timemachine?stop_pct=12&target_pct=35&hours=24` (defaults
+come from the paper strategy) and the **Time Machine** panel on every token page:
+
+- **10,000 replays** (`engine/timemachine.py`): a block bootstrap (30-min blocks) of the
+  token's own REAL 5-minute price returns over the last 7 days. Only snapshots exactly
+  5 min apart count — gaps are never bridged. Odds of target first / stop first /
+  neither, green %, average R, exit-return percentiles, a fan chart. Seeded (19) so a
+  run is repeatable; chunked so memory stays ~10 MB.
+- **What really happened**: the same stop/target/hold rule re-run on real snapshots
+  after every past signal of the same kind (all tokens, 14 days, last 200 signals).
+  Data gaps are counted, not filled; holds still running are excluded.
+- **Verdict**: among outcomes that hit a side, target rate vs break-even `1/(1+R)`
+  (coin flip / break-even <5 pts, leans 5–15, strongly ≥15). History needs ≥10
+  decided signals before it gives one.
+- Honest limits: 5-minute closes miss moves inside a bucket, and a real stop can fill
+  worse. Needs ≥3h of unbroken data. Tests: `backend/scripts/test_timemachine.py`.
+
 ## What it does (v4 — AI Paper Trading & Strategy Simulation)
 
 A complete virtual-funds trading laboratory wired directly into the v3 intelligence
