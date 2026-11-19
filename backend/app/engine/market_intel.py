@@ -21,6 +21,7 @@ snapshots; whale behavior is explicitly INFERRED, never asserted as fact.
 from __future__ import annotations
 
 from . import timeseries as tsx
+from ..config import MIN_HISTORY_HOURS
 
 
 def _clamp(x: float, lo: float, hi: float) -> float:
@@ -217,7 +218,8 @@ def _ath(ctx, sellp_score: float) -> dict:
         return {"status": "neutral", "note": "data unavailable"}
     ath_t, ath = max(series, key=lambda kv: kv[1])
     dist = (ath - price) / ath * 100 if ath > 0 else 0.0
-    new_ath = ath_t >= now - 600
+    # A "new high" means nothing until we've recorded some history to beat.
+    new_ath = ath_t >= now - 600 and ctx.d.get("history_h", 0.0) >= MIN_HISTORY_HOURS
     high24 = max((v for t, v in series if t >= now - 86400), default=ath)
     low24 = min((v for t, v in series if t >= now - 86400), default=price)
     d = ctx.d

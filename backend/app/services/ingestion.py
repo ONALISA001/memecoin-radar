@@ -42,6 +42,7 @@ from ..paper import engine as paper_engine
 from ..providers.base import HEALTH, RawToken
 from ..providers import helius as helius_mod
 from .holders import real_holder_stats
+from .contract_facts import is_mock, latest_contract_facts, unverified_facts
 from ..providers.dexscreener import DexscreenerProvider
 from ..providers.mock_providers import (FALLBACK_TOKENS, Sim, bucket_of,
                                         generate_articles, generate_posts,
@@ -141,8 +142,8 @@ def _fallback_ticks() -> dict[str, dict]:
 
 # --------------------------------------------------------------------------
 def backfill_token(db, token: Token, sim: Sim, now_b: int):
-    """48h of 5-minute snapshots for a newly discovered token (§33). The
-    current bucket is excluded — it is written right after from LIVE data."""
+    """48h of SIMULATED 5-minute snapshots (§33) — demo/fallback (Mock*) tokens
+    only. Real tokens are never backfilled with invented history."""
     start = now_b - BACKFILL_HOURS * 3600
     price_rows, vol_rows, liq_rows, hold_rows, soc_rows = [], [], [], [], []
     for t in range(start, now_b, BUCKET):
@@ -302,6 +303,7 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
     mkt = {"breadth": breadth, "sector_momentum": sector_momentum}
 
     real_holders = real_holder_stats(db, [t.id for t in tokens])
+    contract_facts = latest_contract_facts(db, tokens)
     watched = {r[0] for r in db.execute(select(Watchlist.token_id)).all()}
     payloads = []
     new_emerging = 0
@@ -312,8 +314,7 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
                                        "cross_platform": False, "names": [], "narrative_ids": []})
         news_active = any(news_flags.get(n) for n in ni["names"])
         ctx.available["news"] = news_active
-        sim = Sim.from_state(t.address, t.state_json or {})
-        facts = sim.contract_facts()
+        facts = contract_facts.get(t.id) or unverified_facts()   # REAL Helius facts
 
         trend_payload = scoring_engine.calculate_trend_score(ctx, ni, mkt)
         fomo_payload = fomo_engine.calculate_fomo(ctx, news_active)
@@ -580,7 +581,10 @@ async def tick() -> dict:
                         pc_h24=mt["pc_h24"], ref_bucket=now_b)
                     token.state_json = sim.to_state()
                     token.archetype = sim.archetype
-                    backfill_token(db, token, sim, now_b)
+                    # No invented history for real tokens: their windows fill from live
+                    # ticks. Only the demo/fallback (Mock*) universe gets a simulated backfill.
+                    if is_mock(token):
+                        backfill_token(db, token, sim, now_b)
                     new_count += 1
                 # refresh mutable metadata
                 for fld in ("chain",):

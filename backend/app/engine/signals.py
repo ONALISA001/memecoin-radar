@@ -2,7 +2,7 @@
 detection (§36) and emerging-signal classification (§10)."""
 from __future__ import annotations
 
-from ..config import (EMERGING_MIN_FOMO, EMERGING_MIN_SOCIAL_G, EMERGING_MIN_TREND,
+from ..config import (MIN_HISTORY_HOURS, EMERGING_MIN_FOMO, EMERGING_MIN_SOCIAL_G, EMERGING_MIN_TREND,
                       EMERGING_MIN_VOLUME_G)
 from .context import TokenContext
 
@@ -80,6 +80,8 @@ def detect_conflicts(ctx: TokenContext, fomo: float) -> list[dict]:
 def is_emerging(ctx: TokenContext, trend: float, fomo: float, age_hours: float,
                 trend_delta_30m: float) -> bool:
     d = ctx.d
+    if d.get("history_h", 0.0) < MIN_HISTORY_HOURS:
+        return False            # too little recorded history to call acceleration
     return (trend >= EMERGING_MIN_TREND and fomo >= EMERGING_MIN_FOMO and fomo < 81
             and d["mentions_g_1h"] >= EMERGING_MIN_SOCIAL_G
             and d["volume_g_1h"] >= EMERGING_MIN_VOLUME_G

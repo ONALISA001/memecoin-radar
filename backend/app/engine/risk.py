@@ -7,7 +7,14 @@ from __future__ import annotations
 from ..config import ANOMALY_Z
 from .context import TokenContext
 
+# Points charged while mint/freeze authority are still unknown (no Helius check yet).
+CONTRACT_UNVERIFIED_POINTS = 5
+
 RISK_BANDS = [(70, "HIGH"), (50, "ELEVATED"), (30, "MODERATE"), (0, "LOW")]
+
+
+def _onoff(v) -> str:
+    return "unknown" if v is None else ("ON" if v else "off")
 
 
 def classify(score: float) -> str:
@@ -58,33 +65,47 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
         flags.append(f"Deployer-linked share ≈{dep:.0f}%")
     concentration = min(25, p_t10 + p_dep)
 
-    # ---- contract risk /15 (where known — mock until Phase 3) ----
+    # ---- contract risk /15 ----
+    # Real facts come from Helius (services/contract_facts.py). None = not verified
+    # yet, which is scored as a partial risk: missing data never improves a score.
+    src = facts.get("source", "unverified")
+    simulated = src.startswith("mock")
+    tag = " (simulated chain data)" if simulated else ""
+    mint, freeze = facts.get("mint_authority"), facts.get("freeze_authority")
     p_contract = 0.0
-    if facts.get("mint_authority"):
+    if mint is None and freeze is None:
+        p_contract += CONTRACT_UNVERIFIED_POINTS
+        flags.append("Contract permissions not verified yet — treated as a risk until checked")
+    if mint:
         p_contract += 8
         flags.append("Mint authority appears ENABLED — supply can be inflated")
         events.append({"category": "contract", "severity": "warn",
-                       "message": "Mint authority reported enabled (simulated chain data)."})
-    if facts.get("freeze_authority"):
+                       "message": f"Mint authority reported enabled{tag}."})
+    if freeze:
         p_contract += 7
         flags.append("Freeze authority appears ENABLED — transfers can be frozen")
         events.append({"category": "contract", "severity": "warn",
-                       "message": "Freeze authority reported enabled (simulated chain data)."})
-    if facts.get("lp_burned_pct", 100) < 30:
-        flags.append(f"Only ~{facts.get('lp_burned_pct', 0):.0f}% of LP reported burned/locked")
+                       "message": f"Freeze authority reported enabled{tag}."})
+    if facts.get("token_2022"):
+        p_contract += 3
+        flags.append("Token-2022 program — may carry transfer fees/extensions")
+    lp = facts.get("lp_burned_pct")
+    if lp is not None and lp < 30:
+        flags.append(f"Only ~{lp:.0f}% of LP reported burned/locked")
     contract = min(15, p_contract)
 
-    # ---- deployer risk /10 ----
+    # ---- deployer risk /10 (no real source yet → unavailable, scored 0) ----
     p_deployer = 0.0
     if facts.get("deployer_suspicious"):
         p_deployer += 6
-        flags.append("Deployer shows suspicious launch patterns (simulated intel)")
+        flags.append(f"Deployer shows suspicious launch patterns{tag}")
         events.append({"category": "deployer", "severity": "warn",
-                       "message": "Deployer wallet matches patterns of repeated short-lived launches (simulated)."})
-    prev = facts.get("deployer_prev_launches", 0)
-    p_deployer += 4 if prev >= 5 else 2 if prev >= 3 else 0
-    if prev >= 3:
-        flags.append(f"Deployer linked to ~{prev} previous launches")
+                       "message": f"Deployer wallet matches patterns of repeated short-lived launches{tag}."})
+    prev = facts.get("deployer_prev_launches")
+    if prev is not None:
+        p_deployer += 4 if prev >= 5 else 2 if prev >= 3 else 0
+        if prev >= 3:
+            flags.append(f"Deployer linked to ~{prev} previous launches")
     deployer = min(10, p_deployer)
 
     # ---- market behavior /10 ----
@@ -135,11 +156,11 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
             {"label": "Holder concentration", "points": round(concentration, 1), "max": 25,
              "value": f"top10 ≈{t10:.0f}%"},
             {"label": "Contract permissions", "points": round(contract, 1), "max": 15,
-             "value": "mint " + ("ON" if facts.get("mint_authority") else "off") +
-                      " · freeze " + ("ON" if facts.get("freeze_authority") else "off"),
-             "source": facts.get("source", "mock:chain-sim")},
+             "value": "mint " + _onoff(mint) + " · freeze " + _onoff(freeze),
+             "source": src},
             {"label": "Deployer history", "points": round(deployer, 1), "max": 10,
-             "value": f"{prev} prior launches", "source": facts.get("source", "mock:chain-sim")},
+             "value": f"{prev} prior launches" if prev is not None else "unavailable",
+             "source": src if prev is not None else "unavailable"},
             {"label": "Market behavior", "points": round(behavior, 1), "max": 10,
              "value": f"1h {pc:+.0f}%, buy share {d['buy_share_1h']:.0%}"},
             {"label": "Social manipulation", "points": round(social, 1), "max": 10,
