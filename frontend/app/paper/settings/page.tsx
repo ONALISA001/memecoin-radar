@@ -27,6 +27,17 @@ const GROUPS: { title: string; fields: [string, string, string][] }[] = [
     ],
   },
   {
+    title: "Memecoin Safety Rules (0 = off)",
+    fields: [
+      ["min_token_age_h", "Min coin age (h)", "skip launch-day coins"],
+      ["max_token_age_h", "Max coin age (h)", "0 = no limit"],
+      ["max_top10_wallet_pct", "Max top-10 wallets (%)", "needs Helius data"],
+      ["max_vol_liq_ratio", "Max volume / liquidity", "wash-trading guard"],
+      ["max_chase_pct_1h", "Don't buy after 1h pump > (%)", "anti-chasing"],
+      ["min_buy_share_pct", "Min buy share (%)", "buys / 1h trades"],
+    ],
+  },
+  {
     title: "Risk Management",
     fields: [
       ["stop_loss_pct", "Stop-loss (%)", "from entry fill"],
@@ -38,6 +49,8 @@ const GROUPS: { title: string; fields: [string, string, string][] }[] = [
       ["max_consecutive_losses", "Max consecutive losses", "pauses new buys"],
       ["loss_streak_cooldown_hours", "Loss-streak cool-off (h)", "then auto-resume"],
       ["max_hold_hours", "Max holding period (h)", "time stop"],
+      ["breakeven_at_pct", "Break-even stop after (%)", "0 = off"],
+      ["trail_activate_pct", "Trailing stop arms after (%)", "0 = from +2%"],
       ["confidence_collapse_pts", "Confidence collapse exit (pts)", "momentum drop vs entry"],
       ["sell_pressure_exit", "Sell-pressure exit threshold", "0–100"],
       ["liquidity_exit_pct", "Liquidity exit (3h %≤)", "e.g. -20"],

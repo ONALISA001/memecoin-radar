@@ -364,9 +364,48 @@ def paper_settings(db: Session = Depends(get_db), user: User = Depends(get_curre
 def paper_settings_update(overrides: dict, db: Session = Depends(get_db),
                           user: User = Depends(get_current_user)):
     acct = _acct(db, user)
-    version = PE.apply_settings(db, acct, overrides or {})
+    # merge: the form only sends the fields it shows; keep other stored rules
+    # (e.g. a Strategy Lab preset's on/off filters) instead of silently dropping them
+    version = PE.apply_settings(db, acct, {**(acct.settings_json or {}), **(overrides or {})})
     db.commit()
     return {"ok": True, "strategy": version, "effective": PE.settings_for(acct)}
+
+
+# ---------------------------------------------------------------- strategy lab
+@router.get("/paper/lab")
+def paper_lab(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Side-by-side results of every Strategy Lab preset plus the main account."""
+    from ..paper import lab as LAB
+    out = LAB.compare(db, user.id, _summary_map(db))
+    db.commit()
+    return out
+
+
+@router.post("/paper/lab/start")
+def paper_lab_start(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from ..paper import lab as LAB
+    accts = LAB.start_lab(db, user.id)
+    db.commit()
+    return {"ok": True, "running": sorted(accts)}
+
+
+@router.post("/paper/lab/reset")
+def paper_lab_reset(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    from ..paper import lab as LAB
+    LAB.reset_lab(db, user.id)
+    db.commit()
+    return {"ok": True}
+
+
+@router.post("/paper/lab/apply/{key}")
+def paper_lab_apply(key: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Copy a preset's rules onto the main account (the main account's history is kept)."""
+    from ..paper import config as PCFG, lab as LAB
+    if key not in PCFG.PRESETS:
+        raise HTTPException(404, "unknown strategy")
+    version = LAB.apply_to_main(db, user.id, key)
+    db.commit()
+    return {"ok": True, "strategy": version, "effective": PE.settings_for(PE.get_or_create_account(db, user.id))}
 
 
 @router.post("/paper/resume")

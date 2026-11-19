@@ -494,6 +494,7 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
             "trend": trend_payload["trend"], "fomo": fomo_payload["fomo"],
             "risk": risk_payload["risk"], "risk_flags": risk_payload["flags"],
             "d": d, "mi": mi, "watched": t.id in watched,
+            "live": lv or {},          # real DexScreener aggregates (paper strategy rules)
         })
 
     # content generators for active tokens
@@ -534,14 +535,25 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
     try:
         market: dict[int, dict] = {}
         for p in payloads:
-            d, mi = p["d"], p["mi"]
+            d, mi, lv = p["d"], p["mi"], p.get("live") or {}
+            b1, s1 = lv.get("txns_h1_buys", 0) or 0, lv.get("txns_h1_sells", 0) or 0
+            liq = d.get("liq_now") or 0
             conf_sig = (mi.get("confluence") or {}).get("signal")
             market[p["token_id"]] = {
                 "price": d.get("price_now"), "liq": d.get("liq_now"), "mcap": d.get("mcap_now"),
-                "volume_24h": d.get("volume_24h"), "price_chg_1h": d.get("price_chg_1h"),
+                "volume_24h": lv.get("volume_h24", d.get("volume_24h")),
                 "momentum": (mi.get("momentum") or {}).get("score"),
+                # live DexScreener figure when available; recorded history needs time to build
+                "price_chg_1h": lv.get("pc_h1", d.get("price_chg_1h")),
                 "sellp": (mi.get("sell_pressure") or {}).get("score"),
                 "liq_chg_3h": d.get("liq_chg_3h"), "risk": p.get("risk"),
+                # strategy-lab filters / pullback entries
+                # units: percent; 24h volume ÷ liquidity
+                "buy_share_pct": (100.0 * b1 / (b1 + s1)) if (b1 + s1) else
+                                 100.0 * (d.get("buy_share_1h") or 0.0),
+                "vol_liq_ratio": ((lv.get("volume_h24") or d.get("volume_24h") or 0.0) / liq) if liq > 0 else None,
+                "price_chg_15m": d.get("price_chg_15m"),
+                "price_chg_24h": lv.get("pc_h24", d.get("price_chg_24h")),
                 "regime": {"emerging_momentum": "BULLISH",
                            "potential_distribution": "DISTRIBUTION"}.get(conf_sig, "NEUTRAL"),
             }

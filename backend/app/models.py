@@ -378,6 +378,7 @@ class DemoAccount(Base):
     consec_wins = Column(Integer, default=0)
     halt_until = Column(Integer)                    # unix ts: no NEW buys until then (auto-resume)
     halt_reason = Column(String(16))                # loss_streak | drawdown
+    strategy_key = Column(String(32))               # None = main account; else Strategy Lab preset
 
 
 class PaperSignal(Base):

@@ -28,7 +28,8 @@ _ADDED_COLUMNS = {
                           ("top10_wallet_pct", "DOUBLE PRECISION", "FLOAT"),
                           ("excluded_pct", "DOUBLE PRECISION", "FLOAT")],
     "demo_accounts": [("halt_until", "INTEGER", "INTEGER"),
-                      ("halt_reason", "VARCHAR(16)", "VARCHAR(16)")],
+                      ("halt_reason", "VARCHAR(16)", "VARCHAR(16)"),
+                      ("strategy_key", "VARCHAR(32)", "VARCHAR(32)")],
     "tokens": [("discovery_source", "VARCHAR(16)", "VARCHAR(16)"),
                ("launch_alert", "VARCHAR(8)", "VARCHAR(8)")],
 }

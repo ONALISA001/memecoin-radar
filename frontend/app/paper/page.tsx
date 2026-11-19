@@ -102,6 +102,7 @@ export default function PaperDashboard() {
           <Panel title="⚙️ Quick Links">
             <div className="p-3 grid grid-cols-2 gap-2 text-[10.5px]">
               <Link href="/paper/trades" className="pill-mini !text-center !py-2">📜 Trade History</Link>
+              <Link href="/paper/lab" className="pill-mini !text-center !py-2 !text-cyanx">🧪 Strategy Lab</Link>
               <Link href="/paper/analytics" className="pill-mini !text-center !py-2">📊 Strategy Analytics</Link>
               <Link href="/paper/backtest" className="pill-mini !text-center !py-2">▶ Backtester / Replay</Link>
               <Link href="/paper/settings" className="pill-mini !text-center !py-2">⚙ Settings</Link>
