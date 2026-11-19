@@ -15,8 +15,33 @@ from typing import Any
 
 import httpx
 
-from ..config import DEXSCREENER_BASE, MAX_TRACKED_TOKENS, SOLANA_ONLY
+from ..config import (DEXSCREENER_BASE, MAX_MCAP_USD, MAX_TRACKED_TOKENS,
+                      MIN_LIQUIDITY_USD, SOLANA_ONLY)
 from .base import HEALTH, MarketTick, RawToken
+
+# Stablecoins / wrapped majors are never meme-coin candidates.
+EXCLUDED_SYMBOLS = {
+    "USDC", "USDT", "USDS", "PYUSD", "USDE", "USDY", "USD1", "FDUSD", "DAI", "TUSD", "EURC",
+    "UXD", "USDH", "USDG", "SOL", "WSOL", "JITOSOL", "MSOL", "BSOL", "JUPSOL", "INF",
+    "WBTC", "CBBTC", "TBTC", "WETH", "ETH", "BTC",
+}
+EXCLUDED_MINTS = {
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",   # USDC
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",   # USDT
+    "So11111111111111111111111111111111111111112",    # wSOL
+}
+
+
+def exclusion_reason(symbol: str, address: str, mcap: float, liq: float) -> str | None:
+    """Why a token must not enter the radar universe (None = keep)."""
+    if address in EXCLUDED_MINTS or (symbol or "").upper() in EXCLUDED_SYMBOLS:
+        return "stablecoin/major"
+    if mcap and mcap > MAX_MCAP_USD:
+        return "market cap above ceiling"
+    if liq < MIN_LIQUIDITY_USD:
+        return "liquidity below floor"
+    return None
+
 
 CHAINS = ("solana",) if SOLANA_ONLY else ("solana", "ethereum", "base", "bsc")
 
@@ -87,6 +112,7 @@ class DexscreenerProvider:
                     tasks.append(self._get(client, f"/tokens/v1/{chain}/{addrs}"))
             results = await asyncio.gather(*tasks, return_exceptions=True)
         failures = 0
+        skipped = 0
         for res in results:
             if isinstance(res, Exception) or res is None:
                 failures += 1
@@ -104,6 +130,12 @@ class DexscreenerProvider:
             for t in tokens:
                 p = best.get(t.address)
                 if not p:
+                    continue
+                _mc = float(p.get("marketCap") or p.get("fdv") or 0)
+                _lq = float((p.get("liquidity") or {}).get("usd") or 0)
+                _sym = (p.get("baseToken") or {}).get("symbol") or ""
+                if exclusion_reason(_sym, t.address, _mc, _lq):
+                    skipped += 1
                     continue
                 vol = p.get("volume") or {}
                 pc = p.get("priceChange") or {}
@@ -142,5 +174,5 @@ class DexscreenerProvider:
                 t.token_created_at = p.get("pairCreatedAt")
         ok = failures == 0
         HEALTH.report(self.name + ":pairs", self.kind, ok,
-                      f"{len(ticks)} pairs, {failures} chunk failures")
+                      f"{len(ticks)} pairs, {skipped} filtered out, {failures} chunk failures")
         return ticks

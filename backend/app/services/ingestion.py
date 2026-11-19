@@ -239,8 +239,13 @@ def _latest_summaries(db) -> dict[int, dict]:
     return out
 
 
-def _score_all(db, now_b: int) -> dict:
+def _score_all(db, now_b: int, live: dict | None = None) -> dict:
+    """`live` = {address: real market tick}. When given (real-data mode) only tokens
+    that have a live tick this round are scored — dropped / filtered-out tokens
+    stop receiving scores instead of drifting on simulated data."""
     tokens = db.execute(select(Token)).scalars().all()
+    if live is not None:
+        tokens = [t for t in tokens if t.address in live]
     prev_trends = _latest_trends(db)
     prev_summaries = _latest_summaries(db)
 
@@ -375,6 +380,20 @@ def _score_all(db, now_b: int) -> dict:
             "sells_1h": d["sells_1h"], "liq_chg_24h": d["liq_chg_24h"],
             "holders_g_24h": d["holders_g_24h"], "txns_24h": txns_24h_total,
         }
+        lv = (live or {}).get(t.address)
+        if lv:
+            # REAL DexScreener aggregates override the bucket sums (which are built on a
+            # simulated 48h backfill and therefore give placeholder-looking trade counts).
+            b1, s1 = lv.get("txns_h1_buys", 0), lv.get("txns_h1_sells", 0)
+            b24, s24 = lv.get("txns_h24_buys", 0), lv.get("txns_h24_sells", 0)
+            summary.update({
+                "txns_1h": b1 + s1, "buys_1h": b1, "sells_1h": s1,
+                "txns_24h": b24 + s24,
+                "buy_share": (b1 / (b1 + s1)) if (b1 + s1) else None,
+                "volume_1h": lv.get("volume_h1", 0.0), "volume_24h": lv.get("volume_h24", 0.0),
+                "price_change_h1": lv.get("pc_h1", 0.0), "price_change_h24": lv.get("pc_h24", 0.0),
+                "price_chg_5m": lv.get("pc_m5", 0.0), "real_market": True,
+            })
         components = {
             "trend": trend_payload["components"],
             "fomo": fomo_payload["components"],
@@ -580,11 +599,14 @@ async def tick() -> dict:
                 q = q.where(Token.chain == "solana")
             tokens = db.execute(q).scalars().all()
             for token in tokens:
+                tk = ticks.get(token.address)
+                if tk is None and not fallback:
+                    continue        # no live data this round -> never fabricate a bucket
                 sim = Sim.from_state(token.address, token.state_json or {})
-                write_live_bucket(db, token, sim, ticks.get(token.address), now_b)
+                write_live_bucket(db, token, sim, tk, now_b)
             db.flush()
 
-            stats = _score_all(db, now_b)
+            stats = _score_all(db, now_b, None if fallback else ticks)
             stats["new_tokens"] = new_count
             prune_old(db, now_b)
 

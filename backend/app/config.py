@@ -42,6 +42,11 @@ SNAPSHOT_BUCKET_SECONDS = 300            # §33 event/time-series grid
 BACKFILL_HOURS = 48
 MAX_TRACKED_TOKENS = int(os.getenv("MAX_TRACKED_TOKENS", "40"))
 
+# Universe filter: this is a MEME-COIN radar, so drop stablecoins, wrapped majors
+# and anything already too big / too illiquid to be an early-stage meme coin.
+MAX_MCAP_USD = float(os.getenv("MAX_MCAP_USD", "100000000"))      # ceiling (default $100M)
+MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "3000"))  # floor (default $3k)
+
 # Providers
 DEXSCREENER_ENABLED = os.getenv("DEXSCREENER_ENABLED", "1") == "1"
 DEXSCREENER_BASE = "https://api.dexscreener.com"

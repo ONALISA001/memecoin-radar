@@ -60,8 +60,8 @@ export function TokenRow({ t, showGrowth = false }: { t: any; showGrowth?: boole
           </div>
         </Link>
       </td>
-      <td><TrendPill value={t.trend} /></td>
-      <td><FomoPill value={t.fomo} cls={t.fomo_class} /></td>
+      <td className="opacity-60" title="Simulated inputs (social + holders) — not a real signal yet"><TrendPill value={t.trend} /></td>
+      <td className="opacity-60" title="Simulated inputs (social + holders) — not a real signal yet"><FomoPill value={t.fomo} cls={t.fomo_class} /></td>
       <td><RiskPill value={t.risk} cls={t.risk_class} /></td>
       <td>
         <div className="num text-[12px]">{fmtPrice(t.price)}</div>
@@ -71,8 +71,8 @@ export function TokenRow({ t, showGrowth = false }: { t: any; showGrowth?: boole
       <td className="num">{fmtUsd(t.liquidity)}</td>
       {showGrowth ? (
         <>
-          <td className={`num ${pctColor(t.social_growth)}`}>{fmtPct(t.social_growth)}</td>
-          <td className={`num ${pctColor(t.holder_growth)}`}>{fmtPct(t.holder_growth)}</td>
+          <td className={`num opacity-50 ${pctColor(t.social_growth)}`} title="simulated">{fmtPct(t.social_growth)}</td>
+          <td className={`num opacity-50 ${pctColor(t.holder_growth)}`} title="simulated">{fmtPct(t.holder_growth)}</td>
         </>
       ) : (
         <>
@@ -85,8 +85,8 @@ export function TokenRow({ t, showGrowth = false }: { t: any; showGrowth?: boole
   );
 }
 
-const HEADERS_GROWTH = ["TOKEN", "TREND", "FOMO", "RISK", "PRICE", "VOL 1H", "LIQ", "SOC G", "HOLD G", "SIGNALS"];
-const HEADERS_BASIC = ["TOKEN", "TREND", "FOMO", "RISK", "PRICE", "VOL 1H", "LIQ", "CHAIN", "AGE", "SIGNALS"];
+const HEADERS_GROWTH = ["TOKEN", "TREND (sim)", "FOMO (sim)", "RISK", "PRICE", "VOL 1H", "LIQ", "SOC G (sim)", "HOLD G (sim)", "SIGNALS"];
+const HEADERS_BASIC = ["TOKEN", "TREND (sim)", "FOMO (sim)", "RISK", "PRICE", "VOL 1H", "LIQ", "CHAIN", "AGE", "SIGNALS"];
 
 /* -------------------------------------------------------- trending table */
 function TrendingTable() {
@@ -102,14 +102,18 @@ function TrendingTable() {
       title={<span>🔥 Trending now <span className="text-dim normal-case font-normal">(highest current Trend Scores)</span></span>}
       right={<span className="text-[10px] text-dim">{data?.count ?? 0} tracked</span>}
     >
+      <div className="px-3 py-1.5 text-[10px] text-amber-300/90 border-b border-line/60">
+        Real: price, volume, liquidity, trade counts (DexScreener) and on-chain risk (Helius, on the token page).
+        Marked “sim”: social, holders, FOMO and Trend — still simulated, do not trade on them.
+      </div>
       <div className="flex flex-wrap gap-2 px-3 py-2 border-b border-line/60">
         <select className="sel !py-1 !text-[11px]" value={chain} onChange={(e) => setChain(e.target.value)}>
           <option value="">all chains</option>
           {["solana", "ethereum", "base", "bnb"].map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
         <select className="sel !py-1 !text-[11px]" value={sort} onChange={(e) => setSort(e.target.value)}>
-          {[["trend", "Trend Score"], ["fomo", "FOMO"], ["volume", "Volume 1h"], ["social_growth", "Social growth"],
-            ["holder_growth", "Holder growth"], ["liquidity", "Liquidity"], ["risk", "Risk ↑"], ["price_change", "Price 1h"],
+          {[["trend", "Trend Score (sim)"], ["fomo", "FOMO (sim)"], ["volume", "Volume 1h"], ["social_growth", "Social growth (sim)"],
+            ["holder_growth", "Holder growth (sim)"], ["liquidity", "Liquidity"], ["risk", "Risk ↑"], ["price_change", "Price 1h"],
             ["age", "Newest"]].map(([v, l]) => <option key={v} value={v}>sort: {l}</option>)}
         </select>
         <select className="sel !py-1 !text-[11px]" value={minLiq} onChange={(e) => setMinLiq(e.target.value)}>

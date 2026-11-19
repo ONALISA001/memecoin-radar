@@ -32,12 +32,28 @@ TF_SECONDS = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400,
 def latest_score_rows(db: Session):
     sub = (select(TrendScore.token_id, func.max(TrendScore.ts).label("mts"))
            .group_by(TrendScore.token_id).subquery())
-    return db.execute(
+    rows = db.execute(
         select(TrendScore, Token)
         .join(Token, Token.id == TrendScore.token_id)
         .join(sub, and_(TrendScore.token_id == sub.c.token_id,
                         TrendScore.ts == sub.c.mts))
     ).all()
+    # Only tokens scored in the latest rounds are "tracked"; tokens that were dropped or
+    # filtered out (stablecoins, mega-caps...) simply stop being refreshed and disappear.
+    if rows:
+        newest = max(sc.ts for sc, _ in rows)
+        rows = [r for r in rows if r[0].ts >= newest - 900]
+    return rows
+
+
+# Which card fields are real and which are still simulated (shown in the UI).
+DATA_QUALITY = {
+    "real": ["price", "mcap", "liquidity", "volume_1h", "volume_24h", "price_change_h1",
+             "price_change_h24", "buys_1h", "sells_1h", "txns_1h", "txns_24h", "buy_share"],
+    "simulated": ["holders", "holder_growth", "holders_g_24h", "mentions_1h", "social_growth",
+                  "whale_class", "narratives", "organic", "confirmed", "fomo", "fomo_class",
+                  "trend", "confidence", "confluence", "emerging"],
+}
 
 
 def card(token: Token, sc: TrendScore) -> dict:
@@ -73,9 +89,10 @@ def card(token: Token, sc: TrendScore) -> dict:
         "price_change_m5": s.get("price_chg_5m"),
         "price_change_m15": s.get("price_chg_15m"),
         "price_change_h4": s.get("price_chg_4h"),
-        "sells_1h": s.get("sells_1h"), "buys_1h": s.get("buy_share") and round(s.get("buy_share", 0.5) * s.get("txns_1h", 0), 1),
+        "sells_1h": s.get("sells_1h"), "buys_1h": s.get("buys_1h"),
         "txns_1h": s.get("txns_1h"), "txns_24h": s.get("txns_24h"),
         "liq_chg_24h": s.get("liq_chg_24h"), "holders_g_24h": s.get("holders_g_24h"),
+        "data_quality": DATA_QUALITY,
     }
 
 
