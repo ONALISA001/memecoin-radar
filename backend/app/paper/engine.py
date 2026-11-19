@@ -163,12 +163,71 @@ def run_tick(db, now: int, market: dict) -> dict:
     return stats
 
 
+def halt_status(acct: DemoAccount, now: int | None = None) -> dict:
+    now = now or _now_ts_utc()
+    active = bool(acct.halt_until and now < acct.halt_until)
+    return {"active": active, "reason": acct.halt_reason if active else None,
+            "until": acct.halt_until if active else None,
+            "seconds_left": max(0, (acct.halt_until or 0) - now) if active else 0}
+
+
+def resume_trading(db, acct: DemoAccount, now: int, market: dict, manual: bool = False) -> bool:
+    """End a pause: reset the loss streak / re-anchor drawdown to current equity."""
+    if not acct.halt_until:
+        return False
+    reason = acct.halt_reason
+    if reason == "loss_streak":
+        acct.consec_losses = 0
+    elif reason == "drawdown":
+        acct.peak_equity = portfolio_state(db, acct, market)["equity"]
+    acct.halt_until, acct.halt_reason = None, None
+    _event(db, acct, None, None, "SYSTEM", "▶️ TRADING RESUMED" + (" (manual)" if manual else ""),
+           ("Resumed by you." if manual else "Cool-off finished — resuming automatically.")
+           + (" Loss streak reset to 0." if reason == "loss_streak" else
+              " Drawdown is now measured from current equity." if reason == "drawdown" else ""),
+           {"reason": reason, "manual": manual})
+    return True
+
+
+def _update_brakes(db, acct: DemoAccount, settings: dict, now: int, market: dict) -> None:
+    """Temporary circuit breakers. Without these a tripped brake was permanent:
+    no trades => no winning close => streak/drawdown never reset."""
+    if acct.halt_until:
+        recovered = (acct.halt_reason == "drawdown" and
+                     portfolio_state(db, acct, market)["drawdown_pct"] < float(settings["max_drawdown_pct"]))
+        if now >= acct.halt_until or recovered:     # open positions climbed back => lift early
+            resume_trading(db, acct, now, market)
+        else:
+            return
+    streak, max_streak = acct.consec_losses or 0, int(settings["max_consecutive_losses"])
+    if max_streak > 0 and streak >= max_streak:
+        hours = float(settings.get("loss_streak_cooldown_hours", 3.0))
+        acct.halt_until, acct.halt_reason = now + int(hours * 3600), "loss_streak"
+        _event(db, acct, None, None, "RISK", f"⏸️ TRADING PAUSED — {streak} losses in a row",
+               f"No new buys for {hours:g}h; open positions are still managed. Resumes automatically at "
+               f"{_utc(acct.halt_until)} UTC.", {"reason": "loss_streak", "until": acct.halt_until})
+        return
+    dd, max_dd = portfolio_state(db, acct, market)["drawdown_pct"], float(settings["max_drawdown_pct"])
+    if max_dd > 0 and dd >= max_dd:
+        acct.halt_until, acct.halt_reason = now - (now % 86400) + 86400, "drawdown"
+        _event(db, acct, None, None, "RISK", f"⏸️ TRADING PAUSED — drawdown {dd:.1f}%",
+               f"Drawdown reached the {max_dd:.0f}% limit. No new buys until {_utc(acct.halt_until)} UTC "
+               f"(next day); then drawdown is re-measured from current equity.",
+               {"reason": "drawdown", "until": acct.halt_until, "drawdown_pct": dd})
+
+
+def _utc(ts: int) -> str:
+    import datetime as _dt
+    return _dt.datetime.fromtimestamp(ts, _dt.timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+
 def _run_account(db, acct: DemoAccount, now: int, market: dict, stats: dict) -> None:
     settings = settings_for(acct)
     day = now - (now % 86400)
     if acct.day_ts != day:
         acct.day_ts = day
         acct.day_realized = 0.0
+    _update_brakes(db, acct, settings, now, market)
 
     # ① ingest new buy/sell intel events since cursor (idempotent)
     rows = db.execute(select(SignalEvent).where(
@@ -190,10 +249,11 @@ def _run_account(db, acct: DemoAccount, now: int, market: dict, stats: dict) -> 
                 _risk_and_maybe_execute(db, acct, settings, sig, ev, now, market, stats)
     acct.last_event_id = max([acct.last_event_id or 0] + [r.id for r in rows])
 
-    # ② manage open positions
+    # ② manage open positions (always — even while new buys are paused)
     pf = portfolio_state(db, acct, market)
     for p in list(pf["positions"]):
         _manage_exit(db, acct, settings, p, now, market, sell_hits, stats)
+    _update_brakes(db, acct, settings, now, market)     # losses realized this tick
 
     # ③ equity snapshot + drawdown peak (daily cadence of writes is enough at
     #    5-min ticks; still idempotent via unique (account, ts))
@@ -255,7 +315,10 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
                             now: int, market: dict, stats: dict) -> None:
     sym = _symbol(db, sig.token_id)
     pf = portfolio_state(db, acct, market)
-    acct_state = {"trading_allowed": not (acct.settings_json or {}).get("paused", False),
+    halt = halt_status(acct, now)
+    acct_state = {"trading_allowed": not (acct.settings_json or {}).get("paused", False)
+                  and not halt["active"],
+                  "halt": halt,
                   "day_realized": acct.day_realized or 0.0,
                   "consec_losses": acct.consec_losses or 0}
     sig_metrics = dict(sig.metrics_json or {})
@@ -452,13 +515,15 @@ def manual_close(db, acct, position_id: int, now: int, market: dict) -> PaperPos
 def reset_account(db, acct: DemoAccount, start_cash: float = 10000.0) -> None:
     """§23: hard reset — clear positions, signals, events, equity history."""
     from ..models import EquitySnapshot as Eq, PaperTradeEvent as PTE
-    for model, col in ((PaperPosition, PaperPosition.account_id),
-                       (PaperSignal, PaperSignal.account_id),
-                       (PaperTradeEvent, PTE.account_id),
-                       (EquitySnapshot, Eq.account_id)):
+    # children first: timeline events reference positions/signals, positions reference signals
+    for model, col in ((PaperTradeEvent, PTE.account_id),
+                       (EquitySnapshot, Eq.account_id),
+                       (PaperPosition, PaperPosition.account_id),
+                       (PaperSignal, PaperSignal.account_id)):
         db.execute(model.__table__.delete().where(col == acct.id))
     acct.cash = acct.starting_cash = start_cash
     acct.peak_equity = start_cash
+    acct.halt_until, acct.halt_reason = None, None
     acct.day_realized = 0.0
     acct.consec_losses = acct.consec_wins = 0
     acct.last_event_id = db.execute(select(func.max(SignalEvent.id))).scalar() or 0

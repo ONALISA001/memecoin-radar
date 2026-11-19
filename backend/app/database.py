@@ -27,6 +27,8 @@ _ADDED_COLUMNS = {
     "token_risk_checks": [("top1_wallet_pct", "DOUBLE PRECISION", "FLOAT"),
                           ("top10_wallet_pct", "DOUBLE PRECISION", "FLOAT"),
                           ("excluded_pct", "DOUBLE PRECISION", "FLOAT")],
+    "demo_accounts": [("halt_until", "INTEGER", "INTEGER"),
+                      ("halt_reason", "VARCHAR(16)", "VARCHAR(16)")],
     "tokens": [("discovery_source", "VARCHAR(16)", "VARCHAR(16)"),
                ("launch_alert", "VARCHAR(8)", "VARCHAR(8)")],
 }

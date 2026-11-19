@@ -376,6 +376,8 @@ class DemoAccount(Base):
     day_realized = Column(Float, default=0.0)
     consec_losses = Column(Integer, default=0)
     consec_wins = Column(Integer, default=0)
+    halt_until = Column(Integer)                    # unix ts: no NEW buys until then (auto-resume)
+    halt_reason = Column(String(16))                # loss_streak | drawdown
 
 
 class PaperSignal(Base):

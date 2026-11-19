@@ -1,12 +1,33 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { useApi } from "@/lib/api";
+import { apiPost, useApi } from "@/lib/api";
 import { Panel } from "@/components/ui";
 import { EquityCurve, ErrStrip, PositionsTable, SignalsPanel, SimStrip, StatTile,
          TradeTimeline, usd, pnlCls, pnlSign } from "@/components/paper";
 
 function usePaperSummary() { return useApi("/paper/summary", 10000); }
+
+function HaltBanner({ halt }: { halt: { reason: string; until: number; seconds_left: number } }) {
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const why = halt.reason === "loss_streak" ? "after a losing streak" : "after hitting the drawdown limit";
+  const mins = Math.max(1, Math.round(halt.seconds_left / 60));
+  const left = mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+  const at = new Date(halt.until * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (done) return null;
+  return (
+    <div className="panel !border-amberx/50 px-4 py-3 flex flex-wrap items-center gap-3 text-[12px]">
+      <span className="text-amberx font-semibold">⏸️ New buys paused {why}</span>
+      <span className="text-dim">Resumes automatically in {left} (at {at}). Open positions are still managed.</span>
+      <div className="flex-1" />
+      <button className="btn !py-1" disabled={busy}
+              onClick={async () => { setBusy(true); try { await apiPost("/paper/resume"); setDone(true); } finally { setBusy(false); } }}>
+        {busy ? "Resuming…" : "▶ Resume now"}
+      </button>
+    </div>
+  );
+}
 
 export default function PaperDashboard() {
   const [hours, setHours] = useState(24);
@@ -21,6 +42,7 @@ export default function PaperDashboard() {
     <div className="space-y-3">
       <SimStrip />
       <ErrStrip error={sErr} label="Account summary" />
+      {s?.halt?.active && <HaltBanner halt={s.halt} />}
       {/* TOP (§28): equity, pnl, return, win rate, drawdown, open positions */}
       <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
         <StatTile label="Virtual Equity" value={usd(s?.virtual_equity)} cls={pnlCls(s ? s.total_pnl : null)} />
