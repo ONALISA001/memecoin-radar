@@ -1,4 +1,5 @@
 "use client";
+import { NewsRow } from "@/components/news";
 import Link from "next/link";
 import React, { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -244,6 +245,17 @@ function AnalysisPanel({ address }: { address: string }) {
   );
 }
 
+function TokenNewsPanel({ symbol }: { symbol: string }) {
+  const { data } = useApi(`/news?symbol=${encodeURIComponent(symbol)}&limit=8`, 120000);
+  const items = data?.items || [];
+  if (!data || data.source !== "rss" || items.length === 0) return null;   // only show real coverage
+  return (
+    <Panel title={<span>📰 In the news <span className="badge badge-green !text-[8px] ml-1">real · publisher feeds</span></span>}>
+      {items.map((a: any, i: number) => <NewsRow key={i} a={a} />)}
+    </Panel>
+  );
+}
+
 function OnchainRiskPanel({ address }: { address: string }) {
   const { data } = useApi(`/tokens/${address}/onchain-risk`, 60000);
   const sevCls: Record<string, string> = { high: "text-redx", medium: "text-amberx", low: "text-greenx" };
@@ -400,6 +412,7 @@ export default function TokenPage({ address }: { address: string }) {
           <Suspense fallback={null}><FeedWithFocus address={d.address} /></Suspense>
           {sc && <SignalsPanel sc={sc} />}
           {sc?.forensics && <ForensicsPanel forensics={sc.forensics} />}
+          {d.symbol && <TokenNewsPanel symbol={d.symbol} />}
           {d.contract_facts && (() => {
             const cf = d.contract_facts;
             const real = cf.source === "helius";

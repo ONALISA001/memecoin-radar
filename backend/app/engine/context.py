@@ -17,6 +17,7 @@ from ..models import (
     VolumeSnapshot, WalletActivity,
 )
 from . import timeseries as tsx
+from .. import config
 
 
 def _rows(db: Session, model, token_id: int, since: int):
@@ -63,7 +64,8 @@ class TokenContext:
         since = now - hours * 3600
         ctx = cls(token=token, now=now)
         ctx.sources = {"market": "dexscreener", "social": "mock:x-style-sim",
-                       "onchain": "mock:chain-sim", "news": "mock:news-sim"}
+                       "onchain": "mock:chain-sim",
+                       "news": "rss" if config.NEWS_RSS_ENABLED else "mock:news-sim"}
 
         for r in _rows(db, PriceSnapshot, token.id, since):
             ctx.price[r.ts] = r.price_usd or 0.0

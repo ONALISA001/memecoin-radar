@@ -51,6 +51,12 @@ MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "3000"))  # floor (defa
 DEXSCREENER_ENABLED = os.getenv("DEXSCREENER_ENABLED", "1") == "1"
 DEXSCREENER_BASE = "https://api.dexscreener.com"
 
+# Real crypto news from publisher RSS feeds (free, no key). Replaces the simulated
+# news provider: drives the FOMO news component, narrative news activity and the
+# "news" confirmation check. Set NEWS_RSS_ENABLED=0 to fall back to mock news.
+NEWS_RSS_ENABLED = os.getenv("NEWS_RSS_ENABLED", "1") == "1"
+NEWS_REFRESH_MINUTES = float(os.getenv("NEWS_REFRESH_MINUTES", "10"))
+
 # Early discovery: freshly created Solana pools from GeckoTerminal (free, keyless).
 # Up to NEW_POOL_SLOTS of MAX_TRACKED_TOKENS are reserved for them; a fresh token
 # stays tracked for NEW_POOL_MAX_AGE_H after its pool was created. The floor keeps

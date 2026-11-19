@@ -1,4 +1,5 @@
 "use client";
+import { NewsRow } from "@/components/news";
 import Link from "next/link";
 import { use } from "react";
 import { useApi } from "@/lib/api";
@@ -63,16 +64,11 @@ export default function NarrativeDetailPage({ params }: { params: Promise<{ id: 
             </table>
           </div>
         </Panel>
-        <Panel title={<span>News coverage <span className="badge badge-amber !text-[8px] ml-1">simulated</span></span>}>
-          {data.news.length === 0 && <Empty text="No articles yet — coverage appears as narratives gain heat." />}
-          {data.news.map((a: any, i: number) => (
-            <div key={i} className="px-4 py-3 border-b border-line/50">
-              <div className="text-[10px] text-dim flex gap-2">
-                <span className="text-cyanx">{a.source}</span><span>{timeAgo(a.ts)}</span>
-              </div>
-              <div className="text-[12px] text-ink/85 mt-0.5">{a.title}</div>
-            </div>
-          ))}
+        <Panel title={<span>News coverage {data.news_source === "rss"
+          ? <span className="badge badge-green !text-[8px] ml-1">real · publisher feeds</span>
+          : <span className="badge badge-amber !text-[8px] ml-1">simulated</span>}</span>}>
+          {data.news.length === 0 && <Empty text="No matching headlines in the last 7 days." />}
+          {data.news.map((a: any, i: number) => <NewsRow key={i} a={a} />)}
         </Panel>
       </div>
     </div>
