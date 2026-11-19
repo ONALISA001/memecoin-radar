@@ -62,6 +62,11 @@ NEWS_RSS_ENABLED = os.getenv("NEWS_RSS_ENABLED", "1") == "1"
 # never use simulated social data: "attention" = unique buyers (GeckoTerminal) and the
 # bot/wash measure = trades per unique trader. Influencers/engagement have no source → 0.
 USE_SIMULATED_SOCIAL = os.getenv("USE_SIMULATED_SOCIAL", "0") == "1"
+# REAL social: public Telegram call channels you choose (comma-separated usernames,
+# e.g. "channelone,@channeltwo"). Read via the free t.me/s preview page; empty = off.
+TELEGRAM_CALL_CHANNELS = os.getenv("TELEGRAM_CALL_CHANNELS", "")
+TELEGRAM_REFRESH_MINUTES = float(os.getenv("TELEGRAM_REFRESH_MINUTES", "5"))
+TELEGRAM_DISCOVERY_SLOTS = int(os.getenv("TELEGRAM_DISCOVERY_SLOTS", "10"))   # called coins added to tracking
 NEWS_REFRESH_MINUTES = float(os.getenv("NEWS_REFRESH_MINUTES", "10"))
 
 # Early discovery: freshly created Solana pools from GeckoTerminal (free, keyless).

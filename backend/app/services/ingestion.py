@@ -20,6 +20,7 @@ from sqlalchemy import delete, func, select
 from ..config import (DEMO_FALLBACK, HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
                       MAX_TRACKED_TOKENS, NEW_POOLS_ENABLED, NEW_POOL_MAX_AGE_H,
                       NEWS_REFRESH_MINUTES, NEWS_RSS_ENABLED, USE_SIMULATED_SOCIAL,
+                      TELEGRAM_CALL_CHANNELS, TELEGRAM_DISCOVERY_SLOTS, TELEGRAM_REFRESH_MINUTES,
                       NEW_POOL_MIN_LIQUIDITY_USD, NEW_POOL_MIN_TXNS_H1, NEW_POOL_SLOTS,
                       ANOMALY_Z, BACKFILL_HOURS, DEXSCREENER_ENABLED,
                       SNAPSHOT_BUCKET_SECONDS as BUCKET)
@@ -48,6 +49,8 @@ from .holders import real_holder_stats
 from .contract_facts import is_mock, latest_contract_facts, unverified_facts
 from .launch_alerts import evaluate_launches, send_launch_alerts
 from . import onchain_real
+from . import telegram_feed as tg_feed
+from ..providers import telegram_public as tg_public
 from ..providers.dexscreener import DexscreenerProvider
 from ..providers.geckoterminal import GeckoTerminalProvider
 from ..providers import news_rss
@@ -108,8 +111,9 @@ async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
         for addr, mt in gt_ticks.items():                   # not on DexScreener yet
             ticks_obj.setdefault(addr, mt)
         fresh = select_new_pool_tokens(fresh, ticks_obj)
-        promo = [r for r in promo if r.address in ticks_obj][:max(0, MAX_TRACKED_TOKENS - len(fresh))]
-        raws = fresh + promo
+        called = await _telegram_called(provider, {r.address for r in fresh} | {r.address for r in promo}, ticks_obj)
+        promo = [r for r in promo if r.address in ticks_obj][:max(0, MAX_TRACKED_TOKENS - len(fresh) - len(called))]
+        raws = fresh + called + promo
         ticks = {r.address: ticks_obj[r.address].__dict__ for r in raws}
         if not raws:
             raise RuntimeError("no tokens with data")
@@ -122,6 +126,27 @@ async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
         log_line_db_only("warn", "ingestion",
                          f"DexScreener unavailable — {'demo universe' if DEMO_FALLBACK else 'pausing on last real data'}: {exc}")
         return _outage(f"{type(exc).__name__}: {exc}")
+
+
+async def _telegram_called(provider, already: set, ticks_obj: dict) -> list[RawToken]:
+    """Coins called in the watched Telegram channels (last 30 min) that aren't tracked yet.
+    Fills ticks_obj with their real DexScreener data; coins without data are dropped."""
+    if not tg_public.clean_channels(TELEGRAM_CALL_CHANNELS) or TELEGRAM_DISCOVERY_SLOTS <= 0:
+        return []
+    try:        # a Telegram problem must never take down market data
+        with SessionLocal() as db:
+            calls = [m for m, _ in tg_feed.recent_calls(db, int(time.time()))]
+        # name/symbol are filled in from DexScreener by fetch_market
+        cands = [RawToken(address=m, chain="solana", name="", symbol="", extra={"source": "telegram"})
+                 for m in calls if m not in already][:TELEGRAM_DISCOVERY_SLOTS * 2]
+        if not cands:
+            return []
+        found = await provider.fetch_market(cands)
+        ticks_obj.update(found)
+        return [r for r in cands if r.address in found][:TELEGRAM_DISCOVERY_SLOTS]
+    except Exception as exc:
+        log.warning("telegram discovery skipped: %s", exc)
+        return []
 
 
 def _passes_new_pool_floor(mt) -> bool:
@@ -382,6 +407,8 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
 
     real_holders = real_holder_stats(db, [t.id for t in tokens])
     contract_facts = latest_contract_facts(db, tokens)
+    tg_on = bool(tg_public.clean_channels(TELEGRAM_CALL_CHANNELS))
+    tg_stats = tg_feed.coin_stats(db, [t.address for t in tokens], now_b) if tg_on else {}
     watched = {r[0] for r in db.execute(select(Watchlist.token_id)).all()}
     payloads = []
     new_emerging = 0
@@ -393,6 +420,7 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
         news_active = any(news_flags.get(n) for n in ni["names"])
         ctx.available["news"] = news_active
         facts = contract_facts.get(t.id) or unverified_facts()   # REAL Helius facts
+        ctx.telegram = tg_stats.get(t.address, {}) if tg_on else None    # None = feed not configured
         lv0 = (live or {}).get(t.address) or {}
         if lv0.get("volume_h24") is not None and ctx.d.get("liq_now"):
             # live DexScreener 24h volume (recorded history only covers the time we've tracked)
@@ -661,6 +689,20 @@ async def onchain_checks() -> dict:
 
 async def tick() -> dict:
     t0 = time.time()
+    tg_channels = tg_public.clean_channels(TELEGRAM_CALL_CHANNELS)
+    if tg_channels and tg_feed.SCHEDULE.due(TELEGRAM_REFRESH_MINUTES):
+        tg_feed.SCHEDULE.mark()
+        try:    # never let Telegram break the market tick
+            posts, tg_status = await tg_public.fetch_channels(tg_channels[:25])
+            with SessionLocal() as db:
+                res = tg_feed.store_posts(db, posts, int(time.time()))
+                ok = sum(1 for v in tg_status.values() if not isinstance(v, str))
+                upsert_source(db, "telegram-public", "social", "ok" if ok else "down",
+                              {"note": "public call channels via t.me/s preview (real)",
+                               "channels": tg_status, "last_batch": res})
+                db.commit()
+        except Exception as exc:
+            log.warning("telegram feed failed (non-fatal): %s", exc)
     raws, ticks, fallback = await discover_tokens()
     now_b = bucket_of(time.time())
     stats: dict = {"tokens": 0}

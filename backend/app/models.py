@@ -127,6 +127,18 @@ class SocialPost(Base):
     __table_args__ = (Index("ix_post_tok_ts", "token_id", "ts"),)
 
 
+class TelegramPost(Base):
+    """A post from a watched PUBLIC Telegram call channel (t.me/s preview)."""
+    __tablename__ = "telegram_posts"
+    id = Column(Integer, primary_key=True)
+    channel = Column(String(64), index=True)
+    post_id = Column(String(96), unique=True)    # "<channel>/<n>"
+    ts = Column(Integer, index=True)
+    views = Column(Integer, default=0)
+    text = Column(String(500))
+    mints_json = Column(JSON)                     # contract addresses found in the post/links
+
+
 class NewsArticle(Base):
     __tablename__ = "news_articles"
     id = Column(Integer, primary_key=True)

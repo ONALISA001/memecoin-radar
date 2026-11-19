@@ -12,7 +12,7 @@ const SORTS: [string, string][] = [
   ["vol_accel", "Biggest volume acceleration"], ["low_risk", "Lowest risk"],
   ["activity", "Most active"], ["discussed", "Most discussed"],
 ];
-const SOURCES: [string, string][] = [["", "All sources"], ["new_pool", "🌱 Fresh pools"], ["promoted", "📣 Promoted"]];
+const SOURCES: [string, string][] = [["", "All sources"], ["new_pool", "🌱 Fresh pools"], ["telegram", "✈️ Telegram calls"], ["promoted", "📣 Promoted"]];
 const AGES: [string, string][] = [["", "Any age"], ["1", "< 1h"], ["6", "< 6h"], ["24", "< 24h"], ["72", "< 3d"], ["168", "< 7d"]];
 
 export default function NewCoinsPage() {
@@ -50,6 +50,7 @@ export default function NewCoinsPage() {
                 <div className="text-[9.5px] text-dim num">{t.dex} · {ageStr(t.age_hours)} old</div>
                 <div className="flex gap-1 mt-0.5">
                   {t.discovery_source === "new_pool" && <span className="badge badge-green !text-[8px]">🌱 fresh pool</span>}
+                  {t.discovery_source === "telegram" && <span className="badge !text-[8px]">✈️ Telegram call</span>}
                   {(t.discovery_source === "boost" || t.discovery_source === "profile") && <span className="badge badge-amber !text-[8px]">📣 promoted</span>}
                   {t.launch_alert === "sent" && <span className="badge badge-green !text-[8px]">✓ passed launch checks</span>}
                   {t.launch_alert === "skipped" && <span className="badge badge-amber !text-[8px]">⚠ failed launch checks</span>}

@@ -20,7 +20,7 @@ from ..models import (HolderSnapshot, LiquiditySnapshot, Narrative, NewsArticle,
                       PriceSnapshot, RiskEvent, SocialPost, SocialSnapshot, Token,
                       TokenNarrative, TrendScore, VolumeSnapshot, WalletActivity)
 from ..services.contract_facts import contract_facts_for
-from ..config import NEWS_RSS_ENABLED, USE_SIMULATED_SOCIAL
+from ..config import NEWS_RSS_ENABLED, TELEGRAM_CALL_CHANNELS, USE_SIMULATED_SOCIAL
 from ..security import ALLOWED_SORTS, rate_limit, valid_address
 
 router = APIRouter(dependencies=[Depends(rate_limit)])
@@ -223,6 +223,8 @@ def tokens_new(sort: str = "newest", limit: int = Query(40, le=100),
     cards = [card(t, sc) for sc, t in latest_score_rows(db)]
     if source == "new_pool":
         cards = [c for c in cards if c["discovery_source"] == "new_pool"]
+    elif source == "telegram":
+        cards = [c for c in cards if c["discovery_source"] == "telegram"]
     elif source == "promoted":
         cards = [c for c in cards if c["discovery_source"] in ("boost", "profile")]
     if max_age_h is not None:
@@ -642,7 +644,15 @@ def token_social(address: str, db: Session = Depends(get_db)):
                        .order_by(SocialPost.ts.desc()).limit(25)).scalars().all()
     mock = token.address.startswith("Mock") or USE_SIMULATED_SOCIAL
     if not mock:
-        posts = []          # real coins: no real X source, so no (old simulated) posts are shown
+        # REAL: posts from the watched public Telegram call channels naming this contract
+        from ..models import TelegramPost
+        rows = db.execute(select(TelegramPost).where(TelegramPost.ts >= int(time.time()) - 3 * 86400)
+                          .order_by(TelegramPost.ts.desc()).limit(2000)).scalars().all()
+        tg = [r for r in rows if token.address in (r.mints_json or [])][:25]
+        return {"posts": [{"ts": r.ts, "author": "@" + r.channel, "text": r.text, "views": r.views,
+                           "url": f"https://t.me/{r.post_id}", "platform": "telegram"} for r in tg],
+                "source": "telegram" if TELEGRAM_CALL_CHANNELS.strip() else "none", "mock": False,
+                "note": "Calls are attention, not buy signals — research found buying on calls lost money on average."}
     return {"posts": [{"ts": p.ts, "author": p.author, "text": p.text, "likes": p.likes,
                        "reposts": p.reposts, "quality": p.quality} for p in posts],
             "source": "mock:x-style-sim" if mock else "none", "mock": mock}
