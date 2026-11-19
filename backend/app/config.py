@@ -49,6 +49,9 @@ MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "3000"))  # floor (defa
 
 # Providers
 DEXSCREENER_ENABLED = os.getenv("DEXSCREENER_ENABLED", "1") == "1"
+# When DexScreener is unreachable: 0 (default) = keep the last REAL data, mark it stale and
+# pause scoring + paper trading until it's back. 1 = old behaviour: a simulated demo universe.
+DEMO_FALLBACK = os.getenv("DEMO_FALLBACK", "0") == "1"
 DEXSCREENER_BASE = "https://api.dexscreener.com"
 
 # Real crypto news from publisher RSS feeds (free, no key). Replaces the simulated

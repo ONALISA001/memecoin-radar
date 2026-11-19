@@ -17,7 +17,7 @@ import traceback
 
 from sqlalchemy import delete, func, select
 
-from ..config import (HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
+from ..config import (DEMO_FALLBACK, HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
                       MAX_TRACKED_TOKENS, NEW_POOLS_ENABLED, NEW_POOL_MAX_AGE_H,
                       NEWS_REFRESH_MINUTES, NEWS_RSS_ENABLED, USE_SIMULATED_SOCIAL,
                       NEW_POOL_MIN_LIQUIDITY_USD, NEW_POOL_MIN_TXNS_H1, NEW_POOL_SLOTS,
@@ -71,14 +71,27 @@ def upsert_source(db, name: str, kind: str, status: str, meta: dict):
         db.add(src)
     src.status = status
     src.meta_json = meta
-    src.last_ok_at = func.now()
+    if status in ("ok", "mock"):          # keep the last time it actually worked
+        src.last_ok_at = func.now()
 
 
 # --------------------------------------------------------------------------
-async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
-    """Returns (raw tokens, live market ticks, used_fallback?)."""
-    if not DEXSCREENER_ENABLED:
+OUTAGE: dict = {"since": None, "error": None}     # DexScreener outage state (process-local)
+
+
+def _outage(msg: str):
+    """No real market data: demo universe only if DEMO_FALLBACK, else nothing (pause)."""
+    if DEMO_FALLBACK:
         return _fallback_universe(), _fallback_ticks(), True
+    OUTAGE["since"] = OUTAGE["since"] or int(time.time())
+    OUTAGE["error"] = msg[:200]
+    return [], {}, False
+
+
+async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
+    """Returns (raw tokens, live market ticks, used_fallback?). Empty lists = outage."""
+    if not DEXSCREENER_ENABLED:
+        return _outage("DexScreener disabled (DEXSCREENER_ENABLED=0)")
     provider = DexscreenerProvider()
     try:
         promo = await provider.discover()                   # boosted / profiled (paid)
@@ -102,11 +115,13 @@ async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
             raise RuntimeError("no tokens with data")
         HEALTH.report("dexscreener", "market", True,
                       f"{len(raws)} tracked ({len(fresh)} fresh pools, {len(promo)} promoted)")
+        OUTAGE["since"], OUTAGE["error"] = None, None
         return raws, ticks, False
     except Exception as exc:
         HEALTH.report("dexscreener", "market", False, str(exc)[:160])
-        log_line_db_only("warn", "ingestion", f"DexScreener unavailable, using fallback universe: {exc}")
-        return _fallback_universe(), _fallback_ticks(), True
+        log_line_db_only("warn", "ingestion",
+                         f"DexScreener unavailable — {'demo universe' if DEMO_FALLBACK else 'pausing on last real data'}: {exc}")
+        return _outage(f"{type(exc).__name__}: {exc}")
 
 
 def _passes_new_pool_floor(mt) -> bool:
@@ -649,6 +664,17 @@ async def tick() -> dict:
     raws, ticks, fallback = await discover_tokens()
     now_b = bucket_of(time.time())
     stats: dict = {"tokens": 0}
+    if not raws and not fallback:
+        # OUTAGE: nothing is invented. Last real data stays on screen (marked stale);
+        # no new scores, alerts or paper trades until real market data is back.
+        with SessionLocal() as db:
+            upsert_source(db, "dexscreener", "market", "down", {
+                "mode": "paused", "since": OUTAGE["since"], "error": OUTAGE["error"],
+                "note": "DexScreener unreachable — showing the last real data; scoring, alerts "
+                        "and paper trading are paused until it is back"})
+            db.commit()
+        return {"outage": True, "since": OUTAGE["since"], "error": OUTAGE["error"],
+                "elapsed_s": round(time.time() - t0, 2)}
     if not fallback and ticks:                    # REAL unique buyers/sellers per pool
         pair_of = {r.address: r.pair_address for r in raws if r.pair_address}
         if pair_of:
