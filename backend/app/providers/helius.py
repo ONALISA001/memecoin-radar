@@ -1,13 +1,15 @@
 """Helius (Solana RPC) — REAL on-chain risk facts for a token mint.
 
-Two standard Solana JSON-RPC calls per check (so ~2 Helius credits), plus the DAS
+Three standard Solana JSON-RPC calls per check (so ~3 Helius credits), plus the DAS
 getTokenAccounts pages used for the REAL holder count (up to HELIUS_HOLDER_MAX_PAGES):
   * getAccountInfo(mint, jsonParsed)  -> mint/freeze authority, supply, program
   * getTokenLargestAccounts(mint)     -> top token accounts -> concentration
 
-Honest caveat (surfaced in the API): the largest token accounts usually include
-the liquidity-pool vault and burn/dead wallets, so top1/top10 % can overstate
-real holder concentration. Treat it as an upper bound, not a verdict.
+Plus one getMultipleAccounts call on the largest token accounts to read each
+account's OWNER. Owners that are program-derived addresses (off the ed25519
+curve: pool vaults, bonding curves, lockers) and burn addresses are excluded,
+giving REAL-WALLET concentration (top1_wallet_pct / top10_wallet_pct). The raw
+account-level top1/top10 % (which includes the pool) is kept for reference.
 
 The API key never leaves the backend and is scrubbed from any error text.
 """
@@ -21,6 +23,69 @@ import httpx
 from ..config import HELIUS_API_KEY, HELIUS_HOLDER_MAX_PAGES, HELIUS_RPC_URL
 
 TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+
+# Owners whose balance is effectively out of circulation (on-curve, so not caught
+# by the PDA test): system program and the well-known incinerator.
+BURN_OWNERS = {"11111111111111111111111111111111", "1nc1nerator11111111111111111111111111111111"}
+
+# ---------------------------------------------------------------- base58 / curve
+_B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_P = 2 ** 255 - 19
+_D = (-121665 * pow(121666, _P - 2, _P)) % _P
+_SQRT_M1 = pow(2, (_P - 1) // 4, _P)
+
+
+def b58decode(s: str) -> bytes:
+    n = 0
+    for ch in s:
+        n = n * 58 + _B58.index(ch)
+    raw = n.to_bytes((n.bit_length() + 7) // 8, "big") if n else b""
+    pad = len(s) - len(s.lstrip("1"))
+    return b"\x00" * pad + raw
+
+
+def is_on_curve(address: str) -> bool:
+    """True if the 32-byte address decompresses to an ed25519 point (i.e. it can be
+    a wallet with a private key). PDAs — pools, curves, lockers — are off-curve.
+    Same test as Solana's Pubkey::is_on_curve. Invalid input => False."""
+    try:
+        b = b58decode(address)
+    except ValueError:
+        return False
+    if len(b) != 32:
+        return False
+    y = int.from_bytes(b, "little") & ((1 << 255) - 1)
+    if y >= _P:
+        return False
+    u = (y * y - 1) % _P
+    v = (_D * y * y + 1) % _P
+    x = (u * pow(v, 3, _P) * pow(u * pow(v, 7, _P), (_P - 5) // 8, _P)) % _P
+    vx2 = (v * x * x) % _P
+    if vx2 == u:
+        return True
+    if vx2 == (-u) % _P:          # x * sqrt(-1) is the root
+        return True
+    return False
+
+
+def wallet_concentration(holdings: list[tuple[str, float]], supply: float):
+    """holdings: [(owner, ui_amount)] for the largest token accounts.
+    Returns (top1_wallet_pct, top10_wallet_pct, excluded_pct) where excluded =
+    supply held by program-owned (PDA) and burn accounts."""
+    if not supply:
+        return None, None, None
+    wallets: dict[str, float] = {}
+    excluded = 0.0
+    for owner, amt in holdings:
+        if not owner or amt <= 0:
+            continue
+        if owner in BURN_OWNERS or not is_on_curve(owner):
+            excluded += amt
+        else:
+            wallets[owner] = wallets.get(owner, 0.0) + amt     # one owner, many accounts
+    ranked = sorted(wallets.values(), reverse=True)
+    pct = lambda x: round(min(x / supply * 100, 100.0), 2)  # noqa: E731
+    return (pct(ranked[0]) if ranked else 0.0, pct(sum(ranked[:10])), pct(excluded))
 
 
 @dataclass
@@ -37,6 +102,9 @@ class OnchainRisk:
     token_2022: bool = False
     holders_count: int | None = None     # REAL distinct wallets with a balance (None = unknown)
     holders_capped: bool = False         # True => at least this many (page cap reached)
+    top1_wallet_pct: float | None = None   # largest REAL wallet (pools/PDAs/burn excluded)
+    top10_wallet_pct: float | None = None  # top-10 REAL wallets
+    excluded_pct: float | None = None      # held by pools / program accounts / burn
 
 
 def enabled() -> bool:
@@ -107,6 +175,22 @@ class HeliusProvider:
                 supply = float(info.get("supply") or 0) / (10 ** decimals)
                 await asyncio.sleep(0.2)                 # be gentle on the free tier
                 largest = await self._rpc(client, "getTokenLargestAccounts", [mint])
+                w1 = w10 = excl = None
+                try:              # owner lookup is a bonus: never fail the risk check on it
+                    accts = [(a.get("address"), float(a.get("uiAmountString") or a.get("uiAmount") or 0))
+                             for a in (largest or {}).get("value") or [] if a.get("address")]
+                    if accts:
+                        await asyncio.sleep(0.2)
+                        info_res = await self._rpc(client, "getMultipleAccounts",
+                                                   [[a for a, _ in accts], {"encoding": "jsonParsed"}])
+                        owners = []
+                        for (_, amt), acc in zip(accts, (info_res or {}).get("value") or []):
+                            pinfo = (((acc or {}).get("data") or {}).get("parsed") or {}).get("info") or {}
+                            owners.append((pinfo.get("owner"), amt))
+                        if len(owners) == len(accts):
+                            w1, w10, excl = wallet_concentration(owners, supply)
+                except Exception:
+                    w1 = w10 = excl = None
                 holders_count, holders_capped = None, False
                 try:                      # holder count is a bonus: never fail the risk check on it
                     await asyncio.sleep(0.2)
@@ -128,6 +212,7 @@ class HeliusProvider:
                 holders_sampled=len(amounts),
                 token_2022=value.get("owner") == TOKEN_2022,
                 holders_count=holders_count, holders_capped=holders_capped,
+                top1_wallet_pct=w1, top10_wallet_pct=w10, excluded_pct=excl,
             )
         except Exception as exc:                          # never leak the key
             return OnchainRisk(ok=False, error=_scrub(f"{type(exc).__name__}: {exc}", self.key)[:200])
@@ -148,7 +233,18 @@ def risk_flags(r) -> list[dict]:
     if getattr(r, "token_2022", False):
         flags.append({"id": "token_2022", "severity": "medium",
                       "message": "Token-2022 program: may carry extensions such as transfer fees. Check manually."})
-    if r.top1_pct >= 50:
+    w1, w10 = getattr(r, "top1_wallet_pct", None), getattr(r, "top10_wallet_pct", None)
+    if w1 is not None and w10 is not None:          # real-wallet view (pools excluded)
+        if w1 >= 20:
+            flags.append({"id": "top1_wallet_concentration", "severity": "high",
+                          "message": f"A single wallet holds {w1:.0f}% of supply (pools and burn excluded)."})
+        elif w10 >= 50:
+            flags.append({"id": "top10_wallet_concentration", "severity": "high",
+                          "message": f"Top 10 wallets hold {w10:.0f}% of supply (pools and burn excluded)."})
+        elif w10 >= 30:
+            flags.append({"id": "top10_wallet_concentration", "severity": "medium",
+                          "message": f"Top 10 wallets hold {w10:.0f}% of supply (pools and burn excluded)."})
+    elif r.top1_pct >= 50:
         flags.append({"id": "top1_concentration", "severity": "high",
                       "message": f"Largest account holds {r.top1_pct:.0f}% of supply (may be the pool vault)."})
     elif r.top10_pct >= 80:

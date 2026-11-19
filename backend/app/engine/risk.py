@@ -9,6 +9,8 @@ from .context import TokenContext
 
 # Points charged while mint/freeze authority are still unknown (no Helius check yet).
 CONTRACT_UNVERIFIED_POINTS = 5
+# Points charged while real-wallet concentration is unknown (out of 25).
+CONCENTRATION_UNVERIFIED_POINTS = 8
 
 RISK_BANDS = [(70, "HIGH"), (50, "ELEVATED"), (30, "MODERATE"), (0, "LOW")]
 
@@ -50,20 +52,35 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
     liq_risk = min(30, p_liq + p_drop + p_ratio)
 
     # ---- holder concentration /25 ----
-    t10 = d["top10_now"]
-    dep = d["deployer_pct_now"]
-    p_t10 = 18 if t10 >= 60 else 14 if t10 >= 45 else 10 if t10 >= 35 else \
-        6 if t10 >= 25 else 3 if t10 >= 15 else 1
-    p_dep = 7 if dep >= 15 else 4 if dep >= 8 else 2 if dep >= 3 else 0
-    if t10 >= 50:
-        flags.append(f"Concentrated ownership: top-10 wallets ≈ {t10:.0f}% of supply")
-        events.append({"category": "concentration", "severity": "high",
-                       "message": f"Top-10 wallets control ≈{t10:.0f}% of supply."})
-    elif t10 >= 35:
-        flags.append(f"Top-10 wallets hold ≈{t10:.0f}%")
-    if dep >= 8:
-        flags.append(f"Deployer-linked share ≈{dep:.0f}%")
-    concentration = min(25, p_t10 + p_dep)
+    # Real: Helius top-10 / largest REAL wallets (pools, curves, lockers, burn excluded).
+    # Demo tokens use the simulator; unchecked real tokens are "unverified".
+    src_c = facts.get("source", "unverified")
+    t10, top1 = facts.get("top10_wallet_pct"), facts.get("top1_wallet_pct")
+    if src_c.startswith("mock"):
+        t10, top1, conc_src = d["top10_now"], d["deployer_pct_now"], src_c
+    elif t10 is None or top1 is None:
+        conc_src = "unverified"
+    else:
+        conc_src = "helius"
+    if conc_src == "unverified":
+        concentration = CONCENTRATION_UNVERIFIED_POINTS
+        flags.append("Holder concentration not verified yet — treated as a risk until checked")
+        conc_value = "unknown"
+    else:
+        p_t10 = 18 if t10 >= 60 else 14 if t10 >= 45 else 10 if t10 >= 35 else \
+            6 if t10 >= 25 else 3 if t10 >= 15 else 1
+        p_top1 = 7 if top1 >= 15 else 4 if top1 >= 8 else 2 if top1 >= 3 else 0
+        if t10 >= 50:
+            flags.append(f"Concentrated ownership: top-10 wallets ≈ {t10:.0f}% of supply")
+            events.append({"category": "concentration", "severity": "high",
+                           "message": f"Top-10 wallets control ≈{t10:.0f}% of supply"
+                                      + (" (pools and burn excluded)." if conc_src == "helius" else ".")})
+        elif t10 >= 35:
+            flags.append(f"Top-10 wallets hold ≈{t10:.0f}%")
+        if top1 >= 8:
+            flags.append(f"Largest single wallet ≈{top1:.0f}% of supply")
+        concentration = min(25, p_t10 + p_top1)
+        conc_value = f"top10 wallets ≈{t10:.0f}% · largest ≈{top1:.0f}%"
 
     # ---- contract risk /15 ----
     # Real facts come from Helius (services/contract_facts.py). None = not verified
@@ -154,7 +171,7 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
             {"label": "Liquidity risk", "points": round(liq_risk, 1), "max": 30,
              "value": f"${liq:,.0f}, {drop:+.1f}% (3h)"},
             {"label": "Holder concentration", "points": round(concentration, 1), "max": 25,
-             "value": f"top10 ≈{t10:.0f}%"},
+             "value": conc_value, "source": conc_src},
             {"label": "Contract permissions", "points": round(contract, 1), "max": 15,
              "value": "mint " + _onoff(mint) + " · freeze " + _onoff(freeze),
              "source": src},

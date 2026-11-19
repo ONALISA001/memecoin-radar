@@ -58,8 +58,8 @@ SOLANA_ONLY = os.getenv("SOLANA_ONLY", "1") == "1"
 
 # Helius (real on-chain risk checks). Disabled automatically when no key is set.
 # Quota guard: at most HELIUS_MAX_CHECKS_PER_TICK tokens per ingest tick, and a
-# token is re-checked at most every HELIUS_RECHECK_HOURS hours. Each check is
-# 2 RPC calls.
+# token is re-checked at most every HELIUS_RECHECK_HOURS hours. Each check is 3
+# RPC calls (mint info, largest accounts, their owners) plus holder-count pages.
 HELIUS_API_KEY = os.getenv("HELIUS_API_KEY", "").strip()
 HELIUS_RPC_URL = os.getenv(
     "HELIUS_RPC_URL", "https://mainnet.helius-rpc.com/?api-key={key}")

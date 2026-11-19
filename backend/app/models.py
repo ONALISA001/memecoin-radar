@@ -319,6 +319,9 @@ class TokenRiskCheck(Base):
     token_2022 = Column(Boolean, default=False)
     holders_count = Column(Integer)          # REAL distinct holder wallets (None = unknown)
     holders_capped = Column(Boolean, default=False)   # True => "at least" (page cap hit)
+    top1_wallet_pct = Column(Float)          # largest REAL wallet % (pools/PDAs/burn excluded)
+    top10_wallet_pct = Column(Float)         # top-10 REAL wallets %
+    excluded_pct = Column(Float)             # % held by pools / program accounts / burn
 
 
 class DataSource(Base):

@@ -615,7 +615,8 @@ def token_history(address: str, metric: str = "price", tf: str = "24h",
             if epoch(r.checked_at) >= since]
         return {"metric": metric, "tf": tf, "source": "helius", "mock": False,
                 "points": [{"t": epoch(r.checked_at), "holders": r.holders_count,
-                            "top10": r.top10_pct, "capped": bool(r.holders_capped)} for r in rows]}
+                            "top10": r.top10_wallet_pct if r.top10_wallet_pct is not None else r.top10_pct,
+                            "capped": bool(r.holders_capped)} for r in rows]}
     if metric == "score":
         rows = db.execute(select(TrendScore).where(
             TrendScore.token_id == token.id, TrendScore.ts >= since)
@@ -677,9 +678,14 @@ def token_onchain_risk(address: str, db: Session = Depends(get_db)):
                 "supply": last.supply, "decimals": last.decimals,
                 "top1_pct": last.top1_pct, "top10_pct": last.top10_pct,
                 "accounts_sampled": last.holders_sampled, "token_2022": bool(last.token_2022),
-                "holders": last.holders_count, "holders_capped": bool(last.holders_capped)},
-            "caveat": "Largest accounts may include the liquidity-pool vault or burn wallets, "
-                      "so concentration is an upper bound."}
+                "holders": last.holders_count, "holders_capped": bool(last.holders_capped),
+                "top1_wallet_pct": last.top1_wallet_pct, "top10_wallet_pct": last.top10_wallet_pct,
+                "excluded_pct": last.excluded_pct},
+            "caveat": ("Wallet figures exclude pools, bonding curves, lockers and burn addresses "
+                       "(program-owned accounts). Account figures include them."
+                       if last.top10_wallet_pct is not None else
+                       "Largest accounts may include the liquidity-pool vault or burn wallets, "
+                       "so concentration is an upper bound.")}
 
 
 @router.get("/tokens/{address}/risk")

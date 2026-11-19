@@ -20,7 +20,8 @@ def is_mock(token: Token) -> bool:
 
 def unverified_facts() -> dict:
     return {"verified": False, "mint_authority": None, "freeze_authority": None,
-            "token_2022": None, "lp_burned_pct": None, "deployer_prev_launches": None,
+            "token_2022": None, "top1_wallet_pct": None, "top10_wallet_pct": None,
+            "excluded_pct": None, "lp_burned_pct": None, "deployer_prev_launches": None,
             "deployer_suspicious": None, "checked_at": None, "source": "unverified"}
 
 
@@ -29,6 +30,9 @@ def facts_from_check(chk: TokenRiskCheck) -> dict:
             "mint_authority": bool(chk.mint_authority),
             "freeze_authority": bool(chk.freeze_authority),
             "token_2022": bool(chk.token_2022),
+            # REAL-wallet concentration (None for checks made before it existed)
+            "top1_wallet_pct": chk.top1_wallet_pct, "top10_wallet_pct": chk.top10_wallet_pct,
+            "excluded_pct": chk.excluded_pct,
             # Not available from our Helius checks yet: unknown, not "fine".
             "lp_burned_pct": None, "deployer_prev_launches": None, "deployer_suspicious": None,
             "checked_at": chk.checked_at.isoformat() if chk.checked_at else None,
@@ -52,7 +56,8 @@ def latest_contract_facts(db, tokens: list[Token]) -> dict[int, dict]:
     if real:
         rows = db.execute(select(TokenRiskCheck)
                           .where(TokenRiskCheck.ok.is_(True), TokenRiskCheck.token_id.in_(real))
-                          .order_by(TokenRiskCheck.token_id, TokenRiskCheck.checked_at)).scalars().all()
+                          .order_by(TokenRiskCheck.token_id, TokenRiskCheck.checked_at,
+                                    TokenRiskCheck.id)).scalars().all()
         for r in rows:            # ordered ascending → last one wins
             latest[r.token_id] = r
     out: dict[int, dict] = {}

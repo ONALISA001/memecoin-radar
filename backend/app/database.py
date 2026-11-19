@@ -22,18 +22,35 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False
 Base = declarative_base()
 
 
+# Columns added to token_risk_checks after it first shipped: (name, SQL type).
+_RISK_CHECK_ADDED = [("top1_wallet_pct", "DOUBLE PRECISION"), ("top10_wallet_pct", "DOUBLE PRECISION"),
+                     ("excluded_pct", "DOUBLE PRECISION")]
+
+
 def migrate_postgres() -> None:
     """create_all() never alters tables that already exist. Fix columns that were
-    created too narrow in earlier versions (idempotent; no-op on SQLite)."""
+    created too narrow in earlier versions and add newer columns (idempotent).
+    On SQLite only the added columns are handled."""
+    from sqlalchemy import inspect, text
+    if engine.dialect.name == "sqlite":
+        insp = inspect(engine)
+        if insp.has_table("token_risk_checks"):
+            have = {c["name"] for c in insp.get_columns("token_risk_checks")}
+            with engine.begin() as conn:
+                for name, _ in _RISK_CHECK_ADDED:
+                    if name not in have:
+                        conn.execute(text(f"ALTER TABLE token_risk_checks ADD COLUMN {name} FLOAT"))
+        return
     if engine.dialect.name != "postgresql":
         return
-    from sqlalchemy import text
     with engine.begin() as conn:
         # epoch-milliseconds (~1.7e12) overflows a 32-bit INTEGER on Postgres
         conn.execute(text("ALTER TABLE IF EXISTS tokens ALTER COLUMN token_created_at TYPE BIGINT"))
         # real holder counts (added after token_risk_checks first shipped)
         conn.execute(text("ALTER TABLE IF EXISTS token_risk_checks ADD COLUMN IF NOT EXISTS holders_count INTEGER"))
         conn.execute(text("ALTER TABLE IF EXISTS token_risk_checks ADD COLUMN IF NOT EXISTS holders_capped BOOLEAN DEFAULT FALSE"))
+        for name, typ in _RISK_CHECK_ADDED:     # real-wallet concentration
+            conn.execute(text(f"ALTER TABLE IF EXISTS token_risk_checks ADD COLUMN IF NOT EXISTS {name} {typ}"))
 
 
 def get_db():

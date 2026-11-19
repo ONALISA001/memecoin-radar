@@ -26,9 +26,16 @@ def build_analysis(ctx: TokenContext, trend_payload: dict, fomo_payload: dict,
         f"(source: {ctx.sources['social']}, simulated).",
         f"Trading volume (1h): ${d['volume_1h']:,.0f} vs ${d['volume_prev_1h']:,.0f} prior hour "
         f"({d['volume_g_1h']:+.0f}%); buy share {d['buy_share_1h']:.0%}.",
-        f"Holders: {d['holders_now']:.0f} ({d['holders_g_1h']:+.1f}% 1h, {d['holders_g_24h']:+.1f}% 24h); "
-        f"top-10 concentration ≈{d['top10_now']:.0f}% (source: {ctx.sources['onchain']}, simulated).",
+        f"Holders: {d['holders_now']:.0f} ({d['holders_g_1h']:+.1f}% 1h, {d['holders_g_24h']:+.1f}% 24h) "
+        f"(source: {ctx.sources['onchain']}, simulated).",
     ]
+    conc = next((c for c in risk_payload.get("components", [])
+                 if c.get("label") == "Holder concentration"), None)
+    if conc and conc.get("source") == "helius":
+        observed.append(f"Holder concentration: {conc['value']} (source: helius, real — "
+                        f"pools, bonding curves and burn addresses excluded).")
+    elif conc:
+        observed.append("Holder concentration: not verified on-chain yet.")
     if news_active:
         observed.append("Narrative-related news articles detected in the last 24h "
                         f"(source: {ctx.sources['news']}, simulated).")

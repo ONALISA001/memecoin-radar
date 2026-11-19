@@ -260,8 +260,16 @@ function OnchainRiskPanel({ address }: { address: string }) {
             <span className={f.mint_renounced ? "text-greenx" : "text-redx"}>{f.mint_renounced ? "renounced ✓" : "ACTIVE ✗"}</span></div>
           <div className="flex justify-between"><span className="text-dim">Freeze authority</span>
             <span className={f.freeze_disabled ? "text-greenx" : "text-redx"}>{f.freeze_disabled ? "none ✓" : "ACTIVE ✗"}</span></div>
-          <div className="flex justify-between"><span className="text-dim">Top holder</span><span className="num">{fmtPct(f.top1_pct)}</span></div>
-          <div className="flex justify-between"><span className="text-dim">Top 10 holders</span><span className="num">{fmtPct(f.top10_pct)}</span></div>
+          {f.top10_wallet_pct != null ? (<>
+            <div className="flex justify-between"><span className="text-dim">Largest wallet</span>
+              <span className={`num ${f.top1_wallet_pct >= 20 ? "text-redx" : f.top1_wallet_pct >= 8 ? "text-amberx" : ""}`}>{fmtPct(f.top1_wallet_pct, false)}</span></div>
+            <div className="flex justify-between"><span className="text-dim">Top 10 wallets</span>
+              <span className={`num ${f.top10_wallet_pct >= 50 ? "text-redx" : f.top10_wallet_pct >= 30 ? "text-amberx" : ""}`}>{fmtPct(f.top10_wallet_pct, false)}</span></div>
+            <div className="flex justify-between"><span className="text-dim">In pools / burned</span><span className="num text-dim">{fmtPct(f.excluded_pct, false)}</span></div>
+          </>) : (<>
+            <div className="flex justify-between"><span className="text-dim">Top account</span><span className="num">{fmtPct(f.top1_pct, false)}</span></div>
+            <div className="flex justify-between"><span className="text-dim">Top 10 accounts</span><span className="num">{fmtPct(f.top10_pct, false)}</span></div>
+          </>)}
           {data.flags?.map((fl: any) => (
             <div key={fl.id} className={`text-[10px] ${sevCls[fl.severity] || ""}`}>⚠ {fl.message}</div>
           ))}
