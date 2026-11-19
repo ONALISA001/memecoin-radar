@@ -49,8 +49,9 @@ def latest_score_rows(db: Session):
 # Which card fields are real and which are still simulated (shown in the UI).
 DATA_QUALITY = {
     "real": ["price", "mcap", "liquidity", "volume_1h", "volume_24h", "price_change_h1",
-             "price_change_h24", "buys_1h", "sells_1h", "txns_1h", "txns_24h", "buy_share"],
-    "simulated": ["holders", "holder_growth", "holders_g_24h", "mentions_1h", "social_growth",
+             "price_change_h24", "buys_1h", "sells_1h", "txns_1h", "txns_24h", "buy_share",
+             "holders", "holder_growth", "holders_g_24h"],
+    "simulated": ["mentions_1h", "social_growth",
                   "whale_class", "narratives", "organic", "confirmed", "fomo", "fomo_class",
                   "trend", "confidence", "confluence", "emerging"],
 }
@@ -74,7 +75,8 @@ def card(token: Token, sc: TrendScore) -> dict:
         "price_change_h1": s.get("price_change_h1"),
         "price_change_h24": s.get("price_change_h24"),
         "social_growth": s.get("social_growth"), "holder_growth": s.get("holder_growth"),
-        "holders": s.get("holders"), "mentions_1h": s.get("mentions_1h"),
+        "holders": s.get("holders"), "holders_capped": bool(s.get("holders_capped")),
+        "mentions_1h": s.get("mentions_1h"),
         "buy_share": s.get("buy_share"),
         "confirmed": s.get("confirmed", 0), "conflicts": s.get("conflicts", 0),
         "age_hours": s.get("age_hours"), "ts": sc.ts,
@@ -605,12 +607,16 @@ def token_history(address: str, metric: str = "price", tf: str = "24h",
                             "uniques": r.unique_accounts, "sentiment": r.sentiment,
                             "influencers": r.influencer_posts} for r in rows]}
     if metric == "holders":
-        rows = db.execute(select(HolderSnapshot).where(
-            HolderSnapshot.token_id == token.id, HolderSnapshot.ts >= since)
-            .order_by(HolderSnapshot.ts)).scalars().all()
-        return {"metric": metric, "tf": tf,
-                "points": [{"t": r.ts, "holders": r.holders, "top10": r.top10_pct,
-                            "new_wallets": r.new_wallets} for r in rows]}
+        # REAL points only: one per Helius check (every ~6h), not the simulated snapshots
+        from ..models import TokenRiskCheck
+        from ..services.holders import epoch
+        rows = [r for r in db.execute(select(TokenRiskCheck).where(
+            TokenRiskCheck.token_id == token.id, TokenRiskCheck.ok.is_(True),
+            TokenRiskCheck.holders_count.isnot(None)).order_by(TokenRiskCheck.checked_at)).scalars().all()
+            if epoch(r.checked_at) >= since]
+        return {"metric": metric, "tf": tf, "source": "helius", "mock": False,
+                "points": [{"t": epoch(r.checked_at), "holders": r.holders_count,
+                            "top10": r.top10_pct, "capped": bool(r.holders_capped)} for r in rows]}
     if metric == "score":
         rows = db.execute(select(TrendScore).where(
             TrendScore.token_id == token.id, TrendScore.ts >= since)
@@ -634,13 +640,16 @@ def token_social(address: str, db: Session = Depends(get_db)):
 @router.get("/tokens/{address}/holders")
 def token_holders(address: str, db: Session = Depends(get_db)):
     token = get_token_or_404(db, address)
-    last = db.execute(select(HolderSnapshot).where(HolderSnapshot.token_id == token.id)
-                      .order_by(HolderSnapshot.ts.desc()).limit(1)).scalar_one_or_none()
+    from ..services.holders import real_holder_stats
+    rh = real_holder_stats(db, [token.id]).get(token.id)
     whales = db.execute(select(WalletActivity).where(WalletActivity.token_id == token.id)
                         .order_by(WalletActivity.ts.desc()).limit(20)).scalars().all()
-    return {"current": None if not last else {
-                "holders": last.holders, "top10_pct": last.top10_pct,
-                "deployer_pct": last.deployer_pct, "active_wallets": last.active_wallets},
+    return {"current": None if not rh else {
+                "holders": rh["count"], "capped": rh["capped"], "growth_pct": rh["growth_pct"],
+                "span_h": rh["span_h"],
+                "checked_at": rh["checked_at"].isoformat() if rh["checked_at"] else None,
+                "source": "helius"},
+            "holders_mock": False,
             "whales": [{"ts": w.ts, "wallet": w.wallet, "side": w.side,
                         "amount_usd": w.amount_usd, "kind": w.kind} for w in whales],
             "source": "mock:chain-sim", "mock": True}
@@ -668,7 +677,8 @@ def token_onchain_risk(address: str, db: Session = Depends(get_db)):
                 "freeze_disabled": not last.freeze_authority,
                 "supply": last.supply, "decimals": last.decimals,
                 "top1_pct": last.top1_pct, "top10_pct": last.top10_pct,
-                "accounts_sampled": last.holders_sampled, "token_2022": bool(last.token_2022)},
+                "accounts_sampled": last.holders_sampled, "token_2022": bool(last.token_2022),
+                "holders": last.holders_count, "holders_capped": bool(last.holders_capped)},
             "caveat": "Largest accounts may include the liquidity-pool vault or burn wallets, "
                       "so concentration is an upper bound."}
 

@@ -1,6 +1,7 @@
 """Helius (Solana RPC) — REAL on-chain risk facts for a token mint.
 
-Two standard Solana JSON-RPC calls per check (so ~2 Helius credits):
+Two standard Solana JSON-RPC calls per check (so ~2 Helius credits), plus the DAS
+getTokenAccounts pages used for the REAL holder count (up to HELIUS_HOLDER_MAX_PAGES):
   * getAccountInfo(mint, jsonParsed)  -> mint/freeze authority, supply, program
   * getTokenLargestAccounts(mint)     -> top token accounts -> concentration
 
@@ -17,7 +18,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from ..config import HELIUS_API_KEY, HELIUS_RPC_URL
+from ..config import HELIUS_API_KEY, HELIUS_HOLDER_MAX_PAGES, HELIUS_RPC_URL
 
 TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 
@@ -34,6 +35,8 @@ class OnchainRisk:
     top10_pct: float = 0.0
     holders_sampled: int = 0
     token_2022: bool = False
+    holders_count: int | None = None     # REAL distinct wallets with a balance (None = unknown)
+    holders_capped: bool = False         # True => at least this many (page cap reached)
 
 
 def enabled() -> bool:
@@ -64,6 +67,27 @@ class HeliusProvider:
             raise RuntimeError(str(body["error"].get("message", "rpc error"))[:120])
         return body.get("result")
 
+    async def count_holders(self, client: httpx.AsyncClient, mint: str,
+                            max_pages: int | None = None) -> tuple[int, bool]:
+        """REAL holder count: distinct owner wallets with a non-zero balance, via the
+        DAS getTokenAccounts method (1000 accounts per page). Returns (count, capped);
+        capped=True means the page limit was hit, so the true number is higher.
+        Includes the liquidity-pool vault and other program accounts (usually a handful)."""
+        pages = HELIUS_HOLDER_MAX_PAGES if max_pages is None else max_pages
+        owners: set[str] = set()
+        for page in range(1, pages + 1):
+            res = await self._rpc(client, "getTokenAccounts",
+                                  {"mint": mint, "page": page, "limit": 1000,
+                                   "options": {"showZeroBalance": False}})
+            accts = (res or {}).get("token_accounts") or []
+            for a in accts:
+                if a.get("owner") and float(a.get("amount") or 0) > 0:
+                    owners.add(a["owner"])
+            if len(accts) < 1000:
+                return len(owners), False
+            await asyncio.sleep(0.2)
+        return len(owners), True
+
     async def check_token(self, mint: str) -> OnchainRisk:
         if not self.key:
             return OnchainRisk(ok=False, error="no HELIUS_API_KEY")
@@ -83,6 +107,12 @@ class HeliusProvider:
                 supply = float(info.get("supply") or 0) / (10 ** decimals)
                 await asyncio.sleep(0.2)                 # be gentle on the free tier
                 largest = await self._rpc(client, "getTokenLargestAccounts", [mint])
+                holders_count, holders_capped = None, False
+                try:                      # holder count is a bonus: never fail the risk check on it
+                    await asyncio.sleep(0.2)
+                    holders_count, holders_capped = await self.count_holders(client, mint)
+                except Exception:
+                    holders_count, holders_capped = None, False
             amounts = sorted(
                 (float(a.get("uiAmountString") or a.get("uiAmount") or 0)
                  for a in (largest or {}).get("value") or []), reverse=True)
@@ -97,6 +127,7 @@ class HeliusProvider:
                 top10_pct=round(min(top10, 100.0), 2),
                 holders_sampled=len(amounts),
                 token_2022=value.get("owner") == TOKEN_2022,
+                holders_count=holders_count, holders_capped=holders_capped,
             )
         except Exception as exc:                          # never leak the key
             return OnchainRisk(ok=False, error=_scrub(f"{type(exc).__name__}: {exc}", self.key)[:200])

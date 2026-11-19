@@ -66,7 +66,7 @@ export default function NewCoinsPage() {
               <div className="flex justify-between"><span className="text-dim">Liquidity</span><span className="num">${fmtNum(t.liquidity)}</span></div>
               <div className="flex justify-between"><span className="text-dim">Vol 24h</span><span className="num">${fmtNum(t.volume_24h)}</span></div>
               <div className="flex justify-between"><span className="text-dim">Holders</span><span className="num">{fmtNum(t.holders)}</span></div>
-              <div className="flex justify-between"><span className="text-dim">Δ holders 1h</span><span className={`num ${(t.holder_growth || 0) >= 0 ? "text-greenx" : "text-redx"}`}>{fmtPct(t.holder_growth)}</span></div>
+              <div className="flex justify-between"><span className="text-dim">Δ holders ~24h</span><span className={`num ${(t.holder_growth || 0) >= 0 ? "text-greenx" : "text-redx"}`}>{fmtPct(t.holder_growth)}</span></div>
               <div className="flex justify-between"><span className="text-dim">Buy share 1h</span><span className="num">{Math.round((t.buy_share || 0.5) * 100)}%</span></div>
               <div className="flex justify-between"><span className="text-dim">Buys 1h</span><span className="num">{fmtNum(t.buys_1h)}</span></div>
               <div className="flex justify-between"><span className="text-dim">Sells 1h</span><span className="num">{fmtNum(t.sells_1h)}</span></div>

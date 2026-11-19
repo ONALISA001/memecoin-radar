@@ -122,9 +122,9 @@ function MetricsStrip({ t }: { t: any }) {
       <Stat label="Market cap" value={fmtUsd(t.mcap)} sub={`FDV ${fmtUsd(t.fdv)}`} />
       <Stat label="Liquidity" value={fmtUsd(t.liquidity)} sub="active pair" />
       <Stat label="Volume 24h" value={fmtUsd(t.volume_24h)} sub={`1h ${fmtUsd(t.volume_1h)}`} />
-      <Stat label="Buy share 1h" value={fmtPct((t.buy_share ?? 0.5) * 100, false)} sub={`${fmtNum(t.mentions_1h)} mentions 1h`} />
-      <Stat label="Holders" value={fmtNum(t.holders)} sub={<span className={pctColor(t.holder_growth)}>{fmtPct(t.holder_growth)} 1h</span>} />
-      <Stat label="Social growth" value={<span className={pctColor(t.social_growth)}>{fmtPct(t.social_growth)}</span>} sub="mentions 1h" />
+      <Stat label="Buy share 1h" value={t.buy_share == null ? "—" : fmtPct(t.buy_share * 100, false)} sub={`${fmtNum(t.mentions_1h)} mentions (sim)`} />
+      <Stat label="Holders" value={t.holders == null ? "—" : `${fmtNum(t.holders)}${t.holders_capped ? "+" : ""}`} sub={<span className={pctColor(t.holder_growth)}>{t.holders == null ? "not checked yet" : `${fmtPct(t.holder_growth)} ~24h · real`}</span>} />
+      <Stat label="Social growth" value={<span className={`opacity-60 ${pctColor(t.social_growth)}`}>{fmtPct(t.social_growth)}</span>} sub="mentions 1h (sim)" />
       <Stat label="Age" value={ageLabel(t.age_hours)} sub={t.chain} />
     </div>
   );

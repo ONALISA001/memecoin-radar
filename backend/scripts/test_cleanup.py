@@ -59,8 +59,9 @@ async def run():
         check("txns_24h is real", a["txns_24h"] == 5700, str(a["txns_24h"]))
         check("buy_share real", abs(a["buy_share"] - 0.6) < 1e-9)
         check("volume_24h is the real value", a["volume_24h"] == 500000)
+        check("holders unknown (not faked) until Helius has checked", a["holders"] is None and a["holder_growth"] is None)
         check("card carries data_quality labels",
-              "holders" in a["data_quality"]["simulated"] and "txns_1h" in a["data_quality"]["real"])
+              "mentions_1h" in a["data_quality"]["simulated"] and "txns_1h" in a["data_quality"]["real"])
     state["mode"] = 2
     # next tick is in a later bucket, so the dropped token must stop refreshing
     real_bucket = ING.bucket_of

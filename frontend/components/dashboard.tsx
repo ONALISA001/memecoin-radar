@@ -72,7 +72,7 @@ export function TokenRow({ t, showGrowth = false }: { t: any; showGrowth?: boole
       {showGrowth ? (
         <>
           <td className={`num opacity-50 ${pctColor(t.social_growth)}`} title="simulated">{fmtPct(t.social_growth)}</td>
-          <td className={`num opacity-50 ${pctColor(t.holder_growth)}`} title="simulated">{fmtPct(t.holder_growth)}</td>
+          <td className={`num ${pctColor(t.holder_growth)}`} title="real (Helius), ~24h">{t.holders == null ? "…" : fmtPct(t.holder_growth)}</td>
         </>
       ) : (
         <>
@@ -85,7 +85,7 @@ export function TokenRow({ t, showGrowth = false }: { t: any; showGrowth?: boole
   );
 }
 
-const HEADERS_GROWTH = ["TOKEN", "TREND (sim)", "FOMO (sim)", "RISK", "PRICE", "VOL 1H", "LIQ", "SOC G (sim)", "HOLD G (sim)", "SIGNALS"];
+const HEADERS_GROWTH = ["TOKEN", "TREND (sim)", "FOMO (sim)", "RISK", "PRICE", "VOL 1H", "LIQ", "SOC G (sim)", "HOLD G 24H", "SIGNALS"];
 const HEADERS_BASIC = ["TOKEN", "TREND (sim)", "FOMO (sim)", "RISK", "PRICE", "VOL 1H", "LIQ", "CHAIN", "AGE", "SIGNALS"];
 
 /* -------------------------------------------------------- trending table */
@@ -103,8 +103,8 @@ function TrendingTable() {
       right={<span className="text-[10px] text-dim">{data?.count ?? 0} tracked</span>}
     >
       <div className="px-3 py-1.5 text-[10px] text-amber-300/90 border-b border-line/60">
-        Real: price, volume, liquidity, trade counts (DexScreener) and on-chain risk (Helius, on the token page).
-        Marked “sim”: social, holders, FOMO and Trend — still simulated, do not trade on them.
+        Real: price, volume, liquidity, trade counts (DexScreener); holders and on-chain risk (Helius).
+        Marked “sim”: social, FOMO and Trend — still simulated, do not trade on them.
       </div>
       <div className="flex flex-wrap gap-2 px-3 py-2 border-b border-line/60">
         <select className="sel !py-1 !text-[11px]" value={chain} onChange={(e) => setChain(e.target.value)}>
@@ -113,7 +113,7 @@ function TrendingTable() {
         </select>
         <select className="sel !py-1 !text-[11px]" value={sort} onChange={(e) => setSort(e.target.value)}>
           {[["trend", "Trend Score (sim)"], ["fomo", "FOMO (sim)"], ["volume", "Volume 1h"], ["social_growth", "Social growth (sim)"],
-            ["holder_growth", "Holder growth (sim)"], ["liquidity", "Liquidity"], ["risk", "Risk ↑"], ["price_change", "Price 1h"],
+            ["holder_growth", "Holder growth"], ["liquidity", "Liquidity"], ["risk", "Risk ↑"], ["price_change", "Price 1h"],
             ["age", "Newest"]].map(([v, l]) => <option key={v} value={v}>sort: {l}</option>)}
         </select>
         <select className="sel !py-1 !text-[11px]" value={minLiq} onChange={(e) => setMinLiq(e.target.value)}>

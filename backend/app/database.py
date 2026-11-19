@@ -31,6 +31,9 @@ def migrate_postgres() -> None:
     with engine.begin() as conn:
         # epoch-milliseconds (~1.7e12) overflows a 32-bit INTEGER on Postgres
         conn.execute(text("ALTER TABLE IF EXISTS tokens ALTER COLUMN token_created_at TYPE BIGINT"))
+        # real holder counts (added after token_risk_checks first shipped)
+        conn.execute(text("ALTER TABLE IF EXISTS token_risk_checks ADD COLUMN IF NOT EXISTS holders_count INTEGER"))
+        conn.execute(text("ALTER TABLE IF EXISTS token_risk_checks ADD COLUMN IF NOT EXISTS holders_capped BOOLEAN DEFAULT FALSE"))
 
 
 def get_db():

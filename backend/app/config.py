@@ -65,6 +65,9 @@ HELIUS_RPC_URL = os.getenv(
     "HELIUS_RPC_URL", "https://mainnet.helius-rpc.com/?api-key={key}")
 HELIUS_MAX_CHECKS_PER_TICK = int(os.getenv("HELIUS_MAX_CHECKS_PER_TICK", "3"))
 HELIUS_RECHECK_HOURS = float(os.getenv("HELIUS_RECHECK_HOURS", "6"))
+# Real holder counts use the DAS getTokenAccounts method (1000 accounts per page).
+# Count at most this many pages per token (5 => "5,000+" for very large tokens).
+HELIUS_HOLDER_MAX_PAGES = int(os.getenv("HELIUS_HOLDER_MAX_PAGES", "5"))
 
 # Security
 DEMO_MODE = os.getenv("DEMO_MODE", "1") == "1"

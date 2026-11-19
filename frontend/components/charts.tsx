@@ -133,17 +133,15 @@ export function SocialChart({ addr }: { addr: string }) {
 export function HoldersChart({ addr }: { addr: string }) {
   return (
     <ChartShell title="Holders" addr={addr} metric="holders"
-                sub={<span className="badge badge-amber !text-[8px] ml-2">simulated</span>}>
+                sub={<span className="badge badge-green !text-[8px] ml-2">real · Helius · checked ~every 6h</span>}>
       {(pts, tf) => (
         <ResponsiveContainer>
           <ComposedChart data={pts}>
             <CartesianGrid stroke="#141B27" vertical={false} />
             <XAxis dataKey="t" tickFormatter={(t) => fmtT(t, tf === "7d")} stroke="#3B4A61" tickLine={false} axisLine={false} minTickGap={48} />
             <YAxis yAxisId="h" stroke="#3B4A61" tickLine={false} axisLine={false} width={44} tickFormatter={fmtNum} domain={["dataMin", "dataMax"]} />
-            <YAxis yAxisId="n" orientation="right" stroke="#3B4A61" tickLine={false} axisLine={false} width={40} tickFormatter={fmtNum} />
             <Tooltip contentStyle={tooltipStyle} labelFormatter={(t: any) => fmtT(t as number, true)} />
-            <Area yAxisId="h" type="monotone" dataKey="holders" stroke="#34D399" fill="#34D39922" strokeWidth={1.6} dot={false} />
-            <Bar yAxisId="n" dataKey="new_wallets" fill="#60A5FA" opacity={0.6} />
+            <Area yAxisId="h" type="monotone" dataKey="holders" stroke="#34D399" fill="#34D39922" strokeWidth={1.6} dot />
           </ComposedChart>
         </ResponsiveContainer>
       )}

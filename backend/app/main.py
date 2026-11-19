@@ -54,6 +54,8 @@ def ensure_schema_and_demo_user():
         ]:
             _ensure_column("signal_events", col, ddl)
         _ensure_column("tokens", "new_token_evented", "new_token_evented BOOLEAN DEFAULT 0")
+        _ensure_column("token_risk_checks", "holders_count", "holders_count INTEGER")
+        _ensure_column("token_risk_checks", "holders_capped", "holders_capped BOOLEAN DEFAULT 0")
     except Exception as exc:
         log.warning("column migration failed (non-fatal): %s", exc)
     with SessionLocal() as db:

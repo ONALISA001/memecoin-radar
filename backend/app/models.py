@@ -317,6 +317,8 @@ class TokenRiskCheck(Base):
     top10_pct = Column(Float)
     holders_sampled = Column(Integer)
     token_2022 = Column(Boolean, default=False)
+    holders_count = Column(Integer)          # REAL distinct holder wallets (None = unknown)
+    holders_capped = Column(Boolean, default=False)   # True => "at least" (page cap hit)
 
 
 class DataSource(Base):

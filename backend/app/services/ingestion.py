@@ -41,6 +41,7 @@ from ..models import (Alert, DataSource, HolderSnapshot, LiquiditySnapshot,
 from ..paper import engine as paper_engine
 from ..providers.base import HEALTH, RawToken
 from ..providers import helius as helius_mod
+from .holders import real_holder_stats
 from ..providers.dexscreener import DexscreenerProvider
 from ..providers.mock_providers import (FALLBACK_TOKENS, Sim, bucket_of,
                                         generate_articles, generate_posts,
@@ -300,6 +301,7 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
     sector_momentum = max(0.0, min(100.0, 45 + (breadth - 0.5) * 60 + (avg_top - 45) * 0.4))
     mkt = {"breadth": breadth, "sector_momentum": sector_momentum}
 
+    real_holders = real_holder_stats(db, [t.id for t in tokens])
     watched = {r[0] for r in db.execute(select(Watchlist.token_id)).all()}
     payloads = []
     new_emerging = 0
@@ -380,6 +382,14 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
             "sells_1h": d["sells_1h"], "liq_chg_24h": d["liq_chg_24h"],
             "holders_g_24h": d["holders_g_24h"], "txns_24h": txns_24h_total,
         }
+        # REAL holders (Helius) replace the simulated numbers: unknown stays None, never faked
+        rh = real_holders.get(t.id)
+        summary.update({
+            "holders": rh["count"] if rh else None,
+            "holders_capped": bool(rh and rh["capped"]),
+            "holder_growth": rh["growth_pct"] if rh else None,
+            "holders_g_24h": rh["growth_pct"] if rh else None,
+        })
         lv = (live or {}).get(t.address)
         if lv:
             # REAL DexScreener aggregates override the bucket sums (which are built on a
@@ -514,7 +524,8 @@ async def onchain_checks() -> dict:
             if last is None:
                 todo.append((0.0, t.id, t.address)); continue
             age_h = (now - last.checked_at.replace(tzinfo=None)).total_seconds() / 3600
-            wait = HELIUS_RECHECK_HOURS if last.ok else 1.0
+            # failed checks, and old checks that predate real holder counts, retry hourly
+            wait = HELIUS_RECHECK_HOURS if (last.ok and last.holders_count is not None) else 1.0
             if age_h >= wait:
                 todo.append((-age_h, t.id, t.address))
         todo.sort()
@@ -528,7 +539,8 @@ async def onchain_checks() -> dict:
                 token_id=tid, ok=r.ok, error=r.error[:200], mint_authority=r.mint_authority,
                 freeze_authority=r.freeze_authority, supply=r.supply, decimals=r.decimals,
                 top1_pct=r.top1_pct, top10_pct=r.top10_pct, holders_sampled=r.holders_sampled,
-                token_2022=r.token_2022))
+                token_2022=r.token_2022, holders_count=r.holders_count,
+                holders_capped=r.holders_capped))
             db.commit()
         done += 1 if r.ok else 0
         failed += 0 if r.ok else 1
