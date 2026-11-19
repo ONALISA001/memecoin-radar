@@ -49,12 +49,19 @@ MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "3000"))  # floor (defa
 
 # Providers
 DEXSCREENER_ENABLED = os.getenv("DEXSCREENER_ENABLED", "1") == "1"
+# When DexScreener is unreachable: 0 (default) = keep the last REAL data, mark it stale and
+# pause scoring + paper trading until it's back. 1 = old behaviour: a simulated demo universe.
+DEMO_FALLBACK = os.getenv("DEMO_FALLBACK", "0") == "1"
 DEXSCREENER_BASE = "https://api.dexscreener.com"
 
 # Real crypto news from publisher RSS feeds (free, no key). Replaces the simulated
 # news provider: drives the FOMO news component, narrative news activity and the
 # "news" confirmation check. Set NEWS_RSS_ENABLED=0 to fall back to mock news.
 NEWS_RSS_ENABLED = os.getenv("NEWS_RSS_ENABLED", "1") == "1"
+# There is no free real social (X/Twitter) source. With this OFF (default), real coins
+# never use simulated social data: "attention" = unique buyers (GeckoTerminal) and the
+# bot/wash measure = trades per unique trader. Influencers/engagement have no source → 0.
+USE_SIMULATED_SOCIAL = os.getenv("USE_SIMULATED_SOCIAL", "0") == "1"
 NEWS_REFRESH_MINUTES = float(os.getenv("NEWS_REFRESH_MINUTES", "10"))
 
 # Early discovery: freshly created Solana pools from GeckoTerminal (free, keyless).

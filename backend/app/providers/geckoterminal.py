@@ -114,6 +114,25 @@ def parse_new_pools(payload: dict, now_ms: int) -> list[tuple[RawToken, MarketTi
     return out
 
 
+def parse_pool_activity(payload: dict) -> dict[str, dict]:
+    """{pool_address: {buyers_m5, sellers_m5, buyers_h1, sellers_h1, buyers_h24, sellers_h24,
+    txns_h1}} — REAL unique trader counts per window (distinct wallets, which are much
+    harder to fake than raw transaction counts)."""
+    out = {}
+    for pool in payload.get("data") or []:
+        a = pool.get("attributes") or {}
+        addr = a.get("address")
+        tx = a.get("transactions") or {}
+        if not addr or not tx:
+            continue
+        g = lambda w, k: int(_f((tx.get(w) or {}).get(k)))  # noqa: E731
+        out[addr] = {"buyers_m5": g("m5", "buyers"), "sellers_m5": g("m5", "sellers"),
+                     "buyers_h1": g("h1", "buyers"), "sellers_h1": g("h1", "sellers"),
+                     "buyers_h24": g("h24", "buyers"), "sellers_h24": g("h24", "sellers"),
+                     "txns_h1": g("h1", "buys") + g("h1", "sells")}
+    return out
+
+
 class GeckoTerminalProvider:
     name = "geckoterminal"
     kind = "market"
@@ -121,6 +140,26 @@ class GeckoTerminalProvider:
     def __init__(self, timeout: float = 10.0, transport: httpx.AsyncBaseTransport | None = None):
         self.timeout = timeout
         self.transport = transport
+
+    async def pool_activity(self, pool_addresses: list[str]) -> dict[str, dict]:
+        """Unique buyers/sellers for up to 30 pools per call. Never raises."""
+        addrs = [a for a in dict.fromkeys(pool_addresses) if a]
+        out: dict[str, dict] = {}
+        errors = 0
+        async with httpx.AsyncClient(timeout=self.timeout, transport=self.transport,
+                                     headers={"accept": "application/json"}) as client:
+            for i in range(0, len(addrs), 30):
+                try:
+                    r = await client.get(f"{GECKOTERMINAL_BASE}/networks/solana/pools/multi/"
+                                         + ",".join(addrs[i:i + 30]))
+                    r.raise_for_status()
+                    out.update(parse_pool_activity(r.json()))
+                except Exception:
+                    errors += 1
+                    break
+        HEALTH.report("geckoterminal-activity", "onchain", errors == 0 and bool(out) or not addrs,
+                      f"unique traders for {len(out)}/{len(addrs)} pools")
+        return out
 
     async def new_pools(self, now_ms: int | None = None) -> list[tuple[RawToken, MarketTick]]:
         """Newest Solana pools that pass the quality floor, newest first. Never raises."""

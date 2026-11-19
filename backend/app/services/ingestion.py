@@ -17,9 +17,9 @@ import traceback
 
 from sqlalchemy import delete, func, select
 
-from ..config import (HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
+from ..config import (DEMO_FALLBACK, HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
                       MAX_TRACKED_TOKENS, NEW_POOLS_ENABLED, NEW_POOL_MAX_AGE_H,
-                      NEWS_REFRESH_MINUTES, NEWS_RSS_ENABLED,
+                      NEWS_REFRESH_MINUTES, NEWS_RSS_ENABLED, USE_SIMULATED_SOCIAL,
                       NEW_POOL_MIN_LIQUIDITY_USD, NEW_POOL_MIN_TXNS_H1, NEW_POOL_SLOTS,
                       ANOMALY_Z, BACKFILL_HOURS, DEXSCREENER_ENABLED,
                       SNAPSHOT_BUCKET_SECONDS as BUCKET)
@@ -47,6 +47,7 @@ from ..providers import helius as helius_mod
 from .holders import real_holder_stats
 from .contract_facts import is_mock, latest_contract_facts, unverified_facts
 from .launch_alerts import evaluate_launches, send_launch_alerts
+from . import onchain_real
 from ..providers.dexscreener import DexscreenerProvider
 from ..providers.geckoterminal import GeckoTerminalProvider
 from ..providers import news_rss
@@ -70,14 +71,27 @@ def upsert_source(db, name: str, kind: str, status: str, meta: dict):
         db.add(src)
     src.status = status
     src.meta_json = meta
-    src.last_ok_at = func.now()
+    if status in ("ok", "mock"):          # keep the last time it actually worked
+        src.last_ok_at = func.now()
 
 
 # --------------------------------------------------------------------------
-async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
-    """Returns (raw tokens, live market ticks, used_fallback?)."""
-    if not DEXSCREENER_ENABLED:
+OUTAGE: dict = {"since": None, "error": None}     # DexScreener outage state (process-local)
+
+
+def _outage(msg: str):
+    """No real market data: demo universe only if DEMO_FALLBACK, else nothing (pause)."""
+    if DEMO_FALLBACK:
         return _fallback_universe(), _fallback_ticks(), True
+    OUTAGE["since"] = OUTAGE["since"] or int(time.time())
+    OUTAGE["error"] = msg[:200]
+    return [], {}, False
+
+
+async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
+    """Returns (raw tokens, live market ticks, used_fallback?). Empty lists = outage."""
+    if not DEXSCREENER_ENABLED:
+        return _outage("DexScreener disabled (DEXSCREENER_ENABLED=0)")
     provider = DexscreenerProvider()
     try:
         promo = await provider.discover()                   # boosted / profiled (paid)
@@ -101,11 +115,13 @@ async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
             raise RuntimeError("no tokens with data")
         HEALTH.report("dexscreener", "market", True,
                       f"{len(raws)} tracked ({len(fresh)} fresh pools, {len(promo)} promoted)")
+        OUTAGE["since"], OUTAGE["error"] = None, None
         return raws, ticks, False
     except Exception as exc:
         HEALTH.report("dexscreener", "market", False, str(exc)[:160])
-        log_line_db_only("warn", "ingestion", f"DexScreener unavailable, using fallback universe: {exc}")
-        return _fallback_universe(), _fallback_ticks(), True
+        log_line_db_only("warn", "ingestion",
+                         f"DexScreener unavailable — {'demo universe' if DEMO_FALLBACK else 'pausing on last real data'}: {exc}")
+        return _outage(f"{type(exc).__name__}: {exc}")
 
 
 def _passes_new_pool_floor(mt) -> bool:
@@ -226,7 +242,8 @@ def backfill_token(db, token: Token, sim: Sim, now_b: int):
     db.flush()
 
 
-def write_live_bucket(db, token: Token, sim: Sim, tick: dict | None, now_b: int):
+def write_live_bucket(db, token: Token, sim: Sim, tick: dict | None, now_b: int,
+                      onchain: HolderSnapshot | None = None):
     """Current-bucket snapshot. Market metrics come from the REAL provider
     when available; social/on-chain from the (mock) sim providers."""
     for model in (PriceSnapshot, VolumeSnapshot, LiquiditySnapshot, HolderSnapshot, SocialSnapshot):
@@ -246,11 +263,16 @@ def write_live_bucket(db, token: Token, sim: Sim, tick: dict | None, now_b: int)
         db.add(VolumeSnapshot(token_id=token.id, ts=now_b, volume=m["volume"],
                               txns=m["txns"], buys=m["buys"], sells=m["sells"]))
         db.add(LiquiditySnapshot(token_id=token.id, ts=now_b, liquidity_usd=m["liquidity_usd"]))
-    c = sim.bucket_onchain(now_b)
-    db.add(HolderSnapshot(token_id=token.id, ts=now_b, holders=c["holders"],
-                          top10_pct=c["top10_pct"], deployer_pct=c["deployer_pct"],
-                          new_wallets=c["new_wallets"], active_wallets=c["active_wallets"],
-                          whale_net_usd=c["whale_net_usd"]))
+    if onchain is not None:                       # REAL (Helius + GeckoTerminal)
+        db.add(onchain)
+    else:                                         # demo/fallback universe only
+        c = sim.bucket_onchain(now_b)
+        db.add(HolderSnapshot(token_id=token.id, ts=now_b, holders=c["holders"],
+                              top10_pct=c["top10_pct"], deployer_pct=c["deployer_pct"],
+                              new_wallets=c["new_wallets"], active_wallets=c["active_wallets"],
+                              whale_net_usd=c["whale_net_usd"]))
+    if onchain is not None and not USE_SIMULATED_SOCIAL:
+        return              # real coin: no simulated social rows at all
     s = sim.bucket_social(now_b)
     db.add(SocialSnapshot(token_id=token.id, ts=now_b, mentions=s["mentions"],
                           unique_accounts=s["unique_accounts"], engagement=s["engagement"],
@@ -305,8 +327,11 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
     # pass 1: contexts + narrative inputs
     ctxs: dict[int, TokenContext] = {}
     narr_metrics: dict[int, dict] = {}
+    holder_rates = real_holder_stats(db, [t.id for t in tokens if not is_mock(t)])
     for t in tokens:
         ctx = TokenContext.build(db, t, now_b)
+        if not is_mock(t):
+            onchain_real.apply_real_holder_growth(ctx, holder_rates.get(t.id))
         ctxs[t.id] = ctx
         narr_metrics[t.id] = {
             "mentions_g_1h": ctx.d["mentions_g_1h"],
@@ -368,6 +393,10 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
         news_active = any(news_flags.get(n) for n in ni["names"])
         ctx.available["news"] = news_active
         facts = contract_facts.get(t.id) or unverified_facts()   # REAL Helius facts
+        lv0 = (live or {}).get(t.address) or {}
+        if lv0.get("volume_h24") is not None and ctx.d.get("liq_now"):
+            # live DexScreener 24h volume (recorded history only covers the time we've tracked)
+            ctx.d["vol24_liq_live"] = lv0["volume_h24"] / ctx.d["liq_now"]
 
         trend_payload = scoring_engine.calculate_trend_score(ctx, ni, mkt)
         fomo_payload = fomo_engine.calculate_fomo(ctx, news_active)
@@ -500,11 +529,13 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
     # content generators for active tokens
     for t in tokens:
         sim = Sim.from_state(t.address, t.state_json or {})
-        post = live_post(sim, t.symbol or "", (t.description or "").split()[:2] or [], now_b)
+        post = live_post(sim, t.symbol or "", (t.description or "").split()[:2] or [], now_b) \
+            if (is_mock(t) or USE_SIMULATED_SOCIAL) else None      # no fake posts for real coins
         if post:
             db.add(SocialPost(token_id=t.id, **post))
-        for ev in generate_whale_events(sim, now_b):
-            db.add(WalletActivity(token_id=t.id, **ev))
+        if is_mock(t):     # simulated whale trades only for the demo universe
+            for ev in generate_whale_events(sim, now_b):
+                db.add(WalletActivity(token_id=t.id, **ev))
 
     # v3 §16: signal-chain detection over the last window for tokens that
     # produced fresh events this tick
@@ -633,6 +664,24 @@ async def tick() -> dict:
     raws, ticks, fallback = await discover_tokens()
     now_b = bucket_of(time.time())
     stats: dict = {"tokens": 0}
+    if not raws and not fallback:
+        # OUTAGE: nothing is invented. Last real data stays on screen (marked stale);
+        # no new scores, alerts or paper trades until real market data is back.
+        with SessionLocal() as db:
+            upsert_source(db, "dexscreener", "market", "down", {
+                "mode": "paused", "since": OUTAGE["since"], "error": OUTAGE["error"],
+                "note": "DexScreener unreachable — showing the last real data; scoring, alerts "
+                        "and paper trading are paused until it is back"})
+            db.commit()
+        return {"outage": True, "since": OUTAGE["since"], "error": OUTAGE["error"],
+                "elapsed_s": round(time.time() - t0, 2)}
+    if not fallback and ticks:                    # REAL unique buyers/sellers per pool
+        pair_of = {r.address: r.pair_address for r in raws if r.pair_address}
+        if pair_of:
+            act = await GeckoTerminalProvider().pool_activity(list(pair_of.values()))
+            for addr, pair in pair_of.items():
+                if pair in act and addr in ticks:
+                    ticks[addr].update(act[pair])
     news_articles, news_status = None, None
     if NEWS_RSS_ENABLED and news_svc.SCHEDULE.due(NEWS_REFRESH_MINUTES):
         news_articles, news_status = await news_rss.fetch_news()
@@ -691,12 +740,17 @@ async def tick() -> dict:
             if SOLANA_ONLY:
                 q = q.where(Token.chain == "solana")
             tokens = db.execute(q).scalars().all()
+            real_ids = [t.id for t in tokens if not is_mock(t) and t.address in ticks]
+            w_checks = onchain_real.wallet_checks(db, real_ids)
+            h_stats = real_holder_stats(db, real_ids)
             for token in tokens:
                 tk = ticks.get(token.address)
                 if tk is None and not fallback:
                     continue        # no live data this round -> never fabricate a bucket
                 sim = Sim.from_state(token.address, token.state_json or {})
-                write_live_bucket(db, token, sim, tk, now_b)
+                real_row = None if is_mock(token) or tk is None else onchain_real.real_holder_row(
+                    token, tk, w_checks.get(token.id, []), h_stats.get(token.id), now_b)
+                write_live_bucket(db, token, sim, tk, now_b, real_row)
             db.flush()
 
             news_stats = None
@@ -717,10 +771,23 @@ async def tick() -> dict:
                           {"mode": "fallback-sim" if fallback else "live",
                            "note": "real market data" if not fallback else
                                    "unreachable — simulated market universe"})
-            upsert_source(db, "x-social-sim", "social", "mock",
-                          {"note": "MOCK — replace with X API provider in Phase 2"})
-            upsert_source(db, "solana-chain-sim", "onchain", "mock",
-                          {"note": "MOCK — replace with RPC/indexer in Phase 3"})
+            if fallback or USE_SIMULATED_SOCIAL:
+                upsert_source(db, "x-social-sim", "social", "mock",
+                              {"note": "MOCK — simulated social (demo universe / USE_SIMULATED_SOCIAL)"})
+            else:
+                upsert_source(db, "attention-real", "social", "ok",
+                              {"note": "no free X/Twitter source: attention = unique buyers "
+                                       "(GeckoTerminal), bot/wash check = trades per unique trader; "
+                                       "influencers/engagement unavailable"})
+                db.execute(delete(DataSource).where(DataSource.name == "x-social-sim"))
+            if fallback:
+                upsert_source(db, "solana-chain-sim", "onchain", "mock",
+                              {"note": "demo universe only (DexScreener unreachable)"})
+            else:
+                upsert_source(db, "onchain-real", "onchain", "ok",
+                              {"note": "unique traders (GeckoTerminal), holders + top-10 wallets "
+                                       "+ whale flow (Helius); deployer history not available"})
+                db.execute(delete(DataSource).where(DataSource.name == "solana-chain-sim"))
             if not NEWS_RSS_ENABLED:
                 upsert_source(db, "news-sim", "news", "mock",
                               {"note": "MOCK — set NEWS_RSS_ENABLED=1 for real publisher news"})

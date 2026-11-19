@@ -56,7 +56,11 @@ DEFAULT_SETTINGS: dict = {
     # execution simulation (§7/§8)
     "execution": {
         "fee_pct": 0.3,               # per side
-        "base_slippage_pct": 0.35,    # high-liquidity baseline
+        # Realistic memecoin costs (per side): fee 0.3% + slippage 1.0% + half-spread 0.5%
+        # = 1.8%, ~3.6% round trip — the cost model measured on Solana memecoins in the
+        # solana-social-engine research. The old 0.35% baseline made paper results rosy.
+        "base_slippage_pct": 1.0,
+        "half_spread_pct": 0.5,
         "impact_weight": 0.6,         # × (size / pool liquidity) price impact
         "impact_cap_pct": 6.0,
         "vol_weight": 0.02,           # × |1h price change| extra slip

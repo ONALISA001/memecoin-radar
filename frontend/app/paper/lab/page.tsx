@@ -26,6 +26,11 @@ function Row({ r, best, onApply }: { r: any; best: boolean; onApply?: () => void
         {r.trades != null && !r.enough_trades && r.key !== "main" && <div className="text-[9px] text-dim">too few to judge</div>}</td>
       <td className="num">{r.win_rate_pct != null ? `${r.win_rate_pct}%` : "—"}</td>
       <td className="num">{r.profit_factor ?? "—"}</td>
+      <td className="num">
+        {r.avg_trade_pct != null ? pct(r.avg_trade_pct) : "—"}
+        {r.avg_trade_ci95 && <div className={`text-[9px] ${r.edge === "positive" ? "text-greenx" : r.edge === "negative" ? "text-redx" : "text-dim"}`}>
+          {pct(r.avg_trade_ci95[0])} to {pct(r.avg_trade_ci95[1])} · {r.edge === "positive" ? "edge" : r.edge === "negative" ? "losing" : "could be luck"}</div>}
+      </td>
       <td className="num text-dim">{r.avg_win != null ? usd(r.avg_win, 0) : "—"} / {r.avg_loss != null ? usd(r.avg_loss, 0) : "—"}</td>
       <td className={`num ${(r.max_drawdown_pct ?? 0) > 15 ? "text-amberx" : ""}`}>{r.max_drawdown_pct != null ? `${r.max_drawdown_pct}%` : "—"}</td>
       <td className="text-[10px] text-dim">
@@ -46,7 +51,7 @@ export default function StrategyLabPage() {
   };
   if (loading && !data) return <Empty text="Loading Strategy Lab…" />;
   const rows: any[] = data?.presets || [];
-  const ranked = rows.filter((r) => r.running && r.enough_trades).sort((a, b) => b.return_pct - a.return_pct);
+  const ranked = rows.filter((r) => r.running && r.proven_edge).sort((a, b) => b.return_pct - a.return_pct);
   const leader = ranked[0]?.key;
 
   return (
@@ -69,7 +74,7 @@ export default function StrategyLabPage() {
           <table className="tbl w-full">
             <thead><tr>
               <th>Strategy</th><th>Return</th><th>Equity</th><th>Trades</th><th>Win rate</th>
-              <th>Profit factor</th><th>Avg win / loss</th><th>Max DD</th><th>Exits</th><th></th>
+              <th>Profit factor</th><th>Avg trade (95% range)</th><th>Avg win / loss</th><th>Max DD</th><th>Exits</th><th></th>
             </tr></thead>
             <tbody>
               {rows.map((r) => (
@@ -81,7 +86,8 @@ export default function StrategyLabPage() {
           </table>
         </div>
         <div className="px-4 py-2 text-[10px] text-dim border-t border-line/50">
-          Simulation with modeled fees and slippage — not financial advice. A strategy is only &quot;leading&quot; once it has {data?.min_trades_for_verdict ?? 30}+ closed trades.
+          Simulation with realistic memecoin costs (~3.6% per round trip: fees, slippage, spread) — not financial advice.
+          A strategy is only &quot;leading&quot; once it has {data?.min_trades_for_verdict ?? 30}+ closed trades AND the 95% range of its average trade is above 0.
           Profit factor = gross wins ÷ gross losses (above 1 = profitable).
         </div>
       </Panel>

@@ -20,7 +20,7 @@ from ..models import (HolderSnapshot, LiquiditySnapshot, Narrative, NewsArticle,
                       PriceSnapshot, RiskEvent, SocialPost, SocialSnapshot, Token,
                       TokenNarrative, TrendScore, VolumeSnapshot, WalletActivity)
 from ..services.contract_facts import contract_facts_for
-from ..config import NEWS_RSS_ENABLED
+from ..config import NEWS_RSS_ENABLED, USE_SIMULATED_SOCIAL
 from ..security import ALLOWED_SORTS, rate_limit, valid_address
 
 router = APIRouter(dependencies=[Depends(rate_limit)])
@@ -640,9 +640,12 @@ def token_social(address: str, db: Session = Depends(get_db)):
     token = get_token_or_404(db, address)
     posts = db.execute(select(SocialPost).where(SocialPost.token_id == token.id)
                        .order_by(SocialPost.ts.desc()).limit(25)).scalars().all()
+    mock = token.address.startswith("Mock") or USE_SIMULATED_SOCIAL
+    if not mock:
+        posts = []          # real coins: no real X source, so no (old simulated) posts are shown
     return {"posts": [{"ts": p.ts, "author": p.author, "text": p.text, "likes": p.likes,
                        "reposts": p.reposts, "quality": p.quality} for p in posts],
-            "source": "mock:x-style-sim", "mock": True}
+            "source": "mock:x-style-sim" if mock else "none", "mock": mock}
 
 
 @router.get("/tokens/{address}/holders")
@@ -660,7 +663,9 @@ def token_holders(address: str, db: Session = Depends(get_db)):
             "holders_mock": False,
             "whales": [{"ts": w.ts, "wallet": w.wallet, "side": w.side,
                         "amount_usd": w.amount_usd, "kind": w.kind} for w in whales],
-            "source": "mock:chain-sim", "mock": True}
+            # whale trade list is only simulated (demo universe); real tokens get none
+            "source": "mock:chain-sim" if token.address.startswith("Mock") else "helius",
+            "mock": token.address.startswith("Mock")}
 
 
 @router.get("/tokens/{address}/onchain-risk")

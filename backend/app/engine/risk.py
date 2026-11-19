@@ -138,16 +138,37 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
         p_beh += 2
         flags.append(f"Net whale outflow ≈ ${abs(d['whale_net_24h']):,.0f} (24h)")
         events.append({"category": "whale", "severity": "warn",
-                       "message": f"Whales net-sold ≈ ${abs(d['whale_net_24h']):,.0f} over 24h (simulated)."})
+                       "message": f"Whales net-sold ≈ ${abs(d['whale_net_24h']):,.0f} over 24h"
+                                  + (" (top-10 real wallets, Helius)." if ctx.social_proxy else " (simulated).")})
     behavior = min(10, p_beh)
 
     # ---- social manipulation /10 ----
+    # Real coins: "trading authenticity" — trades per unique trader (bots/wash trading
+    # make many trades from few wallets) + 24h volume far above liquidity.
     p_soc = 0.0
+    if ctx.social_proxy:
+        tpt = d.get("trades_per_trader")
+        vlr = d.get("vol24_liq_live")
+        if vlr is None:
+            vlr = (d["volume_24h"] / d["liq_now"]) if d["liq_now"] > 0 else 0.0
+        p_soc += (6 if tpt >= 7 else 4 if tpt >= 4.5 else 2 if tpt >= 3 else 0) if tpt is not None else 2
+        p_soc += 4 if vlr > 30 else 2 if vlr > 15 else 0
+        social = min(10, p_soc)
+        soc_value = (f"{tpt:.1f} trades per unique trader (1h)" if tpt is not None else "no trader data yet") \
+            + f", 24h volume {vlr:.1f}x liquidity"
+        if social >= 6:
+            flags.append("Possible wash/bot trading: many trades from few wallets or volume far above liquidity")
+            events.append({"category": "social", "severity": "warn",
+                           "message": f"Trading looks bot-heavy ({soc_value})."})
+        soc_label, soc_src = "Trading authenticity", "geckoterminal+dexscreener"
     ratio = d["uniques_1h"] / d["mentions_1h"] if d["mentions_1h"] > 5 else 1.0
-    p_soc += 4 if ratio < 0.3 else 2 if ratio < 0.5 else 0
     lowq = d["lowq_24h"]
-    p_soc += 3 if lowq > 0.6 else 2 if lowq > 0.4 else 0
-    if ratio < 0.3 or lowq > 0.55:
+    if not ctx.social_proxy:
+        p_soc += 4 if ratio < 0.3 else 2 if ratio < 0.5 else 0
+        p_soc += 3 if lowq > 0.6 else 2 if lowq > 0.4 else 0
+        soc_label, soc_src = "Social manipulation", "mock:x-style-sim"
+        soc_value = f"unique/mention {ratio:.0%}, low-quality {lowq:.0%}"
+    if not ctx.social_proxy and (ratio < 0.3 or lowq > 0.55):
         flags.append("Potential manipulation: social activity concentrated in "
                      "few / low-quality accounts")
         events.append({"category": "social", "severity": "warn",
@@ -180,8 +201,7 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
              "source": src if prev is not None else "unavailable"},
             {"label": "Market behavior", "points": round(behavior, 1), "max": 10,
              "value": f"1h {pc:+.0f}%, buy share {d['buy_share_1h']:.0%}"},
-            {"label": "Social manipulation", "points": round(social, 1), "max": 10,
-             "value": f"unique/mention {ratio:.0%}, low-quality {lowq:.0%}",
-             "source": "mock:x-style-sim"},
+            {"label": soc_label, "points": round(social, 1), "max": 10,
+             "value": soc_value, "source": soc_src},
         ],
     }

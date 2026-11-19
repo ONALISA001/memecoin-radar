@@ -146,6 +146,21 @@ function SearchBox() {
   );
 }
 
+/** Shown while DexScreener is down: last real data, scoring + paper trading paused. */
+function OutageBanner() {
+  const { data } = useApi("/sources", 60000, false);
+  const dex = (data?.sources || []).find((x: any) => x.name === "dexscreener");
+  if (!dex || dex.status !== "down") return null;
+  const since = dex.meta?.since ? new Date(dex.meta.since * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
+  return (
+    <div className="bg-amberx/10 border-b border-amberx/40 text-[11.5px] px-4 py-2 text-center">
+      <span className="text-amberx font-semibold">⏸ Market data paused</span>
+      <span className="text-dim"> — DexScreener is unreachable{since ? ` since ${since}` : ""}. You&apos;re seeing the last real data;
+        scores, alerts and paper trading resume automatically when it&apos;s back.</span>
+    </div>
+  );
+}
+
 export default function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   return (
@@ -178,6 +193,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
       </header>
+      <OutageBanner />
       <main className="max-w-[1500px] mx-auto px-4 py-4">{children}</main>
       <footer className="max-w-[1500px] mx-auto px-4 pb-6 pt-2 text-[10px] text-dim leading-relaxed border-t border-line/50 mt-6">
         MemeCoin Radar is an analytics tool. Scores are algorithmic estimates over data that may be incomplete,
