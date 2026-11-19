@@ -8,6 +8,7 @@ import { ageLabel, fomoBandClass, fmtNum, fmtPct, fmtPrice, fmtUsd, pctColor,
          riskTextClass, timeAgo } from "@/lib/format";
 import { Badge, ConfChip, Empty, Gauge, Panel, RiskPill, RowBadges, Sparkline, TokenAvatar } from "./ui";
 import ForensicsPanel from "./forensics";
+import TimeMachinePanel from "./timemachine";
 import { MarketIntelPanel } from "./marketintel";
 import { IntelFeed } from "./intelfeed";
 import { HoldersChart, LiquidityChart, PriceChart, ScoreChart, SocialChart, VolumeChart } from "./charts";
@@ -412,6 +413,7 @@ export default function TokenPage({ address }: { address: string }) {
         <div className="xl:col-span-2 space-y-4">
           {sc && <ScoresRow d={d} sc={sc} />}
           <AnalysisPanel address={d.address} />
+          <TimeMachinePanel address={d.address} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <PriceChart addr={d.address} />
             <VolumeChart addr={d.address} />

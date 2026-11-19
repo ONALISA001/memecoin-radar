@@ -711,6 +711,90 @@ def token_onchain_risk(address: str, db: Session = Depends(get_db)):
                        "so concentration is an upper bound.")}
 
 
+_TM_CACHE: dict[tuple, tuple[float, dict]] = {}
+_TM_TTL = 300  # seconds; the pool only changes every 5-min bucket
+
+
+@router.get("/tokens/{address}/timemachine")
+def token_timemachine(address: str, stop_pct: Optional[float] = None,
+                      target_pct: Optional[float] = None, hours: Optional[float] = None,
+                      kind: Optional[str] = None, replays: int = 10000, seed: int = 19,
+                      db: Session = Depends(get_db)):
+    """Time Machine: Monte Carlo replays from this token's own REAL 5-min prices,
+    plus the same rule re-run after every past signal of the same kind.
+    Defaults come from the paper strategy (stop, take-profit, max hold)."""
+    from ..engine import timemachine as tm
+    from ..models import SignalEvent
+    from ..paper.config import BUY_KINDS, DEFAULT_SETTINGS
+
+    token = get_token_or_404(db, address)
+    stop_pct = float(stop_pct if stop_pct is not None else DEFAULT_SETTINGS["stop_loss_pct"])
+    target_pct = float(target_pct if target_pct is not None
+                       else DEFAULT_SETTINGS["take_profit_pct"] or 35.0)
+    hours = float(hours if hours is not None else DEFAULT_SETTINGS["max_hold_hours"])
+    err = tm.validate_plan(stop_pct, target_pct, hours, replays)
+    if err:
+        raise HTTPException(400, err)
+    if kind is not None and kind not in BUY_KINDS:
+        raise HTTPException(400, f"kind must be one of {list(BUY_KINDS)}")
+
+    now = int(time.time())
+    if kind is None:  # default: this token's latest bullish signal kind
+        kind = db.execute(select(SignalEvent.kind).where(
+            SignalEvent.token_id == token.id, SignalEvent.kind.in_(BUY_KINDS),
+            SignalEvent.ts >= now - 86400).order_by(SignalEvent.ts.desc()).limit(1)).scalar()
+    ckey = (token.id, stop_pct, target_pct, hours, kind, replays, seed, now // _TM_TTL)
+    hit = _TM_CACHE.get(ckey)
+    if hit and now - hit[0] < _TM_TTL:
+        return hit[1]
+
+    plan = {"stop_pct": stop_pct, "target_pct": target_pct, "hours": hours,
+            "r_multiple": round(target_pct / stop_pct, 3),
+            "breakeven_pct": round(tm.breakeven_rate(target_pct / stop_pct) * 100, 1)}
+    pts = db.execute(select(PriceSnapshot.ts, PriceSnapshot.price_usd).where(
+        PriceSnapshot.token_id == token.id, PriceSnapshot.ts >= now - 7 * 86400)
+        .order_by(PriceSnapshot.ts)).all()
+    rets = tm.contiguous_log_returns([(int(t), p) for t, p in pts])
+    entry = next((p for _, p in reversed(pts) if p and p > 0), None)
+    steps = max(1, int(round(hours * 3600 / tm.BUCKET_SECS)))
+    out: dict = {"mock": False, "source": "dexscreener 5-min snapshots", "plan": plan,
+                 "entry_price": entry, "pool_returns": int(len(rets)),
+                 "pool_hours": round(len(rets) * tm.BUCKET_SECS / 3600, 1), "kind": kind,
+                 "caveat": ("Built from 5-minute closes: moves inside a bucket aren't seen, and a "
+                            "real stop can fill worse. A replay of past prices, not a prediction.")}
+    if len(rets) < tm.MIN_RETURNS or entry is None:
+        out["simulation"] = None
+        out["reason"] = (f"Needs at least {tm.MIN_RETURNS * 5 // 60}h of unbroken 5-minute price "
+                         f"data; this token has {out['pool_hours']}h.")
+    else:
+        out["simulation"] = tm.simulate(rets, stop_pct, target_pct, steps, replays, seed)
+
+    # history: same rule after every past signal of this kind (all tokens, 14 days)
+    horizon = steps * tm.BUCKET_SECS
+    kinds = [kind] if kind else list(BUY_KINDS)
+    evs = db.execute(select(SignalEvent.token_id, SignalEvent.ts).where(
+        SignalEvent.kind.in_(kinds), SignalEvent.ts >= now - 14 * 86400,
+        SignalEvent.ts <= now - horizon).order_by(SignalEvent.ts.desc()).limit(200)).all()
+
+    def walks():
+        for tok_id, ev_ts in evs:
+            rows = db.execute(select(PriceSnapshot.ts, PriceSnapshot.price_usd).where(
+                PriceSnapshot.token_id == tok_id, PriceSnapshot.ts >= ev_ts,
+                PriceSnapshot.ts <= ev_ts + horizon + tm.BUCKET_SECS)
+                .order_by(PriceSnapshot.ts)).all()
+            yield int(ev_ts), [(int(t), p) for t, p in rows]
+
+    hist = tm.replay_history(walks(), stop_pct, target_pct, horizon, now)
+    hist["signals_used"] = len(evs)
+    hist["scope"] = f"'{kind}' signals, all tokens, last 14 days" if kind \
+        else "all bullish signals, all tokens, last 14 days"
+    out["history"] = hist
+    if len(_TM_CACHE) > 256:
+        _TM_CACHE.clear()
+    _TM_CACHE[ckey] = (now, out)
+    return out
+
+
 @router.get("/tokens/{address}/risk")
 def token_risk_events(address: str, db: Session = Depends(get_db)):
     token = get_token_or_404(db, address)
