@@ -378,6 +378,31 @@ class TokenLaunchForensics(Base):
     wallets_json = Column(JSON)              # evidence: [{wallet, role, slot_offset, pct, funder?, fresh?}]
 
 
+class TokenVerdict(Base):
+    """AI verdict history (bull / bear / judge, or gate / rules). Market values at the
+    time are kept so outcomes can be scored later (did the call age well?)."""
+    __tablename__ = "token_verdicts"
+    id = Column(Integer, primary_key=True)
+    token_id = Column(Integer, ForeignKey("tokens.id"), index=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    rating = Column(String(16))              # STRONG_WATCH | WATCH | NEUTRAL | AVOID | RUG_RISK | REVIEW
+    confidence = Column(String(8))
+    source = Column(String(8))               # llm | rules | gate
+    reason = Column(Text)
+    positives_json = Column(JSON)
+    risks_json = Column(JSON)
+    bull = Column(Text)
+    bear = Column(Text)
+    llm_rating = Column(String(16))          # judge's raw rating before the safety caps
+    model = Column(String(64))
+    evidence_json = Column(JSON)
+    evidence_hash = Column(String(16))
+    price_at = Column(Float)
+    mcap_at = Column(Float)
+    liquidity_at = Column(Float)
+    telegram_sent = Column(Boolean, default=False)
+
+
 class DataSource(Base):
     __tablename__ = "data_sources"
     id = Column(Integer, primary_key=True)
