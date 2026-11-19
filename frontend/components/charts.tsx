@@ -8,7 +8,7 @@ import { fmtNum, fmtUsd } from "@/lib/format";
 const TFS = ["15m", "1h", "4h", "24h", "7d"] as const;
 
 const tooltipStyle = {
-  background: "#0C1017", border: "1px solid #1B2331", borderRadius: 8,
+  background: "#121722", border: "1px solid #252D3D", borderRadius: 8,
   fontSize: 11, color: "#DCE4EE",
 };
 
@@ -24,7 +24,7 @@ function TfBar({ tf, setTf }: { tf: string; setTf: (v: string) => void }) {
     <div className="flex gap-0.5">
       {TFS.map((v) => (
         <button key={v} onClick={() => setTf(v)}
-                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${tf === v ? "bg-cyanx/15 text-cyanx" : "text-dim hover:text-ink"}`}>
+                className={`px-1.5 py-0.5 rounded text-xs font-bold ${tf === v ? "bg-cyanx/15 text-cyanx" : "text-dim hover:text-ink"}`}>
           {v}
         </button>
       ))}
@@ -112,7 +112,7 @@ export function VolumeChart({ addr }: { addr: string }) {
 export function SocialChart({ addr }: { addr: string }) {
   return (
     <ChartShell title="Social activity" addr={addr} metric="social"
-                sub={<span className="badge badge-amber !text-[8px] ml-2">simulated</span>}>
+                sub={<span className="badge badge-amber !text-2xs ml-2">simulated</span>}>
       {(pts, tf) => (
         <ResponsiveContainer>
           <ComposedChart data={pts}>
@@ -133,7 +133,7 @@ export function SocialChart({ addr }: { addr: string }) {
 export function HoldersChart({ addr }: { addr: string }) {
   return (
     <ChartShell title="Holders" addr={addr} metric="holders"
-                sub={<span className="badge badge-green !text-[8px] ml-2">real · Helius · checked ~every 6h</span>}>
+                sub={<span className="badge badge-green !text-2xs ml-2">real · Helius · checked ~every 6h</span>}>
       {(pts, tf) => (
         <ResponsiveContainer>
           <ComposedChart data={pts}>

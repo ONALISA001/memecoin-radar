@@ -58,7 +58,7 @@ function CreateAlert({ onCreated }: { onCreated: () => void }) {
                onChange={(e) => setName(e.target.value)} />
         <div className="grid grid-cols-2 gap-2">
           <div className="col-span-2">
-            <label className="text-[10px] text-dim font-bold tracking-wider">CONDITION</label>
+            <label className="text-xs text-dim font-bold tracking-wider">CONDITION</label>
             <div className="flex gap-2 mt-1">
               <select className="sel flex-1" value={metric} onChange={(e) => setMetric(e.target.value)}>
                 {METRICS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -72,7 +72,7 @@ function CreateAlert({ onCreated }: { onCreated: () => void }) {
             </div>
           </div>
           <div>
-            <label className="text-[10px] text-dim font-bold tracking-wider">SCOPE</label>
+            <label className="text-xs text-dim font-bold tracking-wider">SCOPE</label>
             <select className="sel w-full mt-1" value={scope} onChange={(e) => setScope(e.target.value)}
                     disabled={metric === "new_narrative"}>
               <option value="all">all tokens</option>
@@ -81,7 +81,7 @@ function CreateAlert({ onCreated }: { onCreated: () => void }) {
             </select>
           </div>
           <div>
-            <label className="text-[10px] text-dim font-bold tracking-wider">CHANNEL</label>
+            <label className="text-xs text-dim font-bold tracking-wider">CHANNEL</label>
             <select className="sel w-full mt-1" value={channel} onChange={(e) => setChannel(e.target.value)}>
               <option value="browser">browser (bell)</option>
               <option value="webhook">webhook (Discord/Slack)</option>
@@ -96,10 +96,10 @@ function CreateAlert({ onCreated }: { onCreated: () => void }) {
           )}
           {channel === "telegram" && (
             <div className="col-span-2 flex items-center gap-2">
-              <button type="button" className="btn !py-1 !px-2 !text-[10px]" onClick={testTelegram}>
+              <button type="button" className="btn !py-1 !px-2 !text-xs" onClick={testTelegram}>
                 send test message
               </button>
-              <span className="text-[10px] text-dim">{tgMsg}</span>
+              <span className="text-xs text-dim">{tgMsg}</span>
             </div>
           )}
           {channel === "webhook" && (
@@ -107,11 +107,11 @@ function CreateAlert({ onCreated }: { onCreated: () => void }) {
                    value={webhook} onChange={(e) => setWebhook(e.target.value)} />
           )}
         </div>
-        {err && <div className="text-[11px] text-redx">{err}</div>}
+        {err && <div className="text-sm text-redx">{err}</div>}
         <button className="btn btn-primary w-full justify-center" onClick={submit} disabled={busy}>
           {busy ? "Creating…" : "Create alert"}
         </button>
-        <p className="text-[10px] text-dim leading-relaxed">
+        <p className="text-xs text-dim leading-relaxed">
           Evaluated every ingestion tick (60s) with a 30-minute per-token cooldown.
           Telegram sends to the channel configured on the server. Email is a later adapter.
         </p>
@@ -138,15 +138,15 @@ export default function AlertsPage() {
                   <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${a.enabled ? "left-[18px]" : "left-0.5"}`} />
                 </button>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-[13px]">{a.name}</div>
-                  <div className="text-[11px] text-dim font-mono">
+                  <div className="font-semibold text-base">{a.name}</div>
+                  <div className="text-sm text-dim font-mono">
                     when {a.condition?.metric} {a.condition?.op} {a.condition?.value}
                     {" · "}{a.condition?.scope}{a.condition?.address ? ` (${a.condition.address.slice(0, 8)}…)` : ""}
                     {" · "}{a.channel?.type}{a.has_webhook ? " 🔗" : ""}
                   </div>
                 </div>
                 <Badge kind={a.enabled ? "green" : "gray"}>{a.enabled ? "live" : "paused"}</Badge>
-                <button className="btn btn-danger !py-1 !px-2 !text-[10px]" onClick={() => remove(a)}>delete</button>
+                <button className="btn btn-danger !py-1 !px-2 !text-xs" onClick={() => remove(a)}>delete</button>
               </div>
             ))}
           </div>
@@ -165,13 +165,13 @@ function AlertFeed() {
   const items = (data?.items || []).slice(0, 12);
   return (
     <div>
-      <div className="text-[10px] font-bold tracking-widest text-dim uppercase mb-2">Recent events</div>
+      <div className="text-xs font-bold tracking-widest text-dim uppercase mb-2">Recent events</div>
       {items.length === 0 && <div className="text-xs text-dim py-2">None yet.</div>}
       <div className="space-y-1.5">
         {items.map((ev: any) => {
           const p = ev.payload || {};
           return (
-            <div key={ev.id} className="text-[11px] flex items-center gap-2 flex-wrap">
+            <div key={ev.id} className="text-sm flex items-center gap-2 flex-wrap">
               <span className="text-dim shrink-0 w-16">{timeAgo(ev.ts)}</span>
               <span className="font-semibold text-ink/85">{p.alert}</span>
               {p.token && <span className="text-cyanx">${p.token}</span>}

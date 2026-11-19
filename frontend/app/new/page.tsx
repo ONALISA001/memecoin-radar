@@ -25,7 +25,7 @@ export default function NewCoinsPage() {
     <div className="space-y-4">
       <div className="panel p-4 flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-extrabold">🆕 New Memecoins</h1>
-        <span className="text-[11px] text-dim">🌱 fresh pools are found minutes after launch; 📣 promoted coins come from paid DexScreener boosts.</span>
+        <span className="text-sm text-dim">🌱 fresh pools are found minutes after launch; 📣 promoted coins come from paid DexScreener boosts.</span>
         <div className="flex-1" />
         <select className="btn !py-1 bg-panel" value={source} onChange={(e) => setSource(e.target.value)}>
           {SOURCES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -46,19 +46,19 @@ export default function NewCoinsPage() {
             <div className="flex items-center gap-2.5">
               <TokenAvatar url={t.image_url} symbol={t.symbol} size={34} />
               <div className="min-w-0">
-                <div className="font-bold text-[13px] truncate">${t.symbol} <span className="text-dim font-normal text-[10.5px]">{t.name}</span></div>
-                <div className="text-[9.5px] text-dim num">{t.dex} · {ageStr(t.age_hours)} old</div>
+                <div className="font-bold text-base truncate">${t.symbol} <span className="panel-sub">{t.name}</span></div>
+                <div className="text-2xs text-dim num">{t.dex} · {ageStr(t.age_hours)} old</div>
                 <div className="flex gap-1 mt-0.5">
-                  {t.discovery_source === "new_pool" && <span className="badge badge-green !text-[8px]">🌱 fresh pool</span>}
-                  {t.discovery_source === "telegram" && <span className="badge !text-[8px]">✈️ Telegram call</span>}
-                  {(t.discovery_source === "boost" || t.discovery_source === "profile") && <span className="badge badge-amber !text-[8px]">📣 promoted</span>}
-                  {t.launch_alert === "sent" && <span className="badge badge-green !text-[8px]">✓ passed launch checks</span>}
-                  {t.launch_alert === "skipped" && <span className="badge badge-amber !text-[8px]">⚠ failed launch checks</span>}
+                  {t.discovery_source === "new_pool" && <span className="badge badge-green !text-2xs">🌱 fresh pool</span>}
+                  {t.discovery_source === "telegram" && <span className="badge !text-2xs">✈️ Telegram call</span>}
+                  {(t.discovery_source === "boost" || t.discovery_source === "profile") && <span className="badge badge-amber !text-2xs">📣 promoted</span>}
+                  {t.launch_alert === "sent" && <span className="badge badge-green !text-2xs">✓ passed launch checks</span>}
+                  {t.launch_alert === "skipped" && <span className="badge badge-amber !text-2xs">⚠ failed launch checks</span>}
                 </div>
               </div>
               <div className="ml-auto text-right">
-                <div className="num text-[12.5px] font-bold">${priceStr(t.price)}</div>
-                <div className={`num text-[10.5px] font-semibold ${(t.price_change_h24 || 0) >= 0 ? "text-greenx" : "text-redx"}`}>
+                <div className="num text-sm font-bold">${priceStr(t.price)}</div>
+                <div className={`num text-xs font-semibold ${(t.price_change_h24 || 0) >= 0 ? "text-greenx" : "text-redx"}`}>
                   {fmtPct(t.price_change_h24)} 24h
                 </div>
               </div>
@@ -67,13 +67,13 @@ export default function NewCoinsPage() {
             <div className="grid grid-cols-5 gap-1 mt-3 text-center">
               {[["5m", t.price_change_m5], ["15m", t.price_change_m15], ["1h", t.price_change_h1], ["4h", t.price_change_h4], ["24h", t.price_change_h24]].map(([k, v]: any) => (
                 <div key={k} className="rounded-md bg-bg/50 py-1">
-                  <div className="text-[8.5px] text-dim">{k}</div>
-                  <div className={`num text-[10px] font-bold ${(v || 0) >= 0 ? "text-greenx" : "text-redx"}`}>{fmtPct(clampPct(v), false)}</div>
+                  <div className="text-2xs text-dim">{k}</div>
+                  <div className={`num text-xs font-bold ${(v || 0) >= 0 ? "text-greenx" : "text-redx"}`}>{fmtPct(clampPct(v), false)}</div>
                 </div>
               ))}
             </div>
 
-            <div className="grid grid-cols-3 gap-x-3 mt-3 text-[9.5px]">
+            <div className="grid grid-cols-3 gap-x-3 mt-3 text-2xs">
               <div className="flex justify-between"><span className="text-dim">MCap</span><span className="num">${fmtNum(t.mcap)}</span></div>
               <div className="flex justify-between"><span className="text-dim">Liquidity</span><span className="num">${fmtNum(t.liquidity)}</span></div>
               <div className="flex justify-between"><span className="text-dim">Vol 24h</span><span className="num">${fmtNum(t.volume_24h)}</span></div>
@@ -101,9 +101,9 @@ export default function NewCoinsPage() {
 function Gauge({ t, v, c, s }: { t: string; v?: number; c: string; s?: string }) {
   return (
     <div>
-      <div className="flex justify-between text-[9px]"><span className="text-dim uppercase tracking-wider">{t}</span><span className="num font-bold" style={{ color: c }}>{Math.round(v || 0)}</span></div>
+      <div className="flex justify-between text-2xs"><span className="text-dim uppercase tracking-wider">{t}</span><span className="num font-bold" style={{ color: c }}>{Math.round(v || 0)}</span></div>
       <div className="scorebar mt-0.5"><div style={{ width: `${v || 0}%`, background: c }} /></div>
-      <div className="text-[8.5px] mt-0.5" style={{ color: c }}>{s}</div>
+      <div className="text-2xs mt-0.5" style={{ color: c }}>{s}</div>
     </div>
   );
 }

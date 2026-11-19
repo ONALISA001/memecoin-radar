@@ -1,97 +1,164 @@
 "use client";
 import Link from "next/link";
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import { useApi } from "@/lib/api";
 import { ageLabel, fmtNum, fmtPct, fmtPrice, fmtUsd, pctColor, timeAgo } from "@/lib/format";
-import { Badge, ConfChip, Empty, FomoPill, Panel, RiskPill, RowBadges, TokenAvatar, TrendPill } from "./ui";
+import { Badge, Empty, Panel, RiskPill, SimTag, SkeletonRows, TokenAvatar, TrendPill } from "./ui";
 import { IntelFeed } from "./intelfeed";
+import { ChevronDown, Flame } from "lucide-react";
 
-/* ------------------------------------------------ market overview strip */
-function OverviewStrip() {
-  const { data } = useApi("/market/overview", 30000);
-  const { data: sources } = useApi("/sources", 60000);
-  if (!data || !data.tracked) return <div className="panel p-4 text-dim text-xs">Loading market overview…</div>;
-  const cards = [
-    { l: "SECTOR", v: data.phase, c: data.phase === "RISK-ON" ? "#34D399" : data.phase === "RISK-OFF" ? "#F87171" : "#FBBF24" },
-    { l: "MOMENTUM", v: `${Math.round(data.sector_momentum)}`, c: "#22D3EE" },
-    { l: "TRACKED", v: data.tracked },
-    { l: "AVG TREND", v: data.avg_trend },
-    { l: "BREADTH 24H", v: `${Math.round(data.breadth * 100)}%`, c: data.breadth > 0.5 ? "#34D399" : "#F87171" },
-    { l: "24H VOLUME", v: fmtUsd(data.total_volume_24h) },
-    { l: "EMERGING", v: data.emerging, c: "#A78BFA" },
-    { l: "EXTREME FOMO", v: data.extreme_fomo, c: data.extreme_fomo ? "#F87171" : undefined },
-    { l: "HIGH RISK", v: data.high_risk, c: data.high_risk ? "#F87171" : undefined },
-    { l: "ANOMALIES", v: data.anomalies, c: "#FBBF24" },
-  ];
+const C = { green: "#34D399", red: "#F87171", amber: "#FBBF24", cyan: "#22D3EE", violet: "#A78BFA", ink: "#E6ECF3" };
+
+/* ------------------------------------------------ market overview */
+function StatTile({ label, value, color, hint, className = "" }: { label: string; value: React.ReactNode; color?: string; hint?: string; className?: string }) {
   return (
-    <div className="panel">
-      <div className="grid grid-cols-2 sm:grid-cols-5 lg:grid-cols-10 divide-x divide-line/60">
-        {cards.map((c) => (
-          <div key={c.l} className="px-3 py-2.5">
-            <div className="text-[9px] font-bold tracking-widest text-dim">{c.l}</div>
-            <div className="num text-lg font-bold mt-0.5" style={{ color: c.c || "#DCE4EE" }}>{c.v}</div>
-          </div>
-        ))}
-      </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 border-t border-line/60 text-[10px] text-dim">
-        <span className="uppercase tracking-wider font-bold">sources</span>
-        {(sources?.sources || []).map((s: any) => (
-          <span key={s.name} className="flex items-center gap-1" title={s.meta?.note || ""}>
-            <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.status === "ok" ? "#34D399" : s.status === "mock" ? "#FBBF24" : "#F87171" }} />
-            {s.name}{s.status === "mock" && <span className="badge badge-amber !text-[8px]">mock</span>}
-          </span>
-        ))}
-        <span className="ml-auto">{data.updated_at ? `updated ${timeAgo(data.updated_at)}` : ""}</span>
-      </div>
+    <div className={`panel px-4 py-3.5 ${className}`} title={hint}>
+      <div className="text-xs text-dim">{label}</div>
+      <div className="num text-2xl font-semibold mt-1" style={{ color: color || C.ink }}>{value}</div>
     </div>
   );
 }
 
-/* ------------------------------------------------------------ token row */
-export function TokenRow({ t, showGrowth = false }: { t: any; showGrowth?: boolean }) {
+function OverviewStrip() {
+  const { data } = useApi("/market/overview", 30000);
+  const { data: sources } = useApi("/sources", 60000);
+  const [more, setMore] = useState(false);
+  if (!data || !data.tracked) {
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="panel px-4 py-3.5 space-y-2"><div className="skel h-3 w-20" /><div className="skel h-6 w-16" /></div>
+        ))}
+      </div>
+    );
+  }
+  const phaseColor = data.phase === "RISK-ON" ? C.green : data.phase === "RISK-OFF" ? C.red : C.amber;
+  const extra = [
+    { l: "Momentum", v: `${Math.round(data.sector_momentum)}/100` },
+    { l: "Tracked", v: data.tracked },
+    { l: "Avg trend", v: data.avg_trend },
+    { l: "Emerging", v: data.emerging },
+    { l: "Extreme FOMO", v: data.extreme_fomo },
+  ];
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <StatTile label="Market phase" value={data.phase} color={phaseColor} />
+        <StatTile label="24h volume" value={fmtUsd(data.total_volume_24h)} />
+        <StatTile label="Breadth (24h)" value={`${Math.round(data.breadth * 100)}%`} color={data.breadth > 0.5 ? C.green : C.red}
+                  hint="Share of tracked tokens up over 24h" />
+        <StatTile label="High risk" value={data.high_risk} color={data.high_risk ? C.red : undefined} />
+        <StatTile label="Anomalies" value={data.anomalies} color={data.anomalies ? C.amber : undefined} className="col-span-2 md:col-span-1" />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-xs text-dim">
+        {(sources?.sources || []).map((s: any) => (
+          <span key={s.name} className="flex items-center gap-1.5" title={s.meta?.note || ""}>
+            <span className="w-2 h-2 rounded-full" style={{ background: s.status === "ok" ? C.green : s.status === "mock" ? C.amber : C.red }} />
+            {s.name}{s.status === "mock" && <Badge kind="amber">mock</Badge>}
+          </span>
+        ))}
+        <button className="inline-flex items-center gap-1 hover:text-ink" onClick={() => setMore(!more)}>
+          {more ? "Fewer stats" : "More stats"} <ChevronDown size={13} className={more ? "rotate-180" : ""} />
+        </button>
+        {data.updated_at && <span className="ml-auto">Updated {timeAgo(data.updated_at)}</span>}
+      </div>
+      {more && (
+        <div className="panel flex flex-wrap gap-x-8 gap-y-2 px-4 py-3">
+          {extra.map((e) => (
+            <div key={e.l}><span className="text-xs text-dim">{e.l}</span> <span className="num text-sm font-semibold ml-1">{e.v}</span></div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------ token row */
+function topBadges(t: any): { kind: string; label: string }[] {
+  const b: { kind: string; label: string }[] = [];
+  if (t.risk >= 70) b.push({ kind: "red", label: "High risk" });
+  if (t.regime === "distribution") b.push({ kind: "red", label: "Distribution" });
+  if (typeof t.organic === "number" && t.organic < 40) b.push({ kind: "amber", label: "Manufactured?" });
+  if ((t.anomalies || []).length > 0) b.push({ kind: "amber", label: "Anomaly" });
+  if (t.conflicts > 0) b.push({ kind: "amber", label: "Conflict" });
+  if (t.emerging) b.push({ kind: "violet", label: "Early" });
+  if (t.fomo >= 81) b.push({ kind: "red", label: "Extreme FOMO" });
+  if (t.trend >= 65) b.push({ kind: "cyan", label: "Trending" });
+  return b;
+}
+
+function Signals({ t }: { t: any }) {
+  const b = topBadges(t);
+  if (!b.length) return <span className="text-dim">—</span>;
+  return (
+    <div className="flex gap-1 items-center justify-end">
+      <Badge kind={b[0].kind}>{b[0].label}</Badge>
+      {b.length > 1 && <span className="text-2xs text-dim" title={b.slice(1).map((x) => x.label).join(", ")}>+{b.length - 1}</span>}
+    </div>
+  );
+}
+
+function TokenCell({ t }: { t: any }) {
+  return (
+    <Link href={`/token/${t.address}`} className="flex items-center gap-3 min-w-0">
+      <TokenAvatar url={t.image_url} symbol={t.symbol} size={30} />
+      <div className="min-w-0">
+        <div className="font-semibold text-sm text-ink leading-tight">{t.symbol}</div>
+        <div className="text-xs text-dim truncate max-w-[160px]">
+          <span className="capitalize">{t.chain}</span> · {ageLabel(t.age_hours)}
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+export function TokenRow({ t }: { t: any }) {
   return (
     <tr>
-      <td className="!text-left">
-        <Link href={`/token/${t.address}`} className="flex items-center gap-2 min-w-0">
-          <TokenAvatar url={t.image_url} symbol={t.symbol} />
-          <div className="min-w-0">
-            <div className="font-bold text-[13px] text-ink leading-tight">${t.symbol}</div>
-            <div className="text-[10px] text-dim truncate max-w-[140px]">{t.name}</div>
-          </div>
-        </Link>
-      </td>
-      <td className="opacity-60" title="Simulated inputs (social + holders) — not a real signal yet"><TrendPill value={t.trend} /></td>
-      <td className="opacity-60" title="Simulated inputs (social + holders) — not a real signal yet"><FomoPill value={t.fomo} cls={t.fomo_class} /></td>
-      <td><RiskPill value={t.risk} cls={t.risk_class} /></td>
+      <td><TokenCell t={t} /></td>
       <td>
-        <div className="num text-[12px]">{fmtPrice(t.price)}</div>
-        <div className={`num text-[10px] ${pctColor(t.price_change_h1)}`}>{fmtPct(t.price_change_h1)} 1h</div>
+        <div className="num">{fmtPrice(t.price)}</div>
+        <div className={`num text-xs ${pctColor(t.price_change_h1)}`}>{fmtPct(t.price_change_h1)}</div>
       </td>
       <td className="num">{fmtUsd(t.volume_1h)}</td>
       <td className="num">{fmtUsd(t.liquidity)}</td>
-      {showGrowth ? (
-        <>
-          <td className={`num opacity-50 ${pctColor(t.social_growth)}`} title="simulated">{fmtPct(t.social_growth)}</td>
-          <td className={`num ${pctColor(t.holder_growth)}`} title="real (Helius), ~24h">{t.holders == null ? "…" : fmtPct(t.holder_growth)}</td>
-        </>
-      ) : (
-        <>
-          <td className="text-[10px] text-dim uppercase">{t.chain}</td>
-          <td className="text-[10px] text-dim">{ageLabel(t.age_hours)}</td>
-        </>
-      )}
-      <td><RowBadges item={t} /></td>
+      <td className={`num ${pctColor(t.holder_growth)}`}>{t.holders == null ? "…" : fmtPct(t.holder_growth)}</td>
+      <td><RiskPill value={t.risk} /></td>
+      <td><TrendPill value={t.trend} /></td>
+      <td><Signals t={t} /></td>
     </tr>
   );
 }
 
-const HEADERS_GROWTH = ["TOKEN", "TREND (sim)", "FOMO (sim)", "RISK", "PRICE", "VOL 1H", "LIQ", "SOC G (sim)", "HOLD G 24H", "SIGNALS"];
-const HEADERS_BASIC = ["TOKEN", "TREND (sim)", "FOMO (sim)", "RISK", "PRICE", "VOL 1H", "LIQ", "CHAIN", "AGE", "SIGNALS"];
+function TokenCard({ t }: { t: any }) {
+  return (
+    <Link href={`/token/${t.address}`} className="flex items-center gap-3 px-4 py-3 border-b border-line/60 hover:bg-panel2">
+      <TokenAvatar url={t.image_url} symbol={t.symbol} size={34} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-sm">{t.symbol}</span>
+          {topBadges(t).slice(0, 1).map((x) => <Badge key={x.label} kind={x.kind}>{x.label}</Badge>)}
+        </div>
+        <div className="text-xs text-dim num">Vol {fmtUsd(t.volume_1h)} · Liq {fmtUsd(t.liquidity)}</div>
+      </div>
+      <div className="text-right">
+        <div className="num text-sm">{fmtPrice(t.price)}</div>
+        <div className={`num text-xs ${pctColor(t.price_change_h1)}`}>{fmtPct(t.price_change_h1)}</div>
+      </div>
+      <div className="w-10 text-right"><RiskPill value={t.risk} /></div>
+    </Link>
+  );
+}
 
-/* -------------------------------------------------------- trending table */
+const SORTS: [string, string][] = [
+  ["trend", "Trend score (sim)"], ["volume", "Volume 1h"], ["price_change", "Price 1h"], ["liquidity", "Liquidity"],
+  ["holder_growth", "Holder growth"], ["risk", "Risk"], ["age", "Newest"], ["fomo", "FOMO (sim)"], ["social_growth", "Social growth (sim)"],
+];
+
+/* ------------------------------------------------ trending table */
 function TrendingTable() {
   const [chain, setChain] = useState("");
-  const [sort, setSort] = useState("trend");
+  const [sort, setSort] = useState("volume");
   const [minLiq, setMinLiq] = useState("0");
   const [maxRisk, setMaxRisk] = useState("100");
   const qs = `/tokens/trending?sort=${sort}&limit=40${chain ? `&chain=${chain}` : ""}&min_liquidity=${minLiq}&max_risk=${maxRisk}`;
@@ -99,173 +166,175 @@ function TrendingTable() {
   const items = data?.items || [];
   return (
     <Panel
-      title={<span>🔥 Trending now <span className="text-dim normal-case font-normal">(highest current Trend Scores)</span></span>}
-      right={<span className="text-[10px] text-dim">{data?.count ?? 0} tracked</span>}
+      title={<span className="flex items-center gap-2"><Flame size={16} className="text-amberx" /> Trending tokens</span>}
+      right={<span className="text-xs text-dim">{data?.count ?? 0} tracked</span>}
     >
-      <div className="px-3 py-1.5 text-[10px] text-amber-300/90 border-b border-line/60">
-        Real: price, volume, liquidity, trade counts (DexScreener); holders and on-chain risk (Helius).
-        Marked “sim”: social, FOMO and Trend — still simulated, do not trade on them.
-      </div>
-      <div className="flex flex-wrap gap-2 px-3 py-2 border-b border-line/60">
-        <select className="sel !py-1 !text-[11px]" value={chain} onChange={(e) => setChain(e.target.value)}>
-          <option value="">all chains</option>
-          {["solana", "ethereum", "base", "bnb"].map((c) => <option key={c} value={c}>{c}</option>)}
+      <div className="flex flex-wrap gap-2 px-4 py-3 border-b border-line/60">
+        <select className="sel" value={sort} onChange={(e) => setSort(e.target.value)}>
+          {SORTS.map(([v, l]) => <option key={v} value={v}>Sort: {l}</option>)}
         </select>
-        <select className="sel !py-1 !text-[11px]" value={sort} onChange={(e) => setSort(e.target.value)}>
-          {[["trend", "Trend Score (sim)"], ["fomo", "FOMO (sim)"], ["volume", "Volume 1h"], ["social_growth", "Social growth (sim)"],
-            ["holder_growth", "Holder growth"], ["liquidity", "Liquidity"], ["risk", "Risk ↑"], ["price_change", "Price 1h"],
-            ["age", "Newest"]].map(([v, l]) => <option key={v} value={v}>sort: {l}</option>)}
+        <select className="sel" value={chain} onChange={(e) => setChain(e.target.value)}>
+          <option value="">All chains</option>
+          {["solana", "ethereum", "base", "bnb"].map((c) => <option key={c} value={c}>{c[0].toUpperCase() + c.slice(1)}</option>)}
         </select>
-        <select className="sel !py-1 !text-[11px]" value={minLiq} onChange={(e) => setMinLiq(e.target.value)}>
-          {[["0", "any liq"], ["5000", "liq ≥$5K"], ["25000", "liq ≥$25K"], ["100000", "liq ≥$100K"]].map(([v, l]) =>
+        <select className="sel" value={minLiq} onChange={(e) => setMinLiq(e.target.value)}>
+          {[["0", "Any liquidity"], ["5000", "Liq ≥ $5K"], ["25000", "Liq ≥ $25K"], ["100000", "Liq ≥ $100K"]].map(([v, l]) =>
             <option key={v} value={v}>{l}</option>)}
         </select>
-        <select className="sel !py-1 !text-[11px]" value={maxRisk} onChange={(e) => setMaxRisk(e.target.value)}>
-          {[["100", "any risk"], ["69", "risk < high"], ["49", "risk < elevated"], ["29", "low risk only"]].map(([v, l]) =>
+        <select className="sel" value={maxRisk} onChange={(e) => setMaxRisk(e.target.value)}>
+          {[["100", "Any risk"], ["69", "Below high risk"], ["49", "Below elevated"], ["29", "Low risk only"]].map(([v, l]) =>
             <option key={v} value={v}>{l}</option>)}
         </select>
       </div>
-      <div className="overflow-x-auto">
-        {loading && !items.length ? <Empty text="Loading…" /> : !items.length ? <Empty text="No tokens match the filters." /> : (
-          <table className="tbl">
-            <thead><tr>{HEADERS_GROWTH.map((h) => <th key={h}>{h}</th>)}</tr></thead>
-            <tbody>{items.map((t: any) => <TokenRow key={t.address} t={t} showGrowth />)}</tbody>
-          </table>
-        )}
-      </div>
+      {loading && !items.length ? <SkeletonRows rows={8} /> : !items.length ? <Empty text="No tokens match these filters." /> : (
+        <>
+          <div className="hidden md:block overflow-auto max-h-[75vh]">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Token</th><th>Price / 1h</th><th>Vol 1h</th><th>Liquidity</th><th>Holders 24h</th><th>Risk</th>
+                  <th>Trend<SimTag /></th><th>Signals</th>
+                </tr>
+              </thead>
+              <tbody>{items.map((t: any) => <TokenRow key={t.address} t={t} />)}</tbody>
+            </table>
+          </div>
+          <div className="md:hidden">{items.map((t: any) => <TokenCard key={t.address} t={t} />)}</div>
+        </>
+      )}
     </Panel>
   );
 }
 
-/* ------------------------------------------------------------ emerging */
-function EmergingList() {
-  const { data } = useApi("/tokens/emerging", 25000);
+/* ------------------------------------------------ side tabs: emerging / narratives / momentum */
+function EmergingBody() {
+  const { data, loading } = useApi("/tokens/emerging", 25000);
   const items = (data?.items || []).slice(0, 8);
-  return (
-    <Panel title={<span>👀 Emerging <span className="text-dim normal-case font-normal">(accelerating before mainstream)</span></span>}>
-      {items.length === 0 ? (
-        <div className="p-4 text-[11px] text-dim leading-relaxed">
-          No early signals right now. Emerging requires unusual acceleration across
-          several independent signals at once — trend, FOMO, social, volume and holders (§10).
-        </div>
-      ) : items.map((t: any) => (
-        <Link key={t.address} href={`/token/${t.address}`}
-              className="flex items-center gap-2.5 px-3.5 py-2.5 border-b border-line/50 hover:bg-panel2">
-          <TokenAvatar url={t.image_url} symbol={t.symbol} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-[12px]">${t.symbol}</span>
-              <Badge kind="violet">early</Badge>
-            </div>
-            <div className="text-[10px] text-dim truncate">{(t.narratives || []).slice(0, 2).join(" · ")}</div>
-          </div>
-          <div className="text-right text-[11px] num space-y-0.5">
-            <div><span className="text-dim">soc</span> <span className="text-greenx">{fmtPct(t.social_growth)}</span></div>
-            <div><span className="text-dim">vol</span> <span className="text-cyanx">{fmtUsd(t.volume_1h)}</span></div>
-          </div>
-          <TrendPill value={t.trend} />
-        </Link>
-      ))}
-    </Panel>
+  if (loading && !data) return <SkeletonRows rows={4} />;
+  if (!items.length) return (
+    <div className="p-4 text-sm text-dim leading-relaxed">
+      No early signals right now. A token shows up here when several independent signals accelerate at once.
+    </div>
   );
+  return <>{items.map((t: any) => (
+    <Link key={t.address} href={`/token/${t.address}`} className="flex items-center gap-3 px-4 py-3 border-b border-line/50 hover:bg-panel2">
+      <TokenAvatar url={t.image_url} symbol={t.symbol} size={28} />
+      <div className="flex-1 min-w-0">
+        <div className="font-semibold text-sm">{t.symbol}</div>
+        <div className="text-xs text-dim truncate">{(t.narratives || []).slice(0, 2).join(" · ") || "—"}</div>
+      </div>
+      <div className="text-right text-xs num">
+        <div className="text-dim">Vol <span className="text-ink">{fmtUsd(t.volume_1h)}</span></div>
+      </div>
+    </Link>
+  ))}</>;
 }
 
-/* ------------------------------------------------------------ narratives */
 export function NarrativeList({ limit = 6 }: { limit?: number }) {
-  const { data } = useApi("/narratives/trending", 30000);
+  const { data, loading } = useApi("/narratives/trending", 30000);
   const items = (data?.items || []).slice(0, limit);
+  if (loading && !data) return <SkeletonRows rows={4} />;
   return (
-    <Panel title={<span>🧠 Narratives <Link href="/narratives" className="text-cyanx normal-case font-normal">view all →</Link></span>}>
+    <>
       {items.length === 0 && <Empty text="No active narratives." />}
       {items.map((n: any) => (
-        <Link key={n.id} href={`/narratives/${n.id}`}
-              className="block px-3.5 py-2.5 border-b border-line/50 hover:bg-panel2">
+        <Link key={n.id} href={`/narratives/${n.id}`} className="block px-4 py-3 border-b border-line/50 hover:bg-panel2">
           <div className="flex items-center justify-between">
-            <span className="font-bold text-[12px] text-ink">{n.name}</span>
-            <span className="num text-[12px] font-bold text-violetx">{Math.round(n.score)}</span>
+            <span className="font-semibold text-sm text-ink">{n.name}</span>
+            <span className="num text-sm font-semibold text-violetx">{Math.round(n.score)}</span>
           </div>
-          <div className="scorebar mt-1.5"><div style={{ width: `${Math.min(100, n.score)}%`, background: "#A78BFA" }} /></div>
-          <div className="flex items-center gap-2 mt-1.5 text-[10px] text-dim flex-wrap">
+          <div className="scorebar mt-2"><div style={{ width: `${Math.min(100, n.score)}%`, background: C.violet }} /></div>
+          <div className="flex items-center gap-3 mt-2 text-xs text-dim">
             <span className={pctColor(n.mentions_growth)}>{fmtPct(n.mentions_growth)}</span>
             <span>{n.token_count} tokens</span>
             {n.strong_candidates > 0 && <span className="text-cyanx">{n.strong_candidates} strong</span>}
-            <Badge kind={n.cross_platform === "HIGH" ? "green" : n.cross_platform === "MEDIUM" ? "amber" : "gray"}>
-              {n.cross_platform} x-platform
-            </Badge>
-            {n.kind === "auto" && <Badge kind="violet">auto-discovered</Badge>}
           </div>
         </Link>
       ))}
-    </Panel>
+      <Link href="/narratives" className="block px-4 py-2.5 text-xs text-cyanx hover:underline">View all narratives →</Link>
+    </>
   );
 }
 
-/* ------------------------------------------------------------ risk feed */
-export function RiskFeed({ limit = 12 }: { limit?: number }) {
-  const { data } = useApi(`/risk/events?limit=${limit}`, 25000);
-  const items = data?.items || [];
-  const sev: Record<string, string> = { high: "badge-red", warn: "badge-amber", info: "badge-cyan" };
-  return (
-    <Panel title={<span>🚨 Risk alerts <span className="text-dim normal-case font-normal">(newly detected conditions)</span></span>}>
-      {items.length === 0 && <Empty text="No risk conditions detected." />}
-      {items.map((e: any, i: number) => (
-        <Link key={i} href={`/token/${e.address}`}
-              className="block px-3.5 py-2.5 border-b border-line/50 hover:bg-panel2">
-          <div className="flex items-center gap-2">
-            <span className={`badge ${sev[e.severity] || "badge-gray"}`}>{e.severity}</span>
-            <span className="text-[12px] font-bold">${e.symbol}</span>
-            <span className="text-[10px] text-dim uppercase tracking-wider">{e.category}</span>
-            <span className="ml-auto text-[10px] text-dim">{timeAgo(e.ts)}</span>
-          </div>
-          <div className="text-[11px] text-dim mt-1 leading-snug">{e.message}</div>
-        </Link>
-      ))}
-    </Panel>
-  );
-}
-
-/* ------------------------------------------------------------- momentum */
-function SectorMomentum() {
+function MomentumBody() {
   const { data } = useApi("/market/overview", 30000);
-  if (!data?.top_narratives) return null;
+  if (!data) return <SkeletonRows rows={2} />;
   return (
-    <Panel title="📈 Market momentum">
-      <div className="p-3.5 space-y-3">
-        <div>
-          <div className="flex justify-between text-[10px] text-dim font-bold tracking-wider mb-1">
-            <span>SECTOR MOMENTUM</span><span>{Math.round(data.sector_momentum)}/100</span>
-          </div>
-          <div className="scorebar"><div style={{ width: `${data.sector_momentum}%`, background: "#22D3EE" }} /></div>
-        </div>
-        <div>
-          <div className="flex justify-between text-[10px] text-dim font-bold tracking-wider mb-1">
-            <span>24H BREADTH</span><span>{Math.round(data.breadth * 100)}% advancing</span>
-          </div>
-          <div className="scorebar"><div style={{ width: `${data.breadth * 100}%`, background: data.breadth > 0.5 ? "#34D399" : "#F87171" }} /></div>
-        </div>
-        <div className="text-[10px] text-dim leading-relaxed border-t border-line/60 pt-2">
-          Context feeds the Market Context component (10 pts) of every Trend Score.
-        </div>
+    <div className="p-4 space-y-4">
+      <div>
+        <div className="flex justify-between text-xs text-dim mb-1.5"><span>Sector momentum</span><span className="num text-ink">{Math.round(data.sector_momentum)}/100</span></div>
+        <div className="scorebar"><div style={{ width: `${data.sector_momentum}%`, background: C.cyan }} /></div>
       </div>
+      <div>
+        <div className="flex justify-between text-xs text-dim mb-1.5"><span>24h breadth</span><span className="num text-ink">{Math.round(data.breadth * 100)}% advancing</span></div>
+        <div className="scorebar"><div style={{ width: `${data.breadth * 100}%`, background: data.breadth > 0.5 ? C.green : C.red }} /></div>
+      </div>
+    </div>
+  );
+}
+
+function MarketTabs() {
+  const [tab, setTab] = useState<"emerging" | "narratives" | "momentum">("emerging");
+  const tabs: [typeof tab, string][] = [["emerging", "Emerging"], ["narratives", "Narratives"], ["momentum", "Momentum"]];
+  return (
+    <div className="panel overflow-hidden">
+      <div className="tabs">
+        {tabs.map(([k, l]) => (
+          <button key={k} className={`tab ${tab === k ? "tab-active" : ""}`} onClick={() => setTab(k)}>{l}</button>
+        ))}
+      </div>
+      <div className="max-h-[420px] overflow-y-auto">
+        {tab === "emerging" ? <EmergingBody /> : tab === "narratives" ? <NarrativeList /> : <MomentumBody />}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------ risk feed */
+export function RiskFeed({ limit = 8 }: { limit?: number }) {
+  const { data, loading } = useApi(`/risk/events?limit=${limit}`, 25000);
+  const items = data?.items || [];
+  const sev: Record<string, string> = { high: "red", warn: "amber", info: "cyan" };
+  return (
+    <Panel title="Risk alerts" right={<span className="text-xs text-dim">newly detected</span>}>
+      {loading && !data ? <SkeletonRows rows={4} /> : items.length === 0 ? <Empty text="No risk conditions detected." /> : (
+        <div className="max-h-[420px] overflow-y-auto">
+          {items.map((e: any, i: number) => (
+            <Link key={i} href={`/token/${e.address}`} className="block px-4 py-3 border-b border-line/50 hover:bg-panel2">
+              <div className="flex items-center gap-2">
+                <Badge kind={sev[e.severity] || "gray"}>{e.severity}</Badge>
+                <span className="text-sm font-semibold">{e.symbol}</span>
+                <span className="text-xs text-dim capitalize">{e.category}</span>
+                <span className="ml-auto text-xs text-dim">{timeAgo(e.ts)}</span>
+              </div>
+              <div className="text-sm text-dim mt-1 leading-snug">{e.message}</div>
+            </Link>
+          ))}
+        </div>
+      )}
     </Panel>
   );
 }
 
 export default function Dashboard() {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        <p className="text-sm text-dim mt-1">Live memecoin momentum, liquidity and risk across chains.</p>
+      </div>
       <OverviewStrip />
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
         <div className="xl:col-span-2"><TrendingTable /></div>
-        <div className="space-y-4">
-          <IntelFeed compact={10} />
-          <EmergingList />
-          <NarrativeList />
-          <SectorMomentum />
+        <div className="space-y-6">
           <RiskFeed />
+          <MarketTabs />
         </div>
       </div>
-      <DistributionWatch />
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+        <IntelFeed compact={8} />
+        <DistributionWatch />
+      </div>
     </div>
   );
 }
@@ -277,19 +346,19 @@ function DistributionWatch() {
   const items = data?.items || [];
   if (!items.length) return null;
   return (
-    <Panel title={<span>🔴 Distribution watch <span className="text-dim normal-case font-normal">highest sell-pressure flow among liquid tokens — investigate, not condemn</span></span>}>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-6 gap-y-1 p-3">
+    <Panel title="Distribution watch" right={<span className="text-xs text-dim" title="Highest sell-pressure flow among liquid tokens — investigate, not condemn">high sell pressure</span>}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 p-3">
         {items.map((t: any) => (
           <Link key={t.address} href={`/token/${t.address}`}
                 className="flex items-center gap-2.5 py-2 border-b border-line/40 last:border-0 hover:bg-bg/40 px-2 rounded">
             <TokenAvatar url={t.image_url} symbol={t.symbol} size={26} />
             <div className="flex-1 min-w-0">
-              <div className="text-[11.5px] font-bold truncate">${t.symbol} <span className="text-dim font-normal text-[9.5px]">{t.name}</span></div>
-              <div className="text-[9px] text-dim num">sellp {Math.round(t.sellp)}/100 ({t.sellp_band?.replace("_", " ")}) · whale {t.whale_class}</div>
+              <div className="text-sm font-semibold truncate">{t.symbol} <span className="text-dim font-normal text-xs">{t.name}</span></div>
+              <div className="text-2xs text-dim num">Sell pressure {Math.round(t.sellp)}/100 · whale {t.whale_class}</div>
             </div>
             <div className="text-right">
-              <div className={`num text-[11px] font-bold ${(t.price_change_h24 || 0) >= 0 ? "text-greenx" : "text-redx"}`}>{fmtPct(t.price_change_h24)}</div>
-              <div className="text-[9px] text-dim num">liq ${fmtNum(t.liquidity)}</div>
+              <div className={`num text-sm font-semibold ${(t.price_change_h24 || 0) >= 0 ? "text-greenx" : "text-redx"}`}>{fmtPct(t.price_change_h24)}</div>
+              <div className="text-2xs text-dim num">liq ${fmtNum(t.liquidity)}</div>
             </div>
           </Link>
         ))}

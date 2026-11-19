@@ -6,7 +6,7 @@ import { useApi } from "@/lib/api";
 import { SignalQualityPanel } from "@/components/intelfeed";
 import { Badge, Empty, Panel } from "@/components/ui";
 
-const tooltipStyle = { background: "#0C1017", border: "1px solid #1B2331", borderRadius: 8, fontSize: 11 };
+const tooltipStyle = { background: "#121722", border: "1px solid #252D3D", borderRadius: 8, fontSize: 11 };
 
 function CurveChart({ title, data, yLabel }: { title: string; data: any[]; yLabel: string }) {
   const usable = (data || []).filter((d) => d.n > 0);
@@ -15,7 +15,7 @@ function CurveChart({ title, data, yLabel }: { title: string; data: any[]; yLabe
   );
   return (
     <div>
-      <div className="text-[11px] font-bold tracking-wider text-dim uppercase mb-2">{title} <span className="normal-case font-normal">({yLabel})</span></div>
+      <div className="text-sm font-bold tracking-wider text-dim uppercase mb-2">{title} <span className="normal-case font-normal">({yLabel})</span></div>
       <div className="h-[210px]">
         <ResponsiveContainer>
           <ComposedChart data={usable}>
@@ -27,14 +27,14 @@ function CurveChart({ title, data, yLabel }: { title: string; data: any[]; yLabe
                    tickFormatter={(v) => `${v}%`} width={46} />
             <Tooltip contentStyle={tooltipStyle}
                      formatter={(v: any, name: any) => [`${v}%`, name]} />
-            <Legend wrapperStyle={{ fontSize: 10 }} />
+            <Legend wrapperStyle={{ fontSize: 10.5 }} />
             <Bar yAxisId="l" dataKey="continuation_rate" name="continued %" fill="#22D3EE" radius={[2, 2, 0, 0]} />
             <Bar yAxisId="l" dataKey="reversal_rate" name="reversal/rug %" fill="#F87171" radius={[2, 2, 0, 0]} />
             <Line yAxisId="r" type="monotone" dataKey="median_fwd_ret" name="median fwd return" stroke="#FBBF24" strokeWidth={1.6} dot />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <div className="text-[9.5px] text-dim mt-1">
+      <div className="text-2xs text-dim mt-1">
         n per bucket: {usable.map((d) => d.n).join(" / ")}
       </div>
     </div>
@@ -67,7 +67,7 @@ export default function BacktestingPage() {
             ))}
           </div>
         </div>
-        <p className="text-[11px] text-dim mt-2 leading-relaxed max-w-4xl">
+        <p className="text-sm text-dim mt-2 leading-relaxed max-w-4xl">
           For every signal snapshot, we look at what actually happened over the next horizon and label the
           outcome (continued / faded / reversal / rug). These are <b>historical relationships, not predictions</b> —
           they exist to tell you how much trust each score band has earned, and they update continuously.
@@ -102,7 +102,7 @@ export default function BacktestingPage() {
                       {r.hit_rate_pct}%
                     </td>
                     <td className="num text-redx/90">{r.adverse_rate_pct}%</td>
-                    <td className="text-[10px] text-dim max-w-[240px] whitespace-normal text-left">
+                    <td className="text-xs text-dim max-w-[240px] whitespace-normal text-left">
                       {r.rule.startsWith("risk") || r.rule.includes("&")
                         ? "adverse outcome rate among flagged tokens"
                         : "share of signals that continued vs faded/reversed"}
@@ -115,7 +115,7 @@ export default function BacktestingPage() {
         </Panel>
         <SignalQualityPanel />
         <Panel title="How to read this page">
-          <div className="p-4 space-y-2 text-[11px] text-ink/80 leading-relaxed">
+          <div className="p-4 space-y-2 text-sm text-ink/80 leading-relaxed">
             <p>· <b>Continuation rate</b> — % of snapshots in that score band that kept momentum (fwd return ≥ +10% without a &gt;30% drawdown).</p>
             <p>· <b>Reversal rate</b> — % that suffered a &gt;45% drawdown or liquidity collapse within the horizon.</p>
             <p>· A signal <b>earns trust only through measured hit-rates</b>. A band with n&lt;10 is anecdote, not evidence.</p>

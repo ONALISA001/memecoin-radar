@@ -10,7 +10,7 @@ export function ScorePill({ value, max = 100, color }: { value: number | null; m
   const v = value ?? 0;
   return (
     <div className="flex items-center gap-1.5 justify-end">
-      <span className="num font-semibold text-[13px]" style={{ color }}>{value === null ? "—" : Math.round(v)}</span>
+      <span className="num font-semibold text-sm" style={{ color }}>{value === null ? "—" : Math.round(v)}</span>
       <div className="scorebar w-9"><div style={{ width: `${Math.min(100, (v / max) * 100)}%`, background: color }} /></div>
     </div>
   );
@@ -26,7 +26,7 @@ export function FomoPill({ value, cls }: { value: number | null; cls?: string })
   return (
     <div className="flex flex-col items-end gap-0.5">
       <ScorePill value={value} color={color} />
-      {cls && v >= 41 && <span className={`badge ${fomoBandClass(cls)}`} style={{ fontSize: 8 }}>{cls}</span>}
+      {cls && v >= 41 && <span className={`badge ${fomoBandClass(cls)}`} >{cls}</span>}
     </div>
   );
 }
@@ -34,10 +34,10 @@ export function FomoPill({ value, cls }: { value: number | null; cls?: string })
 export function RiskPill({ value, cls }: { value: number | null; cls?: string }) {
   return (
     <div className="flex flex-col items-end gap-0.5">
-      <span className={`num font-semibold text-[13px] ${riskTextClass(value ?? 0)}`}>
+      <span className={`num font-semibold text-sm ${riskTextClass(value ?? 0)}`}>
         {value === null ? "—" : Math.round(value)}
       </span>
-      {cls && <span className="text-[9px] uppercase tracking-wider text-dim">{cls}</span>}
+      {cls && <span className="text-2xs text-dim">{cls.toLowerCase()}</span>}
     </div>
   );
 }
@@ -58,7 +58,7 @@ export function Gauge({ value, label, color, sub }: { value: number; label: stri
           <span className="num text-2xl font-bold" style={{ color }}>{Math.round(value)}</span>
         </div>
       </div>
-      <span className="text-[11px] font-bold tracking-wider text-ink uppercase">{label}</span>
+      <span className="text-sm font-bold tracking-wider text-ink uppercase">{label}</span>
       {sub}
     </div>
   );
@@ -97,7 +97,7 @@ export function TokenAvatar({ url, symbol, size = 24 }: { url?: string | null; s
   }
   const hue = ((symbol || "?").charCodeAt(0) * 47) % 360;
   return (
-    <div className="rounded-full shrink-0 flex items-center justify-center font-bold text-[10px]"
+    <div className="rounded-full shrink-0 flex items-center justify-center font-bold text-xs"
          style={{ width: size, height: size, background: `hsl(${hue} 40% 16%)`, color: `hsl(${hue} 90% 65%)` }}>
       {(symbol || "??").slice(0, 2).toUpperCase()}
     </div>
@@ -121,14 +121,42 @@ export function RowBadges({ item }: { item: any }) {
 
 export function LivePulse() {
   return (
-    <span className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider text-greenx">
-      <span className="live-dot" /> LIVE
+    <span className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-greenx bg-greenx/10 border border-greenx/20 rounded-full px-2.5 py-1">
+      <span className="live-dot" /> Live
     </span>
   );
 }
 
 export function Empty({ text }: { text: string }) {
-  return <div className="py-10 text-center text-dim text-xs">{text}</div>;
+  return <div className="py-10 text-center text-dim text-sm">{text}</div>;
+}
+
+/** Placeholder rows shown while data loads (instead of "Loading…" text). */
+export function SkeletonRows({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="p-4 space-y-3">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-3">
+          <div className="skel w-7 h-7 !rounded-full" />
+          <div className="flex-1 space-y-1.5">
+            <div className="skel h-3 w-1/3" />
+            <div className="skel h-2.5 w-1/5" />
+          </div>
+          <div className="skel h-3 w-16" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Small "Simulated" marker for scores that are not yet backed by real data. */
+export function SimTag() {
+  return (
+    <span title="Simulated input — not a real signal yet. Don't trade on it."
+          className="ml-1 align-middle text-2xs font-medium normal-case tracking-normal text-amberx/80 border border-amberx/30 rounded px-1">
+      sim
+    </span>
+  );
 }
 
 export function Panel({ title, right, children, className = "" }: {

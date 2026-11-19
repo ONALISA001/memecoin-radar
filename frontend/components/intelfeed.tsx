@@ -89,8 +89,8 @@ export function EventCard({ e, focus }: { e: any; focus?: boolean }) {
           <span className="text-sm leading-none mt-0.5" title={cat.label}>{cat.icon}</span>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11.5px] font-bold text-ink/90">{e.title}</span>
-              <span className="text-[9px] text-dim num ml-auto shrink-0">{timeAgo(e.ts)}</span>
+              <span className="text-sm font-bold text-ink/90">{e.title}</span>
+              <span className="text-2xs text-dim num ml-auto shrink-0">{timeAgo(e.ts)}</span>
             </div>
             <div className="flex items-center gap-1 flex-wrap mt-1">
               <Chip color="#22D3EE"><a href={`/token/${e.address}`} className="hover:underline font-bold">${e.symbol}</a></Chip>
@@ -110,7 +110,7 @@ export function EventCard({ e, focus }: { e: any; focus?: boolean }) {
         </div>
 
         {/* signal statement */}
-        <p className="text-[11px] text-ink/80 leading-snug mt-1.5">{(e.signal_text || e.detail || "").slice(0, 240)}</p>
+        <p className="text-sm text-ink/80 leading-snug mt-1.5">{(e.signal_text || e.detail || "").slice(0, 240)}</p>
 
         {/* metric chips */}
         {chips.length > 0 && (
@@ -122,7 +122,7 @@ export function EventCard({ e, focus }: { e: any; focus?: boolean }) {
         )}
 
         {/* actions */}
-        <div className="flex items-center gap-3 mt-2 text-[10px]">
+        <div className="flex items-center gap-3 mt-2 text-xs">
           {(e.checklist?.length > 0 || e.why?.length > 0 || e.concern) && (
             <button onClick={() => setOpen(!open)} className="text-cyanx hover:underline font-bold">
               {open ? "Hide why ▾" : "Why detected ▸"}
@@ -145,13 +145,13 @@ export function EventCard({ e, focus }: { e: any; focus?: boolean }) {
           <div className="mt-2 rounded-md bg-line/20 border border-line/50 p-2.5 space-y-2">
             {e.checklist?.length > 0 && (
               <div>
-                <div className="text-[9px] font-bold tracking-wider text-dim mb-1">SUPPORTING CHECKS</div>
+                <div className="text-2xs font-bold tracking-wider text-dim mb-1">SUPPORTING CHECKS</div>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
                   {e.checklist.map((c: any, i: number) => (
-                    <div key={i} className="text-[10px] flex gap-1 items-baseline min-w-0">
+                    <div key={i} className="text-xs flex gap-1 items-baseline min-w-0">
                       <span style={{ color: c.passed ? "#34D399" : "#64748B" }}>{c.passed ? "✓" : "✗"}</span>
                       <span className="text-ink/75 truncate">{c.label}</span>
-                      <span className="text-dim num text-[9px] truncate ml-auto">{c.value}</span>
+                      <span className="text-dim num text-2xs truncate ml-auto">{c.value}</span>
                     </div>
                   ))}
                 </div>
@@ -159,20 +159,20 @@ export function EventCard({ e, focus }: { e: any; focus?: boolean }) {
             )}
             {e.why?.length > 0 && (
               <div>
-                <div className="text-[9px] font-bold tracking-wider text-dim mb-1">WHY</div>
+                <div className="text-2xs font-bold tracking-wider text-dim mb-1">WHY</div>
                 <ul className="space-y-0.5">
                   {e.why.map((w: string, i: number) => (
-                    <li key={i} className="text-[10px] text-ink/70 leading-snug">• {w}</li>
+                    <li key={i} className="text-xs text-ink/70 leading-snug">• {w}</li>
                   ))}
                 </ul>
               </div>
             )}
             {e.concern && (
-              <div className="text-[10px] text-amberx/90 italic border-t border-line/40 pt-1.5">
+              <div className="text-xs text-amberx/90 italic border-t border-line/40 pt-1.5">
                 ⚠ Possible contradiction: {e.concern}
               </div>
             )}
-            <div className="text-[8.5px] text-dim/80 border-t border-line/40 pt-1">
+            <div className="text-2xs text-dim/80 border-t border-line/40 pt-1">
               Observed & derived metrics; whale flow is inferred from aggregates — analytics, not financial advice.
             </div>
           </div>
@@ -185,14 +185,14 @@ export function EventCard({ e, focus }: { e: any; focus?: boolean }) {
 /* ------------------------------------------------- Market Pulse §22 */
 export function MarketPulse({ window: win, onWindow }: { window: string; onWindow: (w: string) => void }) {
   const { data } = useApi(`/signals/pulse?window=${win}`, 20000);
-  if (!data) return <Panel title={<span>🌐 Market Pulse</span>}><div className="p-4 text-dim text-xs">loading…</div></Panel>;
+  if (!data) return <Panel title={<span>Market Pulse</span>}><div className="p-4 text-dim text-xs">loading…</div></Panel>;
   const imp = data.by_importance || {};
   const total = Math.max(data.total_events || 0, 1);
   const pos = Math.round((data.direction_balance?.positive_share || 0) * 100);
   const dgr = Math.round((data.direction_balance?.danger_share || 0) * 100);
   const cats = Object.entries(data.by_category || {}).sort((a: any, b: any) => b[1] - a[1]).slice(0, 7);
   return (
-    <Panel title={<span>🌐 Market Pulse <span className="text-dim font-normal text-[10px]">— aggregate signal flow, last {win}</span></span>}
+    <Panel title={<span>Market Pulse <span className="panel-sub">— aggregate signal flow, last {win}</span></span>}
            right={
              <div className="flex gap-0.5">
                {["15m", "1h", "4h", "24h"].map((w) => (
@@ -211,32 +211,32 @@ export function MarketPulse({ window: win, onWindow }: { window: string; onWindo
           ].map(([v, l], i) => (
             <div key={i} className="rounded-md bg-line/15 border border-line/40 py-1.5">
               <div className="num text-sm font-bold text-ink">{v}</div>
-              <div className="text-[8.5px] text-dim uppercase tracking-wider">{l}</div>
+              <div className="text-2xs text-dim uppercase tracking-wider">{l}</div>
             </div>
           ))}
         </div>
         {/* importance mix */}
         <div>
-          <div className="text-[9px] font-bold tracking-wider text-dim mb-1">IMPORTANCE MIX</div>
+          <div className="text-2xs font-bold tracking-wider text-dim mb-1">IMPORTANCE MIX</div>
           <div className="h-2 rounded-full overflow-hidden flex bg-line/30">
             {(["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map((k) => (
               <div key={k} style={{ width: `${(imp[k] || 0) / total * 100}%`, background: IMP_STYLE[k].color }}
                    title={`${k}: ${imp[k] || 0}`} />
             ))}
           </div>
-          <div className="flex justify-between text-[8.5px] text-dim mt-0.5">
+          <div className="flex justify-between text-2xs text-dim mt-0.5">
             <span>critical {imp.CRITICAL || 0}</span><span>high {imp.HIGH || 0}</span>
             <span>medium {imp.MEDIUM || 0}</span><span>low {imp.LOW || 0}</span>
           </div>
         </div>
         {/* direction balance */}
         <div>
-          <div className="text-[9px] font-bold tracking-wider text-dim mb-1">BULLISH vs RISK SIGNALS</div>
+          <div className="text-2xs font-bold tracking-wider text-dim mb-1">BULLISH vs RISK SIGNALS</div>
           <div className="h-2 rounded-full overflow-hidden flex bg-line/30">
             <div style={{ width: `${pos}%`, background: "#34D399" }} title={`positive ${pos}%`} />
             <div style={{ width: `${dgr}%`, background: "#F43F5E" }} title={`danger ${dgr}%`} />
           </div>
-          <div className="flex justify-between text-[8.5px] mt-0.5">
+          <div className="flex justify-between text-2xs mt-0.5">
             <span className="text-greenx">{pos}% constructive</span>
             <span className="text-redx">{dgr}% risk/distribution</span>
           </div>
@@ -253,7 +253,7 @@ export function MarketPulse({ window: win, onWindow }: { window: string; onWindo
         )}
         {data.top_tokens?.length > 0 && (
           <div>
-            <div className="text-[9px] font-bold tracking-wider text-dim mb-1">MOST ACTIVE</div>
+            <div className="text-2xs font-bold tracking-wider text-dim mb-1">MOST ACTIVE</div>
             <div className="flex gap-1 flex-wrap">
               {data.top_tokens.map((t: any) => (
                 <span key={t.symbol} className="pill-mini text-ink/80"
@@ -317,7 +317,7 @@ export function FeedFilterBar({ f, setF }: { f: FeedFilters; setF: (g: FeedFilte
         <input className="inp !w-44" placeholder="search symbol / title…" value={f.search}
                onChange={(e) => setF({ ...f, search: e.target.value })} />
         {(f.categories.length > 0 || f.importance || f.momentum || f.age || f.search) && (
-          <button className="text-[10px] text-dim hover:text-ink hover:underline"
+          <button className="text-xs text-dim hover:text-ink hover:underline"
                   onClick={() => setF({ categories: [], importance: "", age: "", momentum: "", sort: f.sort, search: "" })}>
             reset
           </button>
@@ -364,9 +364,9 @@ export function IntelFeed({ address, compact, focusId }: { address?: string; com
     <div className="space-y-3">
       {!address && !compact && <MarketPulse window={win} onWindow={setWin} />}
       {!address && !compact && <FeedFilterBar f={f} setF={setF} />}
-      <Panel title={<span>📡 {address ? "Intelligence timeline" : compact ? "Live intelligence" : "Live Intelligence Feed"}
-        <span className="text-dim font-normal text-[10px]"> — {items.length} events{!compact && data?.filters ? ` · sort: ${f.sort}` : ""}</span></span>}
-           right={compact ? <Link href="/feed" className="text-[10px] text-cyanx hover:underline">open full feed →</Link> : undefined}>
+      <Panel title={<span>{address ? "Intelligence timeline" : compact ? "Live intelligence" : "Live Intelligence Feed"}
+        <span className="panel-sub"> — {items.length} events{!compact && data?.filters ? ` · sort: ${f.sort}` : ""}</span></span>}
+           right={compact ? <Link href="/feed" className="text-xs text-cyanx hover:underline">open full feed →</Link> : undefined}>
         {items.length === 0 && (
           <div className="p-5 text-dim text-xs">
             No events match — the engine only writes when observed signals cross thresholds (never fills silence).
@@ -378,7 +378,7 @@ export function IntelFeed({ address, compact, focusId }: { address?: string; com
           ))}
         </div>
         {items.length > 0 && !focusId && (
-          <div className="px-4 py-2 text-[9px] text-dim border-t border-line/40">
+          <div className="px-4 py-2 text-2xs text-dim border-t border-line/40">
             Signals reflect observed/derived metrics; whale flows are aggregate inferences. Analytics only — not financial advice.
           </div>
         )}
@@ -392,31 +392,31 @@ export function WatchlistIntel({ hours = 24 }: { hours?: number }) {
   const { data } = useApi(`/signals/watchlist?hours=${hours}`, 30000, true);
   const items: any[] = data?.items || [];
   return (
-    <Panel title={<span>🧠 Watchlist Intelligence <span className="text-dim font-normal text-[10px]">— events on your tokens, last {hours}h</span></span>}>
+    <Panel title={<span>Watchlist Intelligence <span className="panel-sub">— events on your tokens, last {hours}h</span></span>}>
       {items.length === 0 && <div className="p-4 text-dim text-xs">Watch tokens to see their event intelligence here.</div>}
       {items.length > 0 && items.every((t) => t.event_count === 0) && (
-        <div className="px-4 pt-3 text-[11px] text-dim">Quiet period — no MEDIUM+ events on watched tokens in {hours}h. Silence is data.</div>
+        <div className="px-4 pt-3 text-sm text-dim">Quiet period — no MEDIUM+ events on watched tokens in {hours}h. Silence is data.</div>
       )}
       <div className="divide-y divide-line/50">
         {items.filter((t) => t.event_count > 0).map((t) => (
           <div key={t.address} className="px-4 py-2.5">
             <div className="flex items-center gap-2 flex-wrap">
-              <a href={`/token/${t.address}`} className="font-bold text-cyanx text-[12px] hover:underline">${t.symbol}</a>
+              <a href={`/token/${t.address}`} className="font-bold text-cyanx text-sm hover:underline">${t.symbol}</a>
               <span className={`pill-mini ${t.danger_count >= 2 ? "!text-redx !border-redx/50" : t.positive_count >= 2 ? "!text-greenx !border-greenx/50" : ""}`}>
                 {t.headline}
               </span>
-              <span className="text-[9px] text-dim ml-auto num">{t.event_count} events · max {t.max_importance}</span>
+              <span className="text-2xs text-dim ml-auto num">{t.event_count} events · max {t.max_importance}</span>
             </div>
             <div className="mt-1.5 space-y-1">
               {t.events.slice(0, 3).map((e: any) => {
                 const imp = IMP_STYLE[e.importance || "LOW"] || IMP_STYLE.LOW;
                 return (
                   <a key={e.id} href={`/token/${t.address}?event=${e.id}`}
-                     className="flex items-center gap-2 text-[10.5px] group">
+                     className="flex items-center gap-2 text-xs group">
                     <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: SEV_BAR[e.severity] || SEV_BAR.info }} />
                     <span className="text-ink/80 truncate group-hover:text-cyanx">{e.title}</span>
                     <span className="pill-mini !py-0.5 shrink-0" style={{ color: imp.color, borderColor: imp.color + "55" }}>{imp.label}</span>
-                    <span className="text-[9px] text-dim num shrink-0">{timeAgo(e.ts)}</span>
+                    <span className="text-2xs text-dim num shrink-0">{timeAgo(e.ts)}</span>
                   </a>
                 );
               })}
@@ -438,7 +438,7 @@ export function SignalQualityPanel() {
     .filter(([_, v]: any) => v?.ret_1h != null)
     .sort((a: any, b: any) => (b[1].ret_1h ?? 0) - (a[1].ret_1h ?? 0));
   return (
-    <Panel title={<span>📏 Signal quality — event engine <span className="text-dim font-normal text-[10px]">(last 24h, §50)</span></span>}>
+    <Panel title={<span>Signal quality — event engine <span className="panel-sub">(last 24h, §50)</span></span>}>
       <div className="p-4 space-y-4">
         <div className="grid grid-cols-4 gap-2 text-center">
           {[
@@ -449,14 +449,14 @@ export function SignalQualityPanel() {
           ].map(([v, l], i) => (
             <div key={i} className="rounded-md bg-line/15 border border-line/40 py-1.5">
               <div className="num text-sm font-bold text-ink">{v}</div>
-              <div className="text-[8.5px] text-dim uppercase tracking-wider">{l}</div>
+              <div className="text-2xs text-dim uppercase tracking-wider">{l}</div>
             </div>
           ))}
         </div>
         {cats.length > 0 && (
           <div>
-            <div className="text-[9px] font-bold tracking-wider text-dim mb-1">EVENTS BY CATEGORY · AVG CONFIDENCE</div>
-            <table className="w-full text-[10.5px]">
+            <div className="text-2xs font-bold tracking-wider text-dim mb-1">EVENTS BY CATEGORY · AVG CONFIDENCE</div>
+            <table className="w-full text-xs">
               <tbody>
                 {cats.map(([c, n]: any) => (
                   <tr key={c} className="border-b border-line/30 last:border-0">
@@ -473,9 +473,9 @@ export function SignalQualityPanel() {
         )}
         {data.outcome_stats_by_horizon?.length > 0 && (
           <div>
-            <div className="text-[9px] font-bold tracking-wider text-dim mb-1">OUTCOME LABELING BY HORIZON (§49)</div>
-            <table className="w-full text-[10.5px]">
-              <thead><tr className="text-dim text-[9px]">
+            <div className="text-2xs font-bold tracking-wider text-dim mb-1">OUTCOME LABELING BY HORIZON (§49)</div>
+            <table className="w-full text-xs">
+              <thead><tr className="text-dim text-2xs">
                 <th className="text-left">horizon</th><th className="text-right">labeled</th>
                 <th className="text-right">avg fwd ret</th><th className="text-right">avg max dd</th>
               </tr></thead>
@@ -492,17 +492,17 @@ export function SignalQualityPanel() {
                 ))}
               </tbody>
             </table>
-            <div className="text-[9px] text-dim mt-1">
+            <div className="text-2xs text-dim mt-1">
               pending first-horizon labels: {data.labeling?.pending_min_horizon ?? 0} · horizons are +15m/+1h/+4h/+24h
             </div>
           </div>
         )}
         {rets.length > 0 && (
           <div>
-            <div className="text-[9px] font-bold tracking-wider text-dim mb-1">AVG +1H RETURN AFTER EVENT, BY CATEGORY</div>
+            <div className="text-2xs font-bold tracking-wider text-dim mb-1">AVG +1H RETURN AFTER EVENT, BY CATEGORY</div>
             <div className="space-y-1">
               {rets.map(([c, v]: any) => (
-                <div key={c} className="flex items-center gap-2 text-[10.5px]">
+                <div key={c} className="flex items-center gap-2 text-xs">
                   <span className="w-24 truncate">{(CAT_META[c] || {}).icon} {c}</span>
                   <div className="flex-1 h-1.5 rounded bg-line/30 overflow-hidden">
                     <div style={{
@@ -519,7 +519,7 @@ export function SignalQualityPanel() {
             </div>
           </div>
         )}
-        <p className="text-[9px] text-dim leading-snug border-t border-line/40 pt-2">
+        <p className="text-2xs text-dim leading-snug border-t border-line/40 pt-2">
           Dedupe health measures same-(token,kind) refires inside cooldown windows (§43 target ~0%).
           Forward returns are descriptive statistics over detected events — a validation loop, not a promise.
         </p>

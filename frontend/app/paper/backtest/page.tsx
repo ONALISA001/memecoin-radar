@@ -27,11 +27,11 @@ function ResultView({ r }: { r: BTResult }) {
         <StatTile label="Profit Factor" value={s.profit_factor ?? "—"} />
         <StatTile label="Max Drawdown" value={`${s.max_drawdown_pct}%`} cls="text-amberx" />
       </div>
-      <Panel title="📈 Backtest Equity Curve"><div className="p-3"><EquityCurve points={r.equity_curve || []} base={s.starting_capital} /></div></Panel>
+      <Panel title="Backtest Equity Curve"><div className="p-3"><EquityCurve points={r.equity_curve || []} base={s.starting_capital} /></div></Panel>
       <Panel title="Largest Trades">
         <div className="overflow-x-auto">
-          <table className="w-full text-[10.5px]">
-            <thead><tr className="text-[8.5px] text-dim uppercase tracking-wider border-b border-line/60">
+          <table className="w-full text-xs">
+            <thead><tr className="text-2xs text-dim uppercase tracking-wider border-b border-line/60">
               <th className="text-left py-1.5 pl-3">Token</th><th className="text-left">Signal</th>
               <th className="text-right">Conf</th><th className="text-right">Entry</th><th className="text-right">Exit</th>
               <th className="text-left pl-2">Reason</th><th className="text-right">P&L</th><th className="text-right pr-3">Hold</th>
@@ -40,10 +40,10 @@ function ResultView({ r }: { r: BTResult }) {
               {(r.trades || []).slice(0, 15).map((t: any, i: number) => (
                 <tr key={i} className="border-b border-line/30 last:border-0">
                   <td className="py-1.5 pl-3 font-bold text-cyanx">${t.symbol}</td>
-                  <td className="text-dim text-[9.5px]">{t.kind?.replace(/_/g, " ")}</td>
+                  <td className="text-dim text-2xs">{t.kind?.replace(/_/g, " ")}</td>
                   <td className="num text-right">{Math.round(t.confidence ?? 0)}%</td>
-                  <td className="num text-right text-[9.5px]">{fmtUtc(t.entry_ts).slice(5, -4)}</td>
-                  <td className="num text-right text-[9.5px]">{t.exit_ts ? fmtUtc(t.exit_ts).slice(5, -4) : "—"}</td>
+                  <td className="num text-right text-2xs">{fmtUtc(t.entry_ts).slice(5, -4)}</td>
+                  <td className="num text-right text-2xs">{t.exit_ts ? fmtUtc(t.exit_ts).slice(5, -4) : "—"}</td>
                   <td className="pl-2 text-dim">{t.exit_reason?.replace(/_/g, " ")}</td>
                   <td className={`num text-right font-bold ${pnlCls(t.pnl)}`}>{t.pnl != null ? `${t.pnl >= 0 ? "+" : ""}${usd(t.pnl)} (${t.pnl_pct}%)` : "—"}</td>
                   <td className="num text-right pr-3">{holdStr(t.hold_secs)}</td>
@@ -53,7 +53,7 @@ function ResultView({ r }: { r: BTResult }) {
           </table>
         </div>
       </Panel>
-      <div className="text-[9px] text-dim px-1 leading-relaxed">{s.note}</div>
+      <div className="text-2xs text-dim px-1 leading-relaxed">{s.note}</div>
     </div>
   );
 }
@@ -85,7 +85,7 @@ function ReplayPlayer({ r }: { r: BTResult }) {
   }
   const equityAt = (r.equity_curve || []).filter((e: any) => e.ts <= simTs).pop();
   return (
-    <Panel title={<span>⏯ Historical Replay <span className="text-dim font-normal text-[10px]">— watch the strategy operate (§21)</span></span>}
+    <Panel title={<span>⏯ Historical Replay <span className="panel-sub">— watch the strategy operate (§21)</span></span>}
            right={
              <div className="flex gap-1 items-center">
                <button className="pill-mini" onClick={() => setPlaying(!playing)}>{playing ? "⏸ pause" : "▶ play"}</button>
@@ -97,7 +97,7 @@ function ReplayPlayer({ r }: { r: BTResult }) {
              </div>
            }>
       <div className="p-3 space-y-2">
-        <div className="flex items-center gap-3 text-[10.5px]">
+        <div className="flex items-center gap-3 text-xs">
           <span className="num font-bold text-cyanx">{fmtUtc(simTs)}</span>
           <span className="text-dim">equity <b className={`num ${pnlCls((equityAt?.equity ?? 10000) - 10000)}`}>{usd(equityAt?.equity ?? 10000)}</b></span>
           <span className="text-dim">cash <b className="num">{usd(cash)}</b></span>
@@ -107,11 +107,11 @@ function ReplayPlayer({ r }: { r: BTResult }) {
                onChange={(e) => setIdx(Number(e.target.value))} className="w-full accent-[#22D3EE]" />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
           <div>
-            <div className="text-[9px] font-bold tracking-wider text-dim mb-1">OPEN POSITIONS NOW</div>
+            <div className="text-2xs font-bold tracking-wider text-dim mb-1">OPEN POSITIONS NOW</div>
             <div className="space-y-1 min-h-[40px]">
-              {Object.values(open).length === 0 && <div className="text-[10px] text-dim">none at this moment</div>}
+              {Object.values(open).length === 0 && <div className="text-xs text-dim">none at this moment</div>}
               {Object.values(open).map((f: any) => (
-                <div key={f.token} className="text-[10px] flex justify-between border border-line/40 rounded px-2 py-1">
+                <div key={f.token} className="text-xs flex justify-between border border-line/40 rounded px-2 py-1">
                   <span className="font-bold text-greenx">${f.token}</span>
                   <span className="text-dim">{f.kind?.replace(/_/g, " ")} · conf {Math.round(f.conf)}</span>
                   <span className="num">{usd(f.size)}</span>
@@ -120,11 +120,11 @@ function ReplayPlayer({ r }: { r: BTResult }) {
             </div>
           </div>
           <div>
-            <div className="text-[9px] font-bold tracking-wider text-dim mb-1">RECENT EVENTS</div>
+            <div className="text-2xs font-bold tracking-wider text-dim mb-1">RECENT EVENTS</div>
             <div className="space-y-1 max-h-36 overflow-y-auto">
               {visible.slice(-8).reverse().map((f, i) => (
-                <div key={i} className="text-[10px] flex gap-2 items-baseline">
-                  <span className="num text-dim text-[9px] w-[92px] shrink-0">{fmtUtc(f.ts).slice(5, -4)}</span>
+                <div key={i} className="text-xs flex gap-2 items-baseline">
+                  <span className="num text-dim text-2xs w-[92px] shrink-0">{fmtUtc(f.ts).slice(5, -4)}</span>
                   <span className={f.type === "BUY" ? "text-greenx font-bold" : "text-redx font-bold"}>{f.type}</span>
                   <span>${f.token}</span>
                   <span className="text-dim truncate">{f.type === "SELL" ? `${f.reason?.replace(/_/g, " ")} · P&L ${f.pnl >= 0 ? "+" : ""}${f.pnl}` : f.kind?.replace(/_/g, " ")}</span>
@@ -167,10 +167,10 @@ export default function BacktestPage() {
   return (
     <div className="space-y-3">
       <SimStrip compact />
-      <Panel title={<span>▶ Strategy Backtester <span className="text-dim font-normal text-[10px]">— runs the same strategy core over recorded signal & price history only (no look-ahead, §20)</span></span>}>
+      <Panel title={<span>▶ Strategy Backtester <span className="panel-sub">— runs the same strategy core over recorded signal & price history only (no look-ahead, §20)</span></span>}>
         <div className="p-3 grid grid-cols-2 md:grid-cols-4 gap-2">
           <div>
-            <label className="text-[9px] font-bold tracking-wider text-dim">HISTORY WINDOW</label>
+            <label className="text-2xs font-bold tracking-wider text-dim">HISTORY WINDOW</label>
             <select className="sel w-full mt-1" value={hours} onChange={(e) => setHours(e.target.value)}>
               {[["24", "last 24h"], ["72", "last 3 days"], ["168", "last 7 days"], ["720", "last 30 days"]].map(([v, l]) => (
                 <option key={v} value={v}>{l}</option>
@@ -178,11 +178,11 @@ export default function BacktestPage() {
             </select>
           </div>
           <div>
-            <label className="text-[9px] font-bold tracking-wider text-dim">INITIAL CAPITAL</label>
+            <label className="text-2xs font-bold tracking-wider text-dim">INITIAL CAPITAL</label>
             <input className="inp w-full mt-1" value={capital} onChange={(e) => setCapital(e.target.value)} />
           </div>
           <div>
-            <label className="text-[9px] font-bold tracking-wider text-dim">MODE</label>
+            <label className="text-2xs font-bold tracking-wider text-dim">MODE</label>
             <select className="sel w-full mt-1" value={mode} onChange={(e) => setMode(e.target.value as any)}>
               <option value="backtest">Backtest</option>
               <option value="replay">Backtest + Replay frames</option>
@@ -198,14 +198,14 @@ export default function BacktestPage() {
         <div className="px-3 pb-3 grid grid-cols-2 md:grid-cols-6 gap-2">
           {PARAM_FIELDS.map(([k, l, dflt]) => (
             <div key={k}>
-              <label className="text-[8.5px] text-dim">{l}</label>
+              <label className="text-2xs text-dim">{l}</label>
               <input className="inp w-full mt-0.5" placeholder={dflt}
                      value={params[k] ?? ""} onChange={(e) => setParams({ ...params, [k]: e.target.value })} />
             </div>
           ))}
         </div>
-        {err && <div className="px-3 pb-2 text-[10px] text-redx">{err}</div>}
-        <div className="px-3 pb-3 text-[9px] text-dim">
+        {err && <div className="px-3 pb-2 text-xs text-redx">{err}</div>}
+        <div className="px-3 pb-3 text-2xs text-dim">
           Note: backtesting is bounded by recorded history — the intel event feed exists since the v3 engine shipped;
           window data before that is marked as data gaps, never filled with fabricated signals (§34).
         </div>
