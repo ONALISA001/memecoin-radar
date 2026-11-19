@@ -27,7 +27,8 @@ def build_analysis(ctx: TokenContext, trend_payload: dict, fomo_payload: dict,
         f"Trading volume (1h): ${d['volume_1h']:,.0f} vs ${d['volume_prev_1h']:,.0f} prior hour "
         f"({d['volume_g_1h']:+.0f}%); buy share {d['buy_share_1h']:.0%}.",
         f"Holders: {d['holders_now']:.0f} ({d['holders_g_1h']:+.1f}% 1h, {d['holders_g_24h']:+.1f}% 24h) "
-        f"(source: {ctx.sources['onchain']}, simulated).",
+        f"(source: {ctx.sources['onchain']}"
+        f"{'' if ctx.sources['onchain'] == 'helius+geckoterminal' else ', simulated'}).",
     ]
     conc = next((c for c in risk_payload.get("components", [])
                  if c.get("label") == "Holder concentration"), None)

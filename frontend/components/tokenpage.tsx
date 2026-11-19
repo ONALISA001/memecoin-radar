@@ -296,8 +296,12 @@ function WhalesPanel({ address }: { address: string }) {
   const { data } = useApi(`/tokens/${address}/holders`, 30000);
   const whales = data?.whales || [];
   return (
-    <Panel title={<span>🐋 Whale activity <span className="badge badge-amber !text-[8px] ml-1">simulated</span></span>}>
-      {whales.length === 0 && <Empty text="No large transfers recently." />}
+    <Panel title={<span>🐋 Whale activity {data?.mock
+      ? <span className="badge badge-amber !text-[8px] ml-1">simulated</span>
+      : <span className="badge badge-green !text-[8px] ml-1">real · top-10 wallets</span>}</span>}>
+      {whales.length === 0 && <Empty text={data?.mock === false
+        ? "Individual whale trades aren't tracked yet. Changes in the top-10 real wallets' share (Helius) feed the whale-flow score."
+        : "No large transfers recently."} />}
       {whales.slice(0, 12).map((w: any, i: number) => (
         <div key={i} className="flex items-center gap-2 px-3.5 py-2 border-b border-line/50 text-[11px]">
           <span className={w.side === "buy" ? "text-greenx" : "text-redx"}>{w.side === "buy" ? "▲" : "▼"}</span>

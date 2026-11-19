@@ -660,7 +660,9 @@ def token_holders(address: str, db: Session = Depends(get_db)):
             "holders_mock": False,
             "whales": [{"ts": w.ts, "wallet": w.wallet, "side": w.side,
                         "amount_usd": w.amount_usd, "kind": w.kind} for w in whales],
-            "source": "mock:chain-sim", "mock": True}
+            # whale trade list is only simulated (demo universe); real tokens get none
+            "source": "mock:chain-sim" if token.address.startswith("Mock") else "helius",
+            "mock": token.address.startswith("Mock")}
 
 
 @router.get("/tokens/{address}/onchain-risk")

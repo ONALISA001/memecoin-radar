@@ -79,12 +79,19 @@ class TokenContext:
         for r in _rows(db, LiquiditySnapshot, token.id, since):
             ctx.liquidity[r.ts] = r.liquidity_usd or 0.0
         for r in _rows(db, HolderSnapshot, token.id, since):
-            ctx.holders[r.ts] = r.holders or 0.0
-            ctx.top10[r.ts] = r.top10_pct or 0.0
-            ctx.deployer_pct[r.ts] = r.deployer_pct or 0.0
-            ctx.new_wallets[r.ts] = r.new_wallets or 0.0
-            ctx.active_wallets[r.ts] = r.active_wallets or 0.0
-            ctx.whale_net[r.ts] = r.whale_net_usd or 0.0
+            # NULL = not measured (real-data mode): skip it rather than treating it as 0
+            if r.holders is not None:
+                ctx.holders[r.ts] = r.holders
+            if r.top10_pct is not None:
+                ctx.top10[r.ts] = r.top10_pct
+            if r.deployer_pct is not None:
+                ctx.deployer_pct[r.ts] = r.deployer_pct
+            if r.new_wallets is not None:
+                ctx.new_wallets[r.ts] = r.new_wallets
+            if r.active_wallets is not None:
+                ctx.active_wallets[r.ts] = r.active_wallets
+            if r.whale_net_usd is not None:
+                ctx.whale_net[r.ts] = r.whale_net_usd
         for r in _rows(db, SocialSnapshot, token.id, since):
             ctx.mentions[r.ts] = r.mentions or 0.0
             ctx.engagement[r.ts] = r.engagement or 0.0
