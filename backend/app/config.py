@@ -77,6 +77,9 @@ RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "240"))
 
 # Engine thresholds (centralised so they can be tuned/backtested — §34)
 EMERGING_MIN_TREND = 42
+# A 1h-vs-previous-1h comparison needs 2h of recorded data. Real tokens are no
+# longer backfilled with simulated history, so "emerging" waits for this much.
+MIN_HISTORY_HOURS = float(os.getenv("MIN_HISTORY_HOURS", "2"))
 EMERGING_MIN_FOMO = 38
 EMERGING_MIN_SOCIAL_G = 70.0    # % 1h
 EMERGING_MIN_VOLUME_G = 60.0    # % 1h

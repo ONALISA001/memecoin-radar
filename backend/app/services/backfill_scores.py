@@ -6,7 +6,9 @@ needs history NOW. This service replays the scoring engines over the stored
 kind='retro' (UI marks these as training-window estimates).
 
 Retro rows are approximations: narrative assignments and market context use
-current values; social/on-chain data in the backfill window is simulated.
+current values; social/on-chain data in the window is simulated. Steps without
+enough RECORDED history behind them are skipped (real tokens are no longer
+backfilled with simulated market history).
 They exist to bootstrap calibration curves until enough live history exists.
 """
 from __future__ import annotations
@@ -22,7 +24,8 @@ from ..engine import scoring as scoring_engine
 from ..engine.backtest import label_due
 from ..engine.context import TokenContext
 from ..models import Token, TrendScore
-from ..providers.mock_providers import Sim
+from ..config import MIN_HISTORY_HOURS
+from .contract_facts import contract_facts_for
 
 log = logging.getLogger("backfill_scores")
 
@@ -41,10 +44,12 @@ def run_retro_backfill(hours: int = 30, step: int = 1800) -> dict:
         mkt = {"sector_momentum": 50.0, "breadth": 0.5}
         for token in tokens:
             ctx = TokenContext.build(db, token, now, hours=48)
-            sim = Sim.from_state(token.address, token.state_json or {})
-            facts = sim.contract_facts()
+            facts = contract_facts_for(db, token)
+            first_ts = min(ctx.price) if ctx.price else None
             narr_names = []
             for t in range(now - hours * 3600, now - 5 * 3600, step):
+                if first_ts is None or t - first_ts < MIN_HISTORY_HOURS * 3600:
+                    continue      # no recorded history behind this step → don't invent a score
                 ctx.now = t
                 ctx._derive()
                 info = {"best_score": 40.0 if narr_names else 0.0,

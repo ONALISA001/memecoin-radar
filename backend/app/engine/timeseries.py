@@ -17,6 +17,16 @@ def ssum(series: dict[int, float], start: int, end: int) -> float:
     return sum(v for t, v in series.items() if start <= t < end)
 
 
+def has_points(series: dict[int, float], start: int, end: int) -> bool:
+    """True if at least one bucket was recorded in [start, end)."""
+    return any(start <= t < end for t in series)
+
+
+def history_hours(series: dict[int, float], now: int) -> float:
+    """How far back recorded data reaches (hours)."""
+    return max(0.0, (now - min(series)) / 3600) if series else 0.0
+
+
 def value_at_or_before(series: dict[int, float], ts: int, default: float = 0.0) -> float:
     best_t = max((t for t in series if t <= ts), default=None)
     return series[best_t] if best_t is not None else default
@@ -34,6 +44,8 @@ def window_growth(series: dict[int, float], now: int, window_secs: int) -> tuple
     'acceleration vs baseline' measurement from §5."""
     cur = ssum(series, now - window_secs, now)
     prev = ssum(series, now - 2 * window_secs, now - window_secs)
+    if not has_points(series, now - 2 * window_secs, now - window_secs):
+        return cur, prev, 0.0       # no baseline recorded yet → unknown, NOT a spike
     return cur, prev, growth_pct(cur, prev)
 
 
@@ -41,6 +53,8 @@ def level_growth(series: dict[int, float], now: int, window_secs: int) -> tuple[
     """For cumulative levels (holders, price, liquidity): (now, then, growth%)."""
     cur = value_at_or_before(series, now)
     prev = value_at_or_before(series, now - window_secs)
+    if not any(t <= now - window_secs for t in series):
+        return cur, prev, 0.0       # history doesn't reach back that far yet
     return cur, prev, growth_pct(cur, prev)
 
 

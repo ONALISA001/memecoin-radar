@@ -19,7 +19,7 @@ from ..engine.context import TokenContext
 from ..models import (HolderSnapshot, LiquiditySnapshot, Narrative, NewsArticle,
                       PriceSnapshot, RiskEvent, SocialPost, SocialSnapshot, Token,
                       TokenNarrative, TrendScore, VolumeSnapshot, WalletActivity)
-from ..providers.mock_providers import Sim
+from ..services.contract_facts import contract_facts_for
 from ..security import ALLOWED_SORTS, rate_limit, valid_address
 
 router = APIRouter(dependencies=[Depends(rate_limit)])
@@ -532,11 +532,10 @@ def token_detail(address: str, db: Session = Depends(get_db)):
                     .order_by(TrendScore.ts.desc()).limit(1)).scalar_one_or_none()
     if not sc:
         raise HTTPException(404, "no scores yet")
-    sim = Sim.from_state(token.address, token.state_json or {})
     out = card(token, sc)
     out.update({
         "description": token.description, "pair_address": token.pair_address,
-        "contract_facts": sim.contract_facts(),
+        "contract_facts": contract_facts_for(db, token),
         "sources": (sc.components_json or {}).get("sources", {}),
         "archetype": token.archetype,
         "created_ms": token.token_created_at,
@@ -695,7 +694,6 @@ def token_risk_events(address: str, db: Session = Depends(get_db)):
 def _fresh_payloads(db: Session, token: Token):
     now = int(time.time()) - int(time.time()) % 300
     ctx = TokenContext.build(db, token, now)
-    sim = Sim.from_state(token.address, token.state_json or {})
     sc = db.execute(select(TrendScore).where(TrendScore.token_id == token.id)
                     .order_by(TrendScore.ts.desc()).limit(1)).scalar_one_or_none()
     names = []
@@ -709,7 +707,7 @@ def _fresh_payloads(db: Session, token: Token):
             "cross_platform": news_active}
     trend_p = scoring_engine.calculate_trend_score(ctx, info, {"sector_momentum": 50, "breadth": 0.5})
     fomo_p = fomo_engine.calculate_fomo(ctx, news_active)
-    risk_p = risk_engine.calculate_risk(ctx, sim.contract_facts())
+    risk_p = risk_engine.calculate_risk(ctx, contract_facts_for(db, token))
     signals = signals_engine.confirmation(ctx, news_active)
     return ctx, trend_p, fomo_p, risk_p, signals, names, news_active
 

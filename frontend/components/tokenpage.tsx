@@ -392,27 +392,43 @@ export default function TokenPage({ address }: { address: string }) {
           <Suspense fallback={null}><FeedWithFocus address={d.address} /></Suspense>
           {sc && <SignalsPanel sc={sc} />}
           {sc?.forensics && <ForensicsPanel forensics={sc.forensics} />}
-          {d.contract_facts && (
-            <Panel title={<span>Contract &amp; deployer <span className="badge badge-amber !text-[8px] ml-1">simulated</span></span>}>
-              <div className="p-4 space-y-1.5 text-[11.5px]">
-                {([
-                  ["Mint authority", d.contract_facts.mint_authority ? "ENABLED ⚠" : "disabled ✓", d.contract_facts.mint_authority],
-                  ["Freeze authority", d.contract_facts.freeze_authority ? "ENABLED ⚠" : "disabled ✓", d.contract_facts.freeze_authority],
-                  ["LP burned", `${d.contract_facts.lp_burned_pct}%`, d.contract_facts.lp_burned_pct < 30],
-                  ["Deployer prior launches", `${d.contract_facts.deployer_prev_launches}`, d.contract_facts.deployer_prev_launches >= 3],
-                  ["Deployer pattern", d.contract_facts.deployer_suspicious ? "suspicious ⚠" : "no flags ✓", d.contract_facts.deployer_suspicious],
-                ] as [string, string, boolean][]).map(([l, v, bad]) => (
-                  <div key={l} className="flex justify-between">
-                    <span className="text-dim">{l}</span>
-                    <span className={bad ? "text-redx font-semibold" : "text-greenx"}>{v}</span>
+          {d.contract_facts && (() => {
+            const cf = d.contract_facts;
+            const real = cf.source === "helius";
+            const badge = real ? "badge-green" : "badge-amber";
+            const badgeText = real ? "real · helius" : cf.source === "unverified" ? "not verified yet" : "simulated";
+            const flag = (v: boolean | null | undefined, on: string, off: string): [string, boolean] =>
+              v == null ? ["unknown", true] : v ? [on, true] : [off, false];
+            const rows: [string, string, boolean][] = [
+              ["Mint authority", ...flag(cf.mint_authority, "ENABLED ⚠", "renounced ✓")],
+              ["Freeze authority", ...flag(cf.freeze_authority, "ENABLED ⚠", "none ✓")],
+              ["Token program", ...(cf.token_2022 == null ? ["unknown", true] as [string, boolean]
+                : cf.token_2022 ? ["Token-2022 ⚠", true] as [string, boolean] : ["SPL Token ✓", false] as [string, boolean])],
+              ["LP burned", cf.lp_burned_pct == null ? "unavailable" : `${cf.lp_burned_pct}%`,
+                cf.lp_burned_pct != null && cf.lp_burned_pct < 30],
+              ["Deployer prior launches", cf.deployer_prev_launches == null ? "unavailable" : `${cf.deployer_prev_launches}`,
+                cf.deployer_prev_launches != null && cf.deployer_prev_launches >= 3],
+            ];
+            return (
+              <Panel title={<span>Contract &amp; deployer <span className={`badge ${badge} !text-[8px] ml-1`}>{badgeText}</span></span>}>
+                <div className="p-4 space-y-1.5 text-[11.5px]">
+                  {rows.map(([l, v, bad]) => (
+                    <div key={l} className="flex justify-between">
+                      <span className="text-dim">{l}</span>
+                      <span className={v === "unknown" || v === "unavailable" ? "text-dim" : bad ? "text-redx font-semibold" : "text-greenx"}>{v}</span>
+                    </div>
+                  ))}
+                  <div className="text-[9.5px] text-dim pt-2 border-t border-line/60">
+                    {real
+                      ? <>Source: Helius on-chain check{cf.checked_at ? ` · ${new Date(cf.checked_at).toLocaleString()}` : ""}. LP lock and deployer history aren&apos;t checked yet.</>
+                      : cf.source === "unverified"
+                        ? <>No on-chain check yet — the risk score counts this as a partial risk until Helius verifies it.</>
+                        : <>Source: {cf.source} (demo data).</>}
                   </div>
-                ))}
-                <div className="text-[9.5px] text-dim pt-2 border-t border-line/60">
-                  Source: {d.contract_facts.source} — Phase 3 replaces this with real on-chain inspection.
                 </div>
-              </div>
-            </Panel>
-          )}
+              </Panel>
+            );
+          })()}
           <OnchainRiskPanel address={d.address} />
           <WhalesPanel address={d.address} />
           <PostsPanel address={d.address} />

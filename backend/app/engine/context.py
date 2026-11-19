@@ -117,6 +117,7 @@ class TokenContext:
             if self.sentiment else 0.0
         d["lowq_24h"] = (tsx.rolling_stats(list(self.lowq.values()))[0] if self.lowq else 0.5)
         # market
+        d["history_h"] = tsx.history_hours(self.price, now)   # real-data coverage
         d["volume_1h"], d["volume_prev_1h"], d["volume_g_1h"] = tsx.window_growth(self.volume, now, 3600)
         d["volume_15m"], d["volume_prev_15m"], d["volume_g_15m"] = tsx.window_growth(self.volume, now, 900)
         d["volume_24h"], d["volume_prev_24h"], d["volume_g_24h"] = tsx.window_growth(self.volume, now, 86400)
