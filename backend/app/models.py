@@ -336,6 +336,17 @@ class TokenRiskCheck(Base):
     top1_wallet_pct = Column(Float)          # largest REAL wallet % (pools/PDAs/burn excluded)
     top10_wallet_pct = Column(Float)         # top-10 REAL wallets %
     excluded_pct = Column(Float)             # % held by pools / program accounts / burn
+    # Token-2022 extensions: comma list of ACTIVE risky ones. None = not analysed, "" = none risky
+    token_extensions = Column(String(200))
+    transfer_fee_bps = Column(Integer)       # None = no transfer-fee extension
+    transfer_fee_mutable = Column(Boolean)
+    # Exit analyst (Jupiter round-trip quote). sell_route None = not checked / errored
+    exit_sol_in = Column(Float)
+    exit_buy_route = Column(Boolean)
+    exit_sell_route = Column(Boolean)
+    exit_round_trip_loss_pct = Column(Float)
+    exit_route = Column(String(120))
+    exit_error = Column(String(200))
 
 
 class DataSource(Base):

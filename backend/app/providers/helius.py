@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import httpx
 
 from ..config import HELIUS_API_KEY, HELIUS_HOLDER_MAX_PAGES, HELIUS_RPC_URL
+from .jupiter import exit_flags
 
 TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
 
@@ -88,6 +89,78 @@ def wallet_concentration(holdings: list[tuple[str, float]], supply: float):
     return (pct(ranked[0]) if ranked else 0.0, pct(sum(ranked[:10])), pct(excluded))
 
 
+# ---------------------------------------------------------------- Token-2022 extensions
+# Extensions that let someone other than the holder control or tax the holder's
+# tokens. Metadata/group pointers, memo, interest-bearing etc. are harmless here.
+# Severity of each risky extension when it is ACTIVE (authority/program set).
+RISKY_EXTENSIONS = {
+    "permanentDelegate": ("high", "Permanent delegate set: one address can move or burn anyone's tokens."),
+    "transferHook": ("high", "Transfer hook: custom program code runs on every transfer and can block sells."),
+    "nonTransferable": ("high", "Non-transferable token: holders cannot sell or send it."),
+    "defaultAccountState": ("high", "New token accounts start FROZEN: buyers may be unable to sell."),
+    "pausableConfig": ("high", "Pausable: an authority can pause all transfers."),
+    "mintCloseAuthority": ("medium", "Mint close authority set: the mint account can be closed."),
+}
+TRANSFER_FEE_HIGH_BPS = 500     # 5%+ per transfer is a sell tax, not a fee
+
+
+def analyze_extensions(exts: list | None) -> tuple[list[str], int | None, bool]:
+    """Read jsonParsed Token-2022 `info.extensions`.
+
+    Returns (active_risky_names, transfer_fee_bps, fee_mutable):
+      * active_risky_names: RISKY_EXTENSIONS keys that are switched on
+      * transfer_fee_bps: highest of the current/scheduled fee, None = no fee extension
+      * fee_mutable: True if a fee authority can still change the fee
+    """
+    names: list[str] = []
+    fee_bps: int | None = None
+    fee_mutable = False
+    for e in exts or []:
+        if not isinstance(e, dict):
+            continue
+        kind, st = e.get("extension"), e.get("state") or {}
+        if kind == "transferFeeConfig":
+            fees = [int((st.get(k) or {}).get("transferFeeBasisPoints") or 0)
+                    for k in ("olderTransferFee", "newerTransferFee")]
+            fee_bps = max(fees) if fees else 0
+            fee_mutable = bool(st.get("transferFeeConfigAuthority"))
+        elif kind == "permanentDelegate" and st.get("delegate"):
+            names.append(kind)
+        elif kind == "transferHook" and st.get("programId"):
+            names.append(kind)
+        elif kind == "nonTransferable":
+            names.append(kind)
+        elif kind == "defaultAccountState" and str(st.get("accountState", "")).lower() == "frozen":
+            names.append(kind)
+        elif kind == "pausableConfig" and (st.get("authority") or st.get("paused")):
+            names.append(kind)
+        elif kind == "mintCloseAuthority" and st.get("closeAuthority"):
+            names.append(kind)
+    return names, fee_bps, fee_mutable
+
+
+def extension_flags(names: list[str] | None, fee_bps: int | None, fee_mutable: bool) -> list[dict]:
+    flags = []
+    for n in names or []:
+        sev, msg = RISKY_EXTENSIONS.get(n, ("medium", f"Token-2022 extension {n} is active."))
+        flags.append({"id": f"ext_{n}", "severity": sev, "message": msg})
+    if fee_bps:
+        sev = "high" if fee_bps >= TRANSFER_FEE_HIGH_BPS else "medium"
+        flags.append({"id": "ext_transferFee", "severity": sev,
+                      "message": f"Transfer fee of {fee_bps / 100:.2f}% on every transfer (including sells)."})
+    if fee_mutable:
+        flags.append({"id": "ext_transferFee_mutable", "severity": "medium",
+                      "message": "Transfer fee can still be changed by its authority."})
+    return flags
+
+
+def ext_names_from_str(s: str | None) -> list[str] | None:
+    """Stored as comma list; None = not analysed (old check), '' = analysed, none risky."""
+    if s is None:
+        return None
+    return [x for x in s.split(",") if x]
+
+
 @dataclass
 class OnchainRisk:
     ok: bool
@@ -105,6 +178,10 @@ class OnchainRisk:
     top1_wallet_pct: float | None = None   # largest REAL wallet (pools/PDAs/burn excluded)
     top10_wallet_pct: float | None = None  # top-10 REAL wallets
     excluded_pct: float | None = None      # held by pools / program accounts / burn
+    # Token-2022 extensions (None = not analysed; "" = analysed, nothing risky)
+    token_extensions: str | None = None
+    transfer_fee_bps: int | None = None
+    transfer_fee_mutable: bool = False
 
 
 def enabled() -> bool:
@@ -202,7 +279,11 @@ class HeliusProvider:
                  for a in (largest or {}).get("value") or []), reverse=True)
             top1 = (amounts[0] / supply * 100) if supply and amounts else 0.0
             top10 = (sum(amounts[:10]) / supply * 100) if supply and amounts else 0.0
+            is_2022 = value.get("owner") == TOKEN_2022
+            ext_names, fee_bps, fee_mut = analyze_extensions(info.get("extensions")) if is_2022 else ([], None, False)
             return OnchainRisk(
+                token_extensions=",".join(ext_names), transfer_fee_bps=fee_bps,
+                transfer_fee_mutable=fee_mut,
                 ok=True,
                 mint_authority=info.get("mintAuthority") or None,
                 freeze_authority=info.get("freezeAuthority") or None,
@@ -210,7 +291,7 @@ class HeliusProvider:
                 top1_pct=round(min(top1, 100.0), 2),
                 top10_pct=round(min(top10, 100.0), 2),
                 holders_sampled=len(amounts),
-                token_2022=value.get("owner") == TOKEN_2022,
+                token_2022=is_2022,
                 holders_count=holders_count, holders_capped=holders_capped,
                 top1_wallet_pct=w1, top10_wallet_pct=w10, excluded_pct=excl,
             )
@@ -231,8 +312,14 @@ def risk_flags(r) -> list[dict]:
         flags.append({"id": "freeze_authority_active", "severity": "high",
                       "message": "Freeze authority is active: the creator can freeze holder accounts."})
     if getattr(r, "token_2022", False):
-        flags.append({"id": "token_2022", "severity": "medium",
-                      "message": "Token-2022 program: may carry extensions such as transfer fees. Check manually."})
+        names = ext_names_from_str(getattr(r, "token_extensions", None))
+        if names is None:          # check made before extensions were analysed
+            flags.append({"id": "token_2022", "severity": "medium",
+                          "message": "Token-2022 program: may carry extensions such as transfer fees. Check manually."})
+        else:
+            flags.extend(extension_flags(names, getattr(r, "transfer_fee_bps", None),
+                                         bool(getattr(r, "transfer_fee_mutable", False))))
+    flags.extend(exit_flags(r))
     w1, w10 = getattr(r, "top1_wallet_pct", None), getattr(r, "top10_wallet_pct", None)
     if w1 is not None and w10 is not None:          # real-wallet view (pools excluded)
         if w1 >= 20:

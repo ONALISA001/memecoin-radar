@@ -47,7 +47,10 @@ async def run():
     check("top1 >= 50% => high concentration flag", "top1_concentration" in {f["id"] for f in H.risk_flags(r)})
 
     r = await H.HeliusProvider(api_key="K", transport=rpc_transport(owner=H.TOKEN_2022)).check_token("MintD")
-    check("Token-2022 flagged medium", r.token_2022 and H.risk_label(r) == "medium")
+    check("Token-2022 with no risky extensions => low", r.token_2022 and r.token_extensions == ""
+          and H.risk_label(r) == "low")
+    r.token_extensions = None      # a stored check from before extensions were analysed
+    check("un-analysed Token-2022 still flagged medium", H.risk_label(r) == "medium")
 
     r = await H.HeliusProvider(api_key="SECRETKEY123", transport=rpc_transport(status=401)).check_token("MintE")
     check("HTTP error => ok False, key scrubbed", (not r.ok) and "SECRETKEY123" not in r.error, r.error[:60])

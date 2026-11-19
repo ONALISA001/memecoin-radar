@@ -5,7 +5,14 @@ improves a score (§19)."""
 from __future__ import annotations
 
 from ..config import ANOMALY_Z
+from ..providers.helius import RISKY_EXTENSIONS, TRANSFER_FEE_HIGH_BPS
+from ..providers.jupiter import exit_verdict
 from .context import TokenContext
+
+# Risk floor when a single fact can make a token unsellable / rug-able on its own.
+HARD_FAIL_FLOOR = 85.0
+HARD_FAIL_EXTENSIONS = {"permanentDelegate", "nonTransferable", "defaultAccountState",
+                        "pausableConfig", "transferHook"}
 
 # Points charged while mint/freeze authority are still unknown (no Helius check yet).
 CONTRACT_UNVERIFIED_POINTS = 5
@@ -31,6 +38,8 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
     flags: list[str] = []
     events: list[dict] = []
 
+    hard_fails: list[str] = []   # facts that alone make a token un-sellable or rug-able
+
     # ---- liquidity risk /30 ----
     liq = d["liq_now"]
     p_liq = 14 if liq < 5_000 else 10 if liq < 20_000 else 6 if liq < 50_000 else \
@@ -49,7 +58,28 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
         flags.append(f"Insufficient liquidity (${liq:,.0f})")
     if p_ratio:
         flags.append(f"Volume {d['vol_liq_ratio']:.1f}× liquidity — thin market")
-    liq_risk = min(30, p_liq + p_drop + p_ratio)
+    # Exit analyst (Jupiter round trip): a real "can you get out?" measurement.
+    buy_r, sell_r = facts.get("exit_buy_route"), facts.get("exit_sell_route")
+    loss = facts.get("exit_round_trip_loss_pct")
+    verdict = exit_verdict(buy_r, sell_r, loss)
+    p_exit = 0
+    if verdict == "fail" and buy_r and not sell_r:
+        p_exit = 12
+        flags.insert(0, "Can buy but NO sell route on Jupiter (honeypot-like)")
+        hard_fails.append("No sell route")
+        events.append({"category": "liquidity", "severity": "high",
+                       "message": "Jupiter routes a buy but finds no way to sell back (honeypot-like)."})
+    elif verdict == "fail":
+        p_exit = 10
+        flags.insert(0, f"Round trip loses ~{loss:.0f}% — thin pool or hidden sell tax")
+        hard_fails.append(f"Round-trip loss {loss:.0f}%")
+    elif verdict == "warn" and not buy_r:
+        p_exit = 4
+        flags.append("No Jupiter trade route yet")
+    elif verdict == "warn":
+        p_exit = 5
+        flags.append(f"Round trip loses ~{loss:.0f}% on a small trade")
+    liq_risk = min(30, p_liq + p_drop + p_ratio + p_exit)
 
     # ---- holder concentration /25 ----
     # Real: Helius top-10 / largest REAL wallets (pools, curves, lockers, burn excluded).
@@ -103,9 +133,23 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
         flags.append("Freeze authority appears ENABLED — transfers can be frozen")
         events.append({"category": "contract", "severity": "warn",
                        "message": f"Freeze authority reported enabled{tag}."})
-    if facts.get("token_2022"):
+    exts, fee = facts.get("token_extensions"), facts.get("transfer_fee_bps") or 0
+    if facts.get("token_2022") and exts is None:      # not analysed yet
         p_contract += 3
         flags.append("Token-2022 program — may carry transfer fees/extensions")
+    for name in exts or []:
+        sev, msg = RISKY_EXTENSIONS.get(name, ("medium", f"Token-2022 extension {name} active"))
+        p_contract += 8 if sev == "high" else 3
+        flags.append(msg.rstrip("."))
+        if name in HARD_FAIL_EXTENSIONS:
+            hard_fails.append(msg.rstrip("."))
+        events.append({"category": "contract", "severity": "high" if sev == "high" else "warn",
+                       "message": msg})
+    if fee:
+        p_contract += 8 if fee >= TRANSFER_FEE_HIGH_BPS else 3
+        flags.append(f"Transfer fee {fee / 100:.2f}% on every transfer (a sell tax)")
+        if fee >= TRANSFER_FEE_HIGH_BPS:
+            hard_fails.append(f"Transfer fee {fee / 100:.0f}%")
     lp = facts.get("lp_burned_pct")
     if lp is not None and lp < 30:
         flags.append(f"Only ~{lp:.0f}% of LP reported burned/locked")
@@ -186,6 +230,8 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
     social = min(10, p_soc)
 
     score = min(100.0, liq_risk + concentration + contract + deployer + behavior + social)
+    if hard_fails:               # one of these alone is enough to lose everything
+        score = max(score, HARD_FAIL_FLOOR)
     band = classify(score)
     for key, z in (ctx.anomalies or {}).items():
         if abs(z) >= ANOMALY_Z:
@@ -196,10 +242,14 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
         "risk": round(score, 1),
         "classification": band,
         "flags": flags[:8],
+        "hard_fails": hard_fails,
         "events": events,
         "components": [
             {"label": "Liquidity risk", "points": round(liq_risk, 1), "max": 30,
-             "value": f"${liq:,.0f}, {drop:+.1f}% (3h)"},
+             "value": f"${liq:,.0f}, {drop:+.1f}% (3h)" + (
+                 "" if verdict is None else
+                 " · NO SELL ROUTE" if (buy_r and not sell_r) else
+                 " · no route" if not buy_r else f" · round trip -{loss:.1f}%")},
             {"label": "Holder concentration", "points": round(concentration, 1), "max": 25,
              "value": conc_value, "source": conc_src},
             {"label": "Contract permissions", "points": round(contract, 1), "max": 15,

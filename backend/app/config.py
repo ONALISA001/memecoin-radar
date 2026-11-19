@@ -105,6 +105,18 @@ HELIUS_RECHECK_HOURS = float(os.getenv("HELIUS_RECHECK_HOURS", "6"))
 # Count at most this many pages per token (5 => "5,000+" for very large tokens).
 HELIUS_HOLDER_MAX_PAGES = int(os.getenv("HELIUS_HOLDER_MAX_PAGES", "5"))
 
+# Exit analyst (Jupiter round-trip quote: buy EXIT_CHECK_SOL of the token, quote selling
+# it straight back). Two quote calls per checked token, no wallet, no transaction.
+# Without JUPITER_API_KEY the keyless lite endpoint is used. Set JUPITER_QUOTE_URL=""
+# to switch the check off; point it elsewhere if Jupiter moves the endpoint.
+JUPITER_API_KEY = os.getenv("JUPITER_API_KEY", "").strip()
+JUPITER_QUOTE_URL = os.getenv(
+    "JUPITER_QUOTE_URL",
+    "https://api.jup.ag/swap/v1/quote" if JUPITER_API_KEY else "https://lite-api.jup.ag/swap/v1/quote").strip()
+EXIT_CHECK_SOL = float(os.getenv("EXIT_CHECK_SOL", "0.1"))
+# Fresh-launch alerts: allow Token-2022 tokens whose extensions were read and are all harmless
+LAUNCH_ALLOW_CLEAN_TOKEN_2022 = os.getenv("LAUNCH_ALLOW_CLEAN_TOKEN_2022", "1") == "1"
+
 # Security
 DEMO_MODE = os.getenv("DEMO_MODE", "1") == "1"
 JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-insecure-secret-change-me")
