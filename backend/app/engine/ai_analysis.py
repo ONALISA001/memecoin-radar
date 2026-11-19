@@ -37,8 +37,9 @@ def build_analysis(ctx: TokenContext, trend_payload: dict, fomo_payload: dict,
     elif conc:
         observed.append("Holder concentration: not verified on-chain yet.")
     if news_active:
+        real = ctx.sources.get("news") == "rss"
         observed.append("Narrative-related news articles detected in the last 24h "
-                        f"(source: {ctx.sources['news']}, simulated).")
+                        f"(source: {ctx.sources['news']}{'' if real else ', simulated'}).")
 
     # interpretation: rank trend components by share of their max
     ranked = sorted(((k, v["points"] / v["max"]) for k, v in comps.items()),
@@ -63,9 +64,10 @@ def build_analysis(ctx: TokenContext, trend_payload: dict, fomo_payload: dict,
     for flag in risk_payload["flags"][:3]:
         interpretation.append(f"Risk note: {flag}.")
 
+    sim_scope = ("Social data and part of the on-chain data are" if ctx.sources.get("news") == "rss"
+                 else "Social, on-chain and news data are")
     uncertainty = [
-        "Social, on-chain and news data are currently SIMULATED (mock providers) "
-        "and must not be treated as ground truth.",
+        f"{sim_scope} currently SIMULATED (mock providers) and must not be treated as ground truth.",
         "Market history beyond live ticks is partially backfilled from provider "
         "aggregates; treat long-range chart detail as approximate.",
         "Scores are algorithmic estimates; they are not predictions of future price.",

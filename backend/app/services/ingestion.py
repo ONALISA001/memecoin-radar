@@ -19,6 +19,7 @@ from sqlalchemy import delete, func, select
 
 from ..config import (HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
                       MAX_TRACKED_TOKENS, NEW_POOLS_ENABLED, NEW_POOL_MAX_AGE_H,
+                      NEWS_REFRESH_MINUTES, NEWS_RSS_ENABLED,
                       NEW_POOL_MIN_LIQUIDITY_USD, NEW_POOL_MIN_TXNS_H1, NEW_POOL_SLOTS,
                       ANOMALY_Z, BACKFILL_HOURS, DEXSCREENER_ENABLED,
                       SNAPSHOT_BUCKET_SECONDS as BUCKET)
@@ -48,6 +49,8 @@ from .contract_facts import is_mock, latest_contract_facts, unverified_facts
 from .launch_alerts import evaluate_launches, send_launch_alerts
 from ..providers.dexscreener import DexscreenerProvider
 from ..providers.geckoterminal import GeckoTerminalProvider
+from ..providers import news_rss
+from . import news as news_svc
 from ..providers.mock_providers import (FALLBACK_TOKENS, Sim, bucket_of,
                                         generate_articles, generate_posts,
                                         generate_whale_events, live_post, sha_seed)
@@ -323,9 +326,11 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
     per_token_narr = narratives_engine.recompute_narratives(db, tokens_sorted, narr_metrics, now_b, news_flags)
     db.flush()
 
-    # maybe emit news for hot narratives (deterministic cadence per hour)
+    # maybe emit SIMULATED news for hot narratives — only when real RSS news is off
     hour_slot = now_b // 3600
-    for narr in db.execute(select(Narrative).where(Narrative.score >= 50)).scalars().all():
+    sim_narrs = [] if NEWS_RSS_ENABLED else \
+        db.execute(select(Narrative).where(Narrative.score >= 50)).scalars().all()
+    for narr in sim_narrs:
         if sha_seed(f"{narr.name}:{hour_slot}") % 100 < 45:
             recent = db.execute(
                 select(NewsArticle.id).where(NewsArticle.narrative == narr.name,
@@ -616,6 +621,10 @@ async def tick() -> dict:
     raws, ticks, fallback = await discover_tokens()
     now_b = bucket_of(time.time())
     stats: dict = {"tokens": 0}
+    news_articles, news_status = None, None
+    if NEWS_RSS_ENABLED and news_svc.SCHEDULE.due(NEWS_REFRESH_MINUTES):
+        news_articles, news_status = await news_rss.fetch_news()
+        news_svc.SCHEDULE.mark()
     with SessionLocal() as db:
         try:
             # upsert tokens + build sims
@@ -678,7 +687,17 @@ async def tick() -> dict:
                 write_live_bucket(db, token, sim, tk, now_b)
             db.flush()
 
+            news_stats = None
+            if news_articles is not None:            # REAL news, before scoring uses it
+                news_stats = news_svc.store_articles(db, news_articles, int(time.time()))
+                ok = sum(1 for v in news_status.values() if not isinstance(v, str))
+                upsert_source(db, "news-rss", "news", "ok" if ok else "down",
+                              {"note": "real headlines from publisher RSS feeds",
+                               "publishers": news_status, "last_batch": news_stats})
+                db.execute(delete(DataSource).where(DataSource.name == "news-sim"))
             stats = _score_all(db, now_b, None if fallback else ticks)
+            if news_stats:
+                stats["news"] = news_stats
             stats["new_tokens"] = new_count
             prune_old(db, now_b)
 
@@ -690,8 +709,9 @@ async def tick() -> dict:
                           {"note": "MOCK — replace with X API provider in Phase 2"})
             upsert_source(db, "solana-chain-sim", "onchain", "mock",
                           {"note": "MOCK — replace with RPC/indexer in Phase 3"})
-            upsert_source(db, "news-sim", "news", "mock",
-                          {"note": "MOCK — replace with news API in Phase 2"})
+            if not NEWS_RSS_ENABLED:
+                upsert_source(db, "news-sim", "news", "mock",
+                              {"note": "MOCK — set NEWS_RSS_ENABLED=1 for real publisher news"})
             log_line(db, "info", "ingestion",
                      f"tick ok: {stats.get('tokens')} tokens, {new_count} new, "
                      f"{stats.get('emerging')} emerging, {stats.get('alerts_fired')} alerts, "

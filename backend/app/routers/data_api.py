@@ -20,6 +20,7 @@ from ..models import (HolderSnapshot, LiquiditySnapshot, Narrative, NewsArticle,
                       PriceSnapshot, RiskEvent, SocialPost, SocialSnapshot, Token,
                       TokenNarrative, TrendScore, VolumeSnapshot, WalletActivity)
 from ..services.contract_facts import contract_facts_for
+from ..config import NEWS_RSS_ENABLED
 from ..security import ALLOWED_SORTS, rate_limit, valid_address
 
 router = APIRouter(dependencies=[Depends(rate_limit)])
@@ -793,7 +794,26 @@ def narrative_detail(narrative_id: int, db: Session = Depends(get_db)):
             "tokens": members,
             "news": [{"ts": a.ts, "source": a.source, "title": a.title, "url": a.url,
                       "sentiment": a.sentiment} for a in articles],
-            "news_source": "mock:news-sim"}
+            "news_source": "rss" if NEWS_RSS_ENABLED else "mock:news-sim"}
+
+
+@router.get("/news")
+def news_feed(limit: int = Query(40, ge=1, le=100), narrative: str | None = None,
+              symbol: str | None = None, db: Session = Depends(get_db)):
+    """Recent headlines (last 7 days, newest first). narrative= filters by tagged
+    narrative; symbol= keeps headlines that mention that token ($CASHTAG or name)."""
+    q = select(NewsArticle).where(NewsArticle.ts >= int(time.time()) - 7 * 86400)
+    if narrative:
+        q = q.where(NewsArticle.narrative == narrative[:120])
+    rows = db.execute(q.order_by(NewsArticle.ts.desc()).limit(1000 if symbol else limit)).scalars().all()
+    if symbol:
+        sym = symbol.strip().upper()[:32]
+        rows = [r for r in rows if sym in (r.entities_json or [])]
+    rows = rows[:limit]
+    return {"source": "rss" if NEWS_RSS_ENABLED else "mock:news-sim",
+            "items": [{"ts": r.ts, "source": r.source, "title": r.title, "url": r.url,
+                       "narrative": r.narrative, "sentiment": r.sentiment,
+                       "symbols": r.entities_json or []} for r in rows]}
 
 
 # ---------------------------------------------------------------- calibration
