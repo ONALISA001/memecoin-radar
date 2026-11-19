@@ -525,8 +525,11 @@ async def onchain_checks() -> dict:
             if last is None:
                 todo.append((0.0, t.id, t.address)); continue
             age_h = (now - last.checked_at.replace(tzinfo=None)).total_seconds() / 3600
-            # failed checks, and old checks that predate real holder counts, retry hourly
-            wait = HELIUS_RECHECK_HOURS if (last.ok and last.holders_count is not None) else 1.0
+            # failed checks, and old checks that predate real holder counts or real-wallet
+            # concentration, retry hourly
+            complete = (last.ok and last.holders_count is not None
+                        and last.top10_wallet_pct is not None)
+            wait = HELIUS_RECHECK_HOURS if complete else 1.0
             if age_h >= wait:
                 todo.append((-age_h, t.id, t.address))
         todo.sort()
@@ -541,7 +544,8 @@ async def onchain_checks() -> dict:
                 freeze_authority=r.freeze_authority, supply=r.supply, decimals=r.decimals,
                 top1_pct=r.top1_pct, top10_pct=r.top10_pct, holders_sampled=r.holders_sampled,
                 token_2022=r.token_2022, holders_count=r.holders_count,
-                holders_capped=r.holders_capped))
+                holders_capped=r.holders_capped, top1_wallet_pct=r.top1_wallet_pct,
+                top10_wallet_pct=r.top10_wallet_pct, excluded_pct=r.excluded_pct))
             db.commit()
         done += 1 if r.ok else 0
         failed += 0 if r.ok else 1
