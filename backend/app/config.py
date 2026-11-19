@@ -40,7 +40,7 @@ DATABASE_URL = _db
 INGEST_INTERVAL_SECONDS = int(os.getenv("INGEST_INTERVAL_SECONDS", "60"))
 SNAPSHOT_BUCKET_SECONDS = 300            # §33 event/time-series grid
 BACKFILL_HOURS = 48
-MAX_TRACKED_TOKENS = int(os.getenv("MAX_TRACKED_TOKENS", "40"))
+MAX_TRACKED_TOKENS = int(os.getenv("MAX_TRACKED_TOKENS", "60"))
 
 # Universe filter: this is a MEME-COIN radar, so drop stablecoins, wrapped majors
 # and anything already too big / too illiquid to be an early-stage meme coin.
@@ -50,6 +50,24 @@ MIN_LIQUIDITY_USD = float(os.getenv("MIN_LIQUIDITY_USD", "3000"))  # floor (defa
 # Providers
 DEXSCREENER_ENABLED = os.getenv("DEXSCREENER_ENABLED", "1") == "1"
 DEXSCREENER_BASE = "https://api.dexscreener.com"
+
+# Early discovery: freshly created Solana pools from GeckoTerminal (free, keyless).
+# Up to NEW_POOL_SLOTS of MAX_TRACKED_TOKENS are reserved for them; a fresh token
+# stays tracked for NEW_POOL_MAX_AGE_H after its pool was created. The floor keeps
+# out the hundreds of dead launches per hour.
+NEW_POOLS_ENABLED = os.getenv("NEW_POOLS_ENABLED", "1") == "1"
+GECKOTERMINAL_BASE = "https://api.geckoterminal.com/api/v2"
+NEW_POOL_PAGES = int(os.getenv("NEW_POOL_PAGES", "2"))              # 20 pools/page, 1 call each
+NEW_POOL_SLOTS = int(os.getenv("NEW_POOL_SLOTS", "20"))
+NEW_POOL_MAX_AGE_H = float(os.getenv("NEW_POOL_MAX_AGE_H", "6"))
+NEW_POOL_MIN_LIQUIDITY_USD = float(os.getenv("NEW_POOL_MIN_LIQUIDITY_USD", "8000"))
+NEW_POOL_MIN_TXNS_H1 = int(os.getenv("NEW_POOL_MIN_TXNS_H1", "30"))
+
+# Launch alert: one Telegram message when a fresh-pool token's FIRST complete
+# Helius check comes back clean (mint+freeze off, standard SPL, wallets spread).
+LAUNCH_ALERTS_ENABLED = os.getenv("LAUNCH_ALERTS_ENABLED", "1") == "1"
+LAUNCH_MAX_TOP10_WALLET_PCT = float(os.getenv("LAUNCH_MAX_TOP10_WALLET_PCT", "30"))
+LAUNCH_MAX_TOP1_WALLET_PCT = float(os.getenv("LAUNCH_MAX_TOP1_WALLET_PCT", "10"))
 MOCK_SOCIAL_ENABLED = os.getenv("MOCK_SOCIAL_ENABLED", "1") == "1"
 
 # Solana-only research scope (HARD CONSTRAINT for the MVP). Set SOLANA_ONLY=0 to

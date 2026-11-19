@@ -18,6 +18,8 @@ import traceback
 from sqlalchemy import delete, func, select
 
 from ..config import (HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
+                      MAX_TRACKED_TOKENS, NEW_POOLS_ENABLED, NEW_POOL_MAX_AGE_H,
+                      NEW_POOL_MIN_LIQUIDITY_USD, NEW_POOL_MIN_TXNS_H1, NEW_POOL_SLOTS,
                       ANOMALY_Z, BACKFILL_HOURS, DEXSCREENER_ENABLED,
                       SNAPSHOT_BUCKET_SECONDS as BUCKET)
 from ..database import SessionLocal
@@ -43,7 +45,9 @@ from ..providers.base import HEALTH, RawToken
 from ..providers import helius as helius_mod
 from .holders import real_holder_stats
 from .contract_facts import is_mock, latest_contract_facts, unverified_facts
+from .launch_alerts import evaluate_launches, send_launch_alerts
 from ..providers.dexscreener import DexscreenerProvider
+from ..providers.geckoterminal import GeckoTerminalProvider
 from ..providers.mock_providers import (FALLBACK_TOKENS, Sim, bucket_of,
                                         generate_articles, generate_posts,
                                         generate_whale_events, live_post, sha_seed)
@@ -73,18 +77,62 @@ async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
         return _fallback_universe(), _fallback_ticks(), True
     provider = DexscreenerProvider()
     try:
-        raws = await provider.discover()
-        ticks_obj = await provider.fetch_market(raws)
-        ticks = {a: mt.__dict__ for a, mt in ticks_obj.items()}
-        raws = [r for r in raws if r.address in ticks]      # only tokens with live data
+        promo = await provider.discover()                   # boosted / profiled (paid)
+        fresh, gt_ticks = [], {}
+        if NEW_POOLS_ENABLED:
+            pools = await GeckoTerminalProvider().new_pools()
+            fresh = [r for r, _ in pools]
+            gt_ticks = {r.address: mt for r, mt in pools}
+            seen = {r.address for r in fresh}
+            fresh += [r for r in _sticky_new_pool_tokens() if r.address not in seen]
+        fresh_addrs = {r.address for r in fresh}
+        promo = [r for r in promo if r.address not in fresh_addrs]
+        ticks_obj = await provider.fetch_market(promo + fresh)
+        for addr, mt in gt_ticks.items():                   # not on DexScreener yet
+            ticks_obj.setdefault(addr, mt)
+        fresh = select_new_pool_tokens(fresh, ticks_obj)
+        promo = [r for r in promo if r.address in ticks_obj][:max(0, MAX_TRACKED_TOKENS - len(fresh))]
+        raws = fresh + promo
+        ticks = {r.address: ticks_obj[r.address].__dict__ for r in raws}
         if not raws:
             raise RuntimeError("no tokens with data")
-        HEALTH.report("dexscreener", "market", True, f"{len(raws)} tracked")
+        HEALTH.report("dexscreener", "market", True,
+                      f"{len(raws)} tracked ({len(fresh)} fresh pools, {len(promo)} promoted)")
         return raws, ticks, False
     except Exception as exc:
         HEALTH.report("dexscreener", "market", False, str(exc)[:160])
         log_line_db_only("warn", "ingestion", f"DexScreener unavailable, using fallback universe: {exc}")
         return _fallback_universe(), _fallback_ticks(), True
+
+
+def _passes_new_pool_floor(mt) -> bool:
+    return (mt.liquidity_usd >= NEW_POOL_MIN_LIQUIDITY_USD
+            and mt.txns_h1_buys + mt.txns_h1_sells >= NEW_POOL_MIN_TXNS_H1)
+
+
+def select_new_pool_tokens(cands: list[RawToken], ticks: dict) -> list[RawToken]:
+    """Fresh-pool candidates that still have live data and activity, most traded
+    (1h transactions) first, capped at NEW_POOL_SLOTS. Dead launches drop out."""
+    keep = [r for r in cands if r.address in ticks and _passes_new_pool_floor(ticks[r.address])]
+    keep.sort(key=lambda r: -(ticks[r.address].txns_h1_buys + ticks[r.address].txns_h1_sells))
+    for r in keep:
+        r.extra["source"] = "new_pool"
+    return keep[:NEW_POOL_SLOTS]
+
+
+def _sticky_new_pool_tokens(now_ms: int | None = None) -> list[RawToken]:
+    """Tokens first found as fresh pools stay candidates for NEW_POOL_MAX_AGE_H
+    after launch, even once they scroll off GeckoTerminal's new-pools feed."""
+    now_ms = now_ms or int(time.time() * 1000)
+    cutoff = now_ms - NEW_POOL_MAX_AGE_H * 3.6e6
+    with SessionLocal() as db:
+        rows = db.execute(select(Token).where(Token.discovery_source == "new_pool",
+                                              Token.token_created_at >= cutoff)).scalars().all()
+        return [RawToken(address=t.address, chain=t.chain or "solana", name=t.name or "",
+                         symbol=t.symbol or "", image_url=t.image_url or "", url=t.url or "",
+                         dex=t.dex or "", pair_address=t.pair_address or "",
+                         token_created_at=t.token_created_at, extra={"source": "new_pool"})
+                for t in rows]
 
 
 def log_line_db_only(level, source, message):
@@ -522,8 +570,8 @@ async def onchain_checks() -> dict:
                 continue
             last = db.execute(select(TokenRiskCheck).where(TokenRiskCheck.token_id == t.id)
                               .order_by(TokenRiskCheck.checked_at.desc()).limit(1)).scalar_one_or_none()
-            if last is None:
-                todo.append((0.0, t.id, t.address)); continue
+            if last is None:            # never checked => always first (fresh launches)
+                todo.append((-1e9, t.id, t.address)); continue
             age_h = (now - last.checked_at.replace(tzinfo=None)).total_seconds() / 3600
             # failed checks, and old checks that predate real holder counts or real-wallet
             # concentration, retry hourly
@@ -552,12 +600,15 @@ async def onchain_checks() -> dict:
     with SessionLocal() as db:
         db.execute(delete(TokenRiskCheck).where(
             TokenRiskCheck.checked_at < now - _dt.timedelta(days=7)))   # retention
+        launch = evaluate_launches(db)
         status = "ok" if (done or not failed) else "degraded"
         upsert_source(db, "helius", "onchain", status,
                       {"note": "real on-chain risk checks (mint/freeze authority, holder concentration)",
                        "last_batch": {"ok": done, "failed": failed, "pending": max(0, len(todo) - len(batch))}})
         db.commit()
-    return {"helius": {"ok": done, "failed": failed}}
+    if launch.get("to_send"):
+        launch["sent"] = await asyncio.to_thread(send_launch_alerts, launch.pop("to_send"))
+    return {"helius": {"ok": done, "failed": failed}, "launch_alerts": launch}
 
 
 async def tick() -> dict:
@@ -575,7 +626,8 @@ async def tick() -> dict:
                     continue
                 token = db.execute(select(Token).where(Token.address == raw.address)).scalar_one_or_none()
                 if token is None:
-                    token = Token(address=raw.address, chain=raw.chain)
+                    token = Token(address=raw.address, chain=raw.chain,
+                                  discovery_source=(raw.extra or {}).get("source"))
                     db.add(token)
                     db.flush()
                     sim = Sim.fresh(

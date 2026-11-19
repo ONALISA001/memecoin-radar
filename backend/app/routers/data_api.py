@@ -64,6 +64,8 @@ def card(token: Token, sc: TrendScore) -> dict:
         "address": token.address, "chain": token.chain, "name": token.name,
         "symbol": token.symbol, "image_url": token.image_url, "dex": token.dex,
         "url": token.url,
+        "discovery_source": token.discovery_source,     # new_pool | boost | profile | None
+        "launch_alert": token.launch_alert,             # sent = passed launch safety checks
         "trend": sc.trend, "fomo": sc.fomo, "fomo_class": sc.fomo_class,
         "risk": sc.risk, "risk_class": sc.risk_class, "confidence": sc.confidence,
         "emerging": bool(sc.emerging),
@@ -212,11 +214,16 @@ NEW_SORTS = {
 
 @router.get("/tokens/new")
 def tokens_new(sort: str = "newest", limit: int = Query(40, le=100),
-               max_age_h: float | None = None,
+               max_age_h: float | None = None, source: str | None = None,
                db: Session = Depends(get_db)):
     """New memecoin discovery (v2 §3): recently launched/tracked tokens with
-    full momentum + sell-pressure + risk context, sortable by any dimension."""
+    full momentum + sell-pressure + risk context, sortable by any dimension.
+    source=new_pool → found as a fresh pool; source=promoted → boosts/profiles."""
     cards = [card(t, sc) for sc, t in latest_score_rows(db)]
+    if source == "new_pool":
+        cards = [c for c in cards if c["discovery_source"] == "new_pool"]
+    elif source == "promoted":
+        cards = [c for c in cards if c["discovery_source"] in ("boost", "profile")]
     if max_age_h is not None:
         cards = [c for c in cards if (c["age_hours"] or 9e9) <= max_age_h]
     key = NEW_SORTS.get(sort, NEW_SORTS["newest"])

@@ -35,6 +35,8 @@ class Token(Base):
     first_seen_at = Column(DateTime(timezone=True), server_default=func.now())
     token_created_at = Column(BigInteger)    # epoch ms from provider (needs 64-bit on Postgres)
     new_token_evented = Column(Boolean, default=False)  # v3: "new token" event emitted once ever
+    discovery_source = Column(String(16))    # new_pool | boost | profile (first source wins)
+    launch_alert = Column(String(8))         # launch-safety alert: None | sent | skipped | failed
 
     __table_args__ = (Index("ix_tokens_chain_addr", "chain", "address"),)
 
