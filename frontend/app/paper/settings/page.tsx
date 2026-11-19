@@ -124,18 +124,18 @@ export default function PaperSettingsPage() {
   return (
     <div className="max-w-4xl mx-auto space-y-3">
       <SimStrip />
-      <Panel title={<span>⚙ Demo Account Settings <span className="text-dim font-normal text-[10px]">— all strategy, risk and execution knobs; no code changes needed (§3)</span></span>}
+      <Panel title={<span>Demo Account Settings <span className="panel-sub">— all strategy, risk and execution knobs; no code changes needed (§3)</span></span>}
              right={<span className="pill-mini !text-violetx !border-violetx/50">{data?.strategy?.name}</span>}>
         {GROUPS.map((g) => (
           <div key={g.title} className="border-b border-line/40 last:border-0">
-            <div className="px-4 pt-3 text-[9px] font-bold tracking-widest text-dim uppercase">{g.title}</div>
+            <div className="px-4 pt-3 text-2xs font-bold tracking-widest text-dim uppercase">{g.title}</div>
             <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-3">
               {g.fields.map(([k, label, hint]) => (
                 <div key={k}>
-                  <label className="text-[10px] text-ink/70">{label}</label>
+                  <label className="text-xs text-ink/70">{label}</label>
                   <input className="inp w-full mt-1 num" value={form[k] ?? ""}
                          onChange={(e) => { setForm({ ...form, [k]: e.target.value }); setDirty(true); }} />
-                  {hint && <div className="text-[8.5px] text-dim mt-0.5">{hint} · default {getPath(data?.defaults, k)}</div>}
+                  {hint && <div className="text-2xs text-dim mt-0.5">{hint} · default {getPath(data?.defaults, k)}</div>}
                 </div>
               ))}
             </div>
@@ -146,13 +146,13 @@ export default function PaperSettingsPage() {
                   className="pill-mini !text-cyanx !border-cyanx/60 !py-2 !px-4">
             Save settings
           </button>
-          {msg && <span className="text-[10px] text-greenx">{msg}</span>}
-          <span className="text-[9px] text-dim ml-auto">Strategy/risk changes create a new strategy version — historical trades keep their original config (§22).</span>
+          {msg && <span className="text-xs text-greenx">{msg}</span>}
+          <span className="text-2xs text-dim ml-auto">Strategy/risk changes create a new strategy version — historical trades keep their original config (§22).</span>
         </div>
       </Panel>
 
-      <Panel title={<span>📤 Export (§24)</span>}>
-        <div className="p-4 flex gap-2 flex-wrap text-[10.5px]">
+      <Panel title={<span>Export (§24)</span>}>
+        <div className="p-4 flex gap-2 flex-wrap text-xs">
           {[
             ["/api/paper/export?what=trades&fmt=csv", "Trades CSV"],
             ["/api/paper/export?what=trades&fmt=json", "Trades JSON"],
@@ -171,16 +171,16 @@ export default function PaperSettingsPage() {
             <button className="pill-mini !text-redx !border-redx/60 !py-2 !px-4" onClick={() => setConfirmReset(true)}>
               Reset demo account
             </button>
-            <span className="text-[9.5px] text-dim">Export first if you want to keep the history.</span>
+            <span className="text-2xs text-dim">Export first if you want to keep the history.</span>
           </div>
         ) : (
           <div className="p-4 space-y-3">
-            <div className="text-[11px] text-amberx leading-snug">
+            <div className="text-sm text-amberx leading-snug">
               This will permanently clear the current demo portfolio, open positions, trade history and
               performance statistics. This cannot be undone. (Virtual funds only — nothing real is affected.)
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-[10px] text-dim">New starting capital ($)</label>
+              <label className="text-xs text-dim">New starting capital ($)</label>
               <input className="inp w-28 num" value={newCapital} onChange={(e) => setNewCapital(e.target.value)} />
             </div>
             <div className="flex gap-2">

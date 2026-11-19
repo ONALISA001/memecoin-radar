@@ -17,7 +17,7 @@ function HaltBanner({ halt }: { halt: { reason: string; until: number; seconds_l
   const at = new Date(halt.until * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (done) return null;
   return (
-    <div className="panel !border-amberx/50 px-4 py-3 flex flex-wrap items-center gap-3 text-[12px]">
+    <div className="panel !border-amberx/50 px-4 py-3 flex flex-wrap items-center gap-3 text-sm">
       <span className="text-amberx font-semibold">⏸️ New buys paused {why}</span>
       <span className="text-dim">Resumes automatically in {left} (at {at}). Open positions are still managed.</span>
       <div className="flex-1" />
@@ -58,7 +58,7 @@ export default function PaperDashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-3 items-start">
         {/* CENTER+LEFT: equity curve over open positions */}
         <div className="xl:col-span-2 space-y-3">
-          <Panel title={<span>📈 Equity Curve <span className="text-dim font-normal text-[10px]">— mark-to-market every tick</span></span>}
+          <Panel title={<span>Equity Curve <span className="panel-sub">— mark-to-market every tick</span></span>}
                  right={<div className="flex gap-0.5">{[24, 72, 168].map((h) => (
                    <button key={h} onClick={() => setHours(h)}
                            className={`pill-mini ${hours === h ? "!text-cyanx !border-cyanx/60" : ""}`}>{h}h</button>))}</div>}>
@@ -66,28 +66,28 @@ export default function PaperDashboard() {
               <EquityCurve points={eq?.items || []} base={eq?.starting ?? 10000} />
             </div>
           </Panel>
-          <Panel title={<span>💼 Open Positions <span className="text-dim font-normal text-[10px]">{positions?.items?.length ?? 0} live</span></span>}
-                 right={<Link href="/paper/trades?status=open" className="text-[10px] text-cyanx hover:underline">all →</Link>}>
+          <Panel title={<span>Open Positions <span className="panel-sub">{positions?.items?.length ?? 0} live</span></span>}
+                 right={<Link href="/paper/trades?status=open" className="text-xs text-cyanx hover:underline">all →</Link>}>
             <PositionsTable items={positions?.items || []} onClosed={() => setPosKey(posKey + 1)} />
           </Panel>
-          <Panel title="🕒 Trade Timeline — exact UTC timestamps">
+          <Panel title="Trade Timeline — exact UTC timestamps">
             <TradeTimeline limit={60} />
           </Panel>
         </div>
 
         {/* RIGHT: live AI signals + regime + rejected */}
         <div className="space-y-3">
-          <Panel title={<span>🧠 Live AI Signals <span className="text-dim font-normal text-[10px]">pipeline: signal → risk → execution</span></span>}>
+          <Panel title={<span>Live AI Signals <span className="panel-sub">pipeline: signal → risk → execution</span></span>}>
             <SignalsPanel />
           </Panel>
-          <Panel title="🛡 Risk Engine">
-            <div className="p-3 space-y-2 text-[10.5px]">
+          <Panel title="Risk Engine">
+            <div className="p-3 space-y-2 text-xs">
               <div className="flex justify-between"><span className="text-dim">Signals seen</span><span className="num font-bold">{sigStats?.total_signals ?? 0}</span></div>
               <div className="flex justify-between"><span className="text-dim">Executed</span><span className="num font-bold text-greenx">{sigStats?.executed ?? 0}</span></div>
               <div className="flex justify-between"><span className="text-dim">Rejected</span><span className="num font-bold text-amberx">{sigStats?.rejected ?? 0}</span></div>
               <div className="flex justify-between"><span className="text-dim">Rejection rate</span><span className="num">{sigStats?.rejection_rate_pct != null ? `${sigStats.rejection_rate_pct}%` : "—"}</span></div>
               {(sigStats?.top_rejection_reasons || []).slice(0, 3).map(([r, n]: any) => (
-                <div key={r} className="text-[9.5px] text-dim leading-snug">
+                <div key={r} className="text-2xs text-dim leading-snug">
                   <span className="text-amberx">✕</span> {r} <span className="num">×{n}</span>
                 </div>
               ))}
@@ -99,8 +99,8 @@ export default function PaperDashboard() {
               <div className="flex justify-between"><span className="text-dim">Monthly P&L</span><span className="num">{usd(cal?.monthly)}</span></div>
             </div>
           </Panel>
-          <Panel title="⚙️ Quick Links">
-            <div className="p-3 grid grid-cols-2 gap-2 text-[10.5px]">
+          <Panel title="Quick Links">
+            <div className="p-3 grid grid-cols-2 gap-2 text-xs">
               <Link href="/paper/trades" className="pill-mini !text-center !py-2">📜 Trade History</Link>
               <Link href="/paper/lab" className="pill-mini !text-center !py-2 !text-cyanx">🧪 Strategy Lab</Link>
               <Link href="/paper/analytics" className="pill-mini !text-center !py-2">📊 Strategy Analytics</Link>

@@ -32,7 +32,7 @@ export default function NarrativeDetailPage({ params }: { params: Promise<{ id: 
             ["First seen", n.first_seen_at ? new Date(n.first_seen_at).toLocaleDateString() : "—"],
           ].map(([l, v], i) => (
             <div key={i} className="bg-panel2 border border-line rounded-lg p-2.5">
-              <div className="text-[9px] font-bold tracking-widest text-dim uppercase">{l}</div>
+              <div className="text-2xs font-bold tracking-widest text-dim uppercase">{l}</div>
               <div className="num text-lg font-bold mt-0.5">{v as any}</div>
             </div>
           ))}
@@ -49,7 +49,7 @@ export default function NarrativeDetailPage({ params }: { params: Promise<{ id: 
                   <tr key={t.address}>
                     <td className="!text-left">
                       <Link href={`/token/${t.address}`} className="hover:text-cyanx">
-                        <span className="font-bold">${t.symbol}</span> <span className="text-dim text-[11px]">{t.name}</span>
+                        <span className="font-bold">${t.symbol}</span> <span className="text-dim text-sm">{t.name}</span>
                       </Link>
                     </td>
                     <td>
@@ -65,8 +65,8 @@ export default function NarrativeDetailPage({ params }: { params: Promise<{ id: 
           </div>
         </Panel>
         <Panel title={<span>News coverage {data.news_source === "rss"
-          ? <span className="badge badge-green !text-[8px] ml-1">real · publisher feeds</span>
-          : <span className="badge badge-amber !text-[8px] ml-1">simulated</span>}</span>}>
+          ? <span className="badge badge-green !text-2xs ml-1">real · publisher feeds</span>
+          : <span className="badge badge-amber !text-2xs ml-1">simulated</span>}</span>}>
           {data.news.length === 0 && <Empty text="No matching headlines in the last 7 days." />}
           {data.news.map((a: any, i: number) => <NewsRow key={i} a={a} />)}
         </Panel>

@@ -10,7 +10,7 @@ function TradesInner() {
   return (
     <div className="space-y-3">
       <SimStrip compact />
-      <Panel title={<span>📜 Trade Ledger <span className="text-dim font-normal text-[10px]">— permanent virtual record (§9)</span></span>}
+      <Panel title={<span>Trade Ledger <span className="panel-sub">— permanent virtual record (§9)</span></span>}
              right={
                <div className="flex gap-1 items-center">
                  {["all", "open", "closed"].map((v) => (
@@ -22,7 +22,7 @@ function TradesInner() {
                  <a href="/api/paper/export?what=trades&fmt=json" className="pill-mini">⬇ JSON</a>
                </div>
              }>
-        <div className="px-3 py-1.5 text-[9px] text-dim border-b border-line/40">
+        <div className="px-3 py-1.5 text-2xs text-dim border-b border-line/40">
           {data?.total ?? 0} trades · {data?.note}
         </div>
         <TradesTable items={data?.items || []} />

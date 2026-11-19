@@ -41,16 +41,16 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-            <Panel title="📅 Daily Realized P&L">
+            <Panel title="Daily Realized P&L">
               <DailyChart daily={cal?.daily || []} />
-              <div className="px-3 pb-2 flex gap-4 text-[10px] text-dim">
+              <div className="px-3 pb-2 flex gap-4 text-xs text-dim">
                 <span>today <b className="num">{usd(cal?.today)}</b></span>
                 <span>7d <b className="num">{usd(cal?.weekly)}</b></span>
                 <span>30d <b className="num">{usd(cal?.monthly)}</b></span>
               </div>
             </Panel>
-            <Panel title="📉 Trade Stats">
-              <div className="p-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[10.5px]">
+            <Panel title="Trade Stats">
+              <div className="p-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
                 {[
                   ["avg win", usd(a.avg_win)], ["avg loss", usd(a.avg_loss)],
                   ["largest win", usd(a.largest_win)], ["largest loss", usd(a.largest_loss)],
@@ -65,7 +65,7 @@ export default function AnalyticsPage() {
               </div>
               {a.exit_reasons && (
                 <div className="px-3 pb-3">
-                  <div className="text-[9px] font-bold tracking-wider text-dim mb-1">EXIT REASONS</div>
+                  <div className="text-2xs font-bold tracking-wider text-dim mb-1">EXIT REASONS</div>
                   <div className="flex gap-1 flex-wrap">
                     {Object.entries(a.exit_reasons).map(([r, n]: any) => (
                       <span key={r} className="pill-mini" title={`${n} exits`}>{r.replace(/_/g, " ").toLowerCase()} ×{n}</span>
@@ -77,10 +77,10 @@ export default function AnalyticsPage() {
           </div>
 
           {/* §17 confidence analysis */}
-          <Panel title={<span>🎯 Does AI confidence actually matter? <span className="text-dim font-normal text-[10px]">— outcomes grouped by entry confidence (§17)</span></span>}>
+          <Panel title={<span>Does AI confidence actually matter? <span className="panel-sub">— outcomes grouped by entry confidence (§17)</span></span>}>
             <div className="overflow-x-auto">
-              <table className="w-full text-[10.5px]">
-                <thead><tr className="text-[8.5px] text-dim uppercase tracking-wider border-b border-line/60">
+              <table className="w-full text-xs">
+                <thead><tr className="text-2xs text-dim uppercase tracking-wider border-b border-line/60">
                   <th className="text-left py-1.5 pl-3">Confidence</th><th className="text-right">Trades</th>
                   <th className="text-right">Win rate</th><th className="text-right">Avg return</th>
                   <th className="text-right">Avg loss</th><th className="text-right">Profit factor</th>
@@ -101,16 +101,16 @@ export default function AnalyticsPage() {
                 </tbody>
               </table>
             </div>
-            <div className="px-3 py-2 text-[9px] text-dim border-t border-line/40">
+            <div className="px-3 py-2 text-2xs text-dim border-t border-line/40">
               Small samples lie — read this only as observed evidence, never as a promise.
             </div>
           </Panel>
 
           {/* §18 signal effectiveness */}
-          <Panel title="📡 Signal Effectiveness (§18) — which signals actually worked">
+          <Panel title="Signal Effectiveness (§18) — which signals actually worked">
             <div className="overflow-x-auto">
-              <table className="w-full text-[10.5px]">
-                <thead><tr className="text-[8.5px] text-dim uppercase tracking-wider border-b border-line/60">
+              <table className="w-full text-xs">
+                <thead><tr className="text-2xs text-dim uppercase tracking-wider border-b border-line/60">
                   <th className="text-left py-1.5 pl-3">Signal</th><th className="text-right">Trades</th>
                   <th className="text-right">Win rate</th><th className="text-right">Avg return</th>
                   <th className="text-right pr-3">Total P&L</th>
@@ -136,7 +136,7 @@ export default function AnalyticsPage() {
           </Panel>
 
           {/* §25 rejection analytics */}
-          <Panel title="🛡 Risk Engine Audit (§25) — AI wanted vs risk allowed">
+          <Panel title="Risk Engine Audit (§25) — AI wanted vs risk allowed">
             <div className="p-3 grid grid-cols-2 md:grid-cols-4 gap-2">
               <StatTile label="Total signals" value={sigStats?.total_signals ?? 0} />
               <StatTile label="Executed" value={sigStats?.executed ?? 0} cls="text-greenx" />
@@ -144,10 +144,10 @@ export default function AnalyticsPage() {
               <StatTile label="Rejection rate" value={sigStats?.rejection_rate_pct != null ? `${sigStats.rejection_rate_pct}%` : "—"} />
             </div>
             <div className="px-3 pb-3">
-              <div className="text-[9px] font-bold tracking-wider text-dim mb-1">TOP REJECTION REASONS</div>
+              <div className="text-2xs font-bold tracking-wider text-dim mb-1">TOP REJECTION REASONS</div>
               <div className="space-y-1">
                 {(sigStats?.top_rejection_reasons || []).map(([r, n]: any) => (
-                  <div key={r} className="flex justify-between text-[10px] border-b border-line/30 py-0.5">
+                  <div key={r} className="flex justify-between text-xs border-b border-line/30 py-0.5">
                     <span className="text-ink/75">{r}</span><span className="num text-dim">×{n}</span>
                   </div>
                 ))}
@@ -156,7 +156,7 @@ export default function AnalyticsPage() {
           </Panel>
         </>
       )}
-      <div className="text-[9px] text-dim px-1">
+      <div className="text-2xs text-dim px-1">
         All analytics are computed from the virtual trade ledger only. Simulated results on live data —
         helpful for evaluating strategy logic, not a forecast of real outcomes.
       </div>

@@ -22,9 +22,9 @@ function FeedWithFocus({ address }: { address: string }) {
 function Stat({ label, value, sub, color }: { label: string; value: React.ReactNode; sub?: React.ReactNode; color?: string }) {
   return (
     <div className="px-3 py-2">
-      <div className="text-[9px] font-bold tracking-widest text-dim uppercase">{label}</div>
-      <div className="num text-[15px] font-bold mt-0.5" style={{ color }}>{value}</div>
-      {sub && <div className="text-[10px] text-dim mt-0.5">{sub}</div>}
+      <div className="text-2xs font-bold tracking-widest text-dim uppercase">{label}</div>
+      <div className="num text-lg font-bold mt-0.5" style={{ color }}>{value}</div>
+      {sub && <div className="text-xs text-dim mt-0.5">{sub}</div>}
     </div>
   );
 }
@@ -33,7 +33,7 @@ function DriverBar({ d, color }: { d: any; color: string }) {
   const pct = Math.min(100, (d.points / d.max) * 100);
   return (
     <div className="py-1">
-      <div className="flex justify-between text-[10.5px] gap-2">
+      <div className="flex justify-between text-xs gap-2">
         <span className="text-ink/80 truncate" title={d.value}>{d.label}</span>
         <span className="num text-dim shrink-0">{d.value}</span>
         <span className="num font-bold shrink-0" style={{ color }}>+{d.points}/{d.max}</span>
@@ -56,10 +56,10 @@ function TrendBreakdown({ components }: { components: Record<string, any> }) {
         return (
           <div key={key}>
             <div className="flex justify-between items-baseline mb-1">
-              <span className="text-[11px] font-bold tracking-wide uppercase" style={{ color }}>
+              <span className="text-sm font-bold tracking-wide uppercase" style={{ color }}>
                 {key.replace("_", " ")}
               </span>
-              <span className="text-[10px] text-dim">{c.points}/{c.max} · src: {c.source}</span>
+              <span className="text-xs text-dim">{c.points}/{c.max} · src: {c.source}</span>
             </div>
             {(c.drivers || []).map((d: any, i: number) => <DriverBar key={i} d={d} color={color} />)}
           </div>
@@ -100,14 +100,14 @@ function WhyButton({ address }: { address: string }) {
   }
   return (
     <div className="w-full">
-      <button className="btn w-full justify-center !py-2 !text-[12px] !bg-violetx/10 !border-violetx/30 !text-violetx hover:!bg-violetx/20"
+      <button className="btn w-full justify-center !py-2 !text-sm !bg-violetx/10 !border-violetx/30 !text-violetx hover:!bg-violetx/20"
               onClick={run} disabled={busy}>
         {busy ? "Analyzing…" : "❓ WHY IS THIS TRENDING?"}
       </button>
       {text && (
-        <div className="mt-2 p-3 rounded-lg bg-violetx/5 border border-violetx/20 text-[12px] leading-relaxed text-ink/90">
+        <div className="mt-2 p-3 rounded-lg bg-violetx/5 border border-violetx/20 text-sm leading-relaxed text-ink/90">
           {text}
-          <div className="text-[10px] text-dim mt-2">Generated from stored metrics only — no fabricated data (§18).</div>
+          <div className="text-xs text-dim mt-2">Generated from stored metrics only — no fabricated data (§18).</div>
         </div>
       )}
     </div>
@@ -138,7 +138,7 @@ function ScoresRow({ d, sc }: { d: any; sc: any }) {
       <div className="grid grid-cols-3 divide-x divide-line/60">
         <button onClick={() => setTab("trend")} className={`py-4 ${tab === "trend" ? "bg-cyanx/5" : ""}`}>
           <Gauge value={sc.trend} label="Trend" color="#22D3EE"
-                 sub={<span className="text-[9px] text-dim">multi-source momentum</span>} />
+                 sub={<span className="text-2xs text-dim">multi-source momentum</span>} />
         </button>
         <button onClick={() => setTab("fomo")} className={`py-4 ${tab === "fomo" ? "bg-amberx/5" : ""}`}>
           <Gauge value={sc.fomo} label="FOMO" color={sc.fomo >= 81 ? "#F87171" : "#FBBF24"}
@@ -146,11 +146,11 @@ function ScoresRow({ d, sc }: { d: any; sc: any }) {
         </button>
         <button onClick={() => setTab("risk")} className={`py-4 ${tab === "risk" ? "bg-redx/5" : ""}`}>
           <Gauge value={sc.risk} label="Risk" color={sc.risk >= 70 ? "#F87171" : sc.risk >= 50 ? "#FB923C" : "#34D399"}
-                 sub={<span className={`text-[10px] font-bold uppercase ${riskTextClass(sc.risk)}`}>{sc.risk_class} risk</span>} />
+                 sub={<span className={`text-xs font-bold uppercase ${riskTextClass(sc.risk)}`}>{sc.risk_class} risk</span>} />
         </button>
       </div>
       {sc.fomo_warning && tab === "fomo" && (
-        <div className="mx-4 mb-3 p-2.5 rounded-lg bg-redx/10 border border-redx/30 text-[11px] text-redx/90">
+        <div className="mx-4 mb-3 p-2.5 rounded-lg bg-redx/10 border border-redx/30 text-sm text-redx/90">
           ⚠️ {sc.fomo_warning}
         </div>
       )}
@@ -168,17 +168,17 @@ function ScoresRow({ d, sc }: { d: any; sc: any }) {
                 <div key={i}>
                   <DriverBar d={c} color="#F87171" />
                   {c.source && String(c.source).startsWith("mock") && (
-                    <div className="text-[9px] text-amberx/80 -mt-0.5 mb-1">simulated source — verify on-chain</div>
+                    <div className="text-2xs text-amberx/80 -mt-0.5 mb-1">simulated source — verify on-chain</div>
                   )}
                 </div>
               ))}
             </div>
             {(sc.risk_flags || []).length > 0 && (
               <div className="pt-2 border-t border-line/60">
-                <div className="text-[10px] font-bold tracking-wider text-redx uppercase mb-1.5">Risk flags</div>
+                <div className="text-xs font-bold tracking-wider text-redx uppercase mb-1.5">Risk flags</div>
                 <ul className="space-y-1">
                   {sc.risk_flags.map((f: string, i: number) => (
-                    <li key={i} className="text-[11px] text-ink/80 flex gap-1.5"><span className="text-redx">▸</span>{f}</li>
+                    <li key={i} className="text-sm text-ink/80 flex gap-1.5"><span className="text-redx">▸</span>{f}</li>
                   ))}
                 </ul>
               </div>
@@ -197,21 +197,21 @@ function SignalsPanel({ sc }: { sc: any }) {
     <Panel title={<>Signal confirmation <ConfChip level={sc.signals?.confidence} /></>}>
       <div className="p-4 space-y-2.5">
         {rows.map(([l, ok]) => (
-          <div key={l} className="flex items-center justify-between text-[12px]">
+          <div key={l} className="flex items-center justify-between text-sm">
             <span className="text-ink/80">{l}</span>
             <span className={`font-bold ${ok ? "text-greenx" : "text-dim"}`}>{ok ? "✓" : "—"}</span>
           </div>
         ))}
-        <div className="pt-2 border-t border-line/60 text-[10.5px] text-dim leading-snug">{sc.signals?.note}</div>
-        <div className="text-[10px] text-dim">
+        <div className="pt-2 border-t border-line/60 text-xs text-dim leading-snug">{sc.signals?.note}</div>
+        <div className="text-xs text-dim">
           Confidence reflects independent-source agreement and data availability — never certainty (§11/§19).
         </div>
         {(sc.conflicts || []).length > 0 && (
           <div className="space-y-2 pt-2 border-t border-line/60">
             {sc.conflicts.map((c: any, i: number) => (
               <div key={i} className="p-2.5 rounded bg-amberx/5 border border-amberx/25">
-                <div className="text-[10.5px] font-bold text-amberx">⚠ {c.title}</div>
-                <div className="text-[11px] text-ink/75 mt-0.5 leading-snug">{c.detail}</div>
+                <div className="text-xs font-bold text-amberx">⚠ {c.title}</div>
+                <div className="text-sm text-ink/75 mt-0.5 leading-snug">{c.detail}</div>
               </div>
             ))}
           </div>
@@ -223,20 +223,20 @@ function SignalsPanel({ sc }: { sc: any }) {
 
 function AnalysisPanel({ address }: { address: string }) {
   const { data, loading } = useApi(`/tokens/${address}/analysis`, 0, false);
-  if (loading || !data) return <Panel title="🤖 AI analysis"><div className="p-4 text-dim text-xs">Composing…</div></Panel>;
+  if (loading || !data) return <Panel title="AI analysis"><div className="p-4 text-dim text-xs">Composing…</div></Panel>;
   const cols: [string, string[], string][] = [
     ["Observed facts", data.observed || [], "#22D3EE"],
     ["Interpretation", data.interpretation || [], "#A78BFA"],
     ["Uncertainty", data.uncertainty || [], "#FBBF24"],
   ];
   return (
-    <Panel title={<span>🤖 AI analysis <span className="text-dim font-normal normal-case">(facts vs interpretation vs uncertainty)</span></span>}>
+    <Panel title={<span>AI analysis <span className="panel-sub">(facts vs interpretation vs uncertainty)</span></span>}>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-0 divide-x divide-line/60">
         {cols.map(([title, items, color]) => (
           <div key={title} className="p-4">
-            <div className="text-[10px] font-bold tracking-widest uppercase mb-2" style={{ color }}>{title}</div>
+            <div className="text-xs font-bold tracking-widest uppercase mb-2" style={{ color }}>{title}</div>
             <ul className="space-y-1.5">
-              {items.map((s, i) => <li key={i} className="text-[11px] text-ink/80 leading-snug flex gap-1.5"><span style={{ color }}>▸</span>{s}</li>)}
+              {items.map((s, i) => <li key={i} className="text-sm text-ink/80 leading-snug flex gap-1.5"><span style={{ color }}>▸</span>{s}</li>)}
             </ul>
           </div>
         ))}
@@ -250,7 +250,7 @@ function TokenNewsPanel({ symbol }: { symbol: string }) {
   const items = data?.items || [];
   if (!data || data.source !== "rss" || items.length === 0) return null;   // only show real coverage
   return (
-    <Panel title={<span>📰 In the news <span className="badge badge-green !text-[8px] ml-1">real · publisher feeds</span></span>}>
+    <Panel title={<span>In the news <span className="badge badge-green !text-2xs ml-1">real · publisher feeds</span></span>}>
       {items.map((a: any, i: number) => <NewsRow key={i} a={a} />)}
     </Panel>
   );
@@ -261,11 +261,11 @@ function OnchainRiskPanel({ address }: { address: string }) {
   const sevCls: Record<string, string> = { high: "text-redx", medium: "text-amberx", low: "text-greenx" };
   const f = data?.facts;
   return (
-    <Panel title={<span>🛡️ On-chain risk <span className="badge badge-green !text-[8px] ml-1">real · Helius</span></span>}>
+    <Panel title={<span>On-chain risk <span className="badge badge-green !text-2xs ml-1">real · Helius</span></span>}>
       {!data && <Empty text="Loading…" />}
       {data && !data.available && <Empty text={data.error ? `Check failed: ${data.error}` : (data.reason || "Not available.")} />}
       {data?.available && f && (
-        <div className="px-3.5 py-2 text-[11px] space-y-1.5">
+        <div className="px-3.5 py-2 text-sm space-y-1.5">
           <div className="flex justify-between"><span className="text-dim">Overall</span>
             <span className={`font-bold uppercase ${sevCls[data.label] || ""}`}>{data.label}</span></div>
           <div className="flex justify-between"><span className="text-dim">Mint authority</span>
@@ -283,9 +283,9 @@ function OnchainRiskPanel({ address }: { address: string }) {
             <div className="flex justify-between"><span className="text-dim">Top 10 accounts</span><span className="num">{fmtPct(f.top10_pct, false)}</span></div>
           </>)}
           {data.flags?.map((fl: any) => (
-            <div key={fl.id} className={`text-[10px] ${sevCls[fl.severity] || ""}`}>⚠ {fl.message}</div>
+            <div key={fl.id} className={`text-xs ${sevCls[fl.severity] || ""}`}>⚠ {fl.message}</div>
           ))}
-          <div className="text-[9px] text-dim pt-1">{data.caveat} Checked {timeAgo(Math.floor(new Date(data.checked_at).getTime() / 1000))}.</div>
+          <div className="text-2xs text-dim pt-1">{data.caveat} Checked {timeAgo(Math.floor(new Date(data.checked_at).getTime() / 1000))}.</div>
         </div>
       )}
     </Panel>
@@ -296,18 +296,18 @@ function WhalesPanel({ address }: { address: string }) {
   const { data } = useApi(`/tokens/${address}/holders`, 30000);
   const whales = data?.whales || [];
   return (
-    <Panel title={<span>🐋 Whale activity {data?.mock
-      ? <span className="badge badge-amber !text-[8px] ml-1">simulated</span>
-      : <span className="badge badge-green !text-[8px] ml-1">real · top-10 wallets</span>}</span>}>
+    <Panel title={<span>Whale activity {data?.mock
+      ? <span className="badge badge-amber !text-2xs ml-1">simulated</span>
+      : <span className="badge badge-green !text-2xs ml-1">real · top-10 wallets</span>}</span>}>
       {whales.length === 0 && <Empty text={data?.mock === false
         ? "Individual whale trades aren't tracked yet. Changes in the top-10 real wallets' share (Helius) feed the whale-flow score."
         : "No large transfers recently."} />}
       {whales.slice(0, 12).map((w: any, i: number) => (
-        <div key={i} className="flex items-center gap-2 px-3.5 py-2 border-b border-line/50 text-[11px]">
+        <div key={i} className="flex items-center gap-2 px-3.5 py-2 border-b border-line/50 text-sm">
           <span className={w.side === "buy" ? "text-greenx" : "text-redx"}>{w.side === "buy" ? "▲" : "▼"}</span>
           <span className="font-mono text-dim truncate flex-1">{w.wallet}</span>
           <span className="num font-bold">{fmtUsd(w.amount_usd)}</span>
-          <span className="text-dim text-[10px]">{timeAgo(w.ts)}</span>
+          <span className="text-dim text-xs">{timeAgo(w.ts)}</span>
         </div>
       ))}
     </Panel>
@@ -320,26 +320,26 @@ function PostsPanel({ address }: { address: string }) {
   const tg = data?.source === "telegram";
   return (
     <Panel title={<span>{tg ? "✈️ Telegram calls" : "𝕏 Social feed"} {data?.mock
-      ? <span className="badge badge-amber !text-[8px] ml-1">simulated</span>
-      : tg ? <span className="badge badge-green !text-[8px] ml-1">real · watched channels</span>
-      : <span className="badge !text-[8px] ml-1">no source</span>}</span>}>
+      ? <span className="badge badge-amber !text-2xs ml-1">simulated</span>
+      : tg ? <span className="badge badge-green !text-2xs ml-1">real · watched channels</span>
+      : <span className="badge !text-2xs ml-1">no source</span>}</span>}>
       {posts.length === 0 && <Empty text={data?.mock ? "No posts captured." : tg
         ? "None of your watched Telegram channels has posted this coin's contract address in the last 3 days."
         : "No real social source is connected. Add public Telegram call channels in TELEGRAM_CALL_CHANNELS (Railway variables) to see real calls here."} />}
-      {tg && posts.length > 0 && <div className="px-3.5 py-1.5 text-[9.5px] text-amberx border-b border-line/50">{data.note}</div>}
+      {tg && posts.length > 0 && <div className="px-3.5 py-1.5 text-2xs text-amberx border-b border-line/50">{data.note}</div>}
       {posts.slice(0, 10).map((p: any, i: number) => (
         <div key={i} className="px-3.5 py-2 border-b border-line/50">
-          <div className="flex items-center gap-2 text-[10px] text-dim">
+          <div className="flex items-center gap-2 text-xs text-dim">
             <span className="text-cyanx">{p.author}</span>
             {p.platform === "telegram"
               ? <span>{fmtNum(p.views)} views</span>
               : <span>quality {Math.round(p.quality * 100)}%</span>}
             <span className="ml-auto">{timeAgo(p.ts)}</span>
           </div>
-          <div className="text-[12px] text-ink/85 mt-0.5 whitespace-pre-line break-words">{p.text}</div>
+          <div className="text-sm text-ink/85 mt-0.5 whitespace-pre-line break-words">{p.text}</div>
           {p.url
-            ? <a href={p.url} target="_blank" rel="noopener noreferrer nofollow" className="text-[10px] text-cyanx hover:underline">open on Telegram →</a>
-            : <div className="text-[10px] text-dim mt-0.5">♥ {fmtNum(p.likes)} · ⇄ {fmtNum(p.reposts)}</div>}
+            ? <a href={p.url} target="_blank" rel="noopener noreferrer nofollow" className="text-xs text-cyanx hover:underline">open on Telegram →</a>
+            : <div className="text-xs text-dim mt-0.5">♥ {fmtNum(p.likes)} · ⇄ {fmtNum(p.reposts)}</div>}
         </div>
       ))}
     </Panel>
@@ -356,10 +356,10 @@ function RiskEventsPanel({ address }: { address: string }) {
         <div key={i} className="px-3.5 py-2 border-b border-line/50">
           <div className="flex items-center gap-2">
             <span className={`badge ${sev[e.severity] || "badge-gray"}`}>{e.severity}</span>
-            <span className="text-[10px] uppercase tracking-wider text-dim">{e.category}</span>
-            <span className="ml-auto text-[10px] text-dim">{timeAgo(e.ts)}</span>
+            <span className="text-xs uppercase tracking-wider text-dim">{e.category}</span>
+            <span className="ml-auto text-xs text-dim">{timeAgo(e.ts)}</span>
           </div>
-          <div className="text-[11px] text-ink/80 mt-0.5">{e.message}</div>
+          <div className="text-sm text-ink/80 mt-0.5">{e.message}</div>
         </div>
       ))}
     </Panel>
@@ -381,7 +381,7 @@ export default function TokenPage({ address }: { address: string }) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-extrabold tracking-tight">${d.symbol}</h1>
-              <span className="text-dim text-[13px]">{d.name}</span>
+              <span className="text-dim text-base">{d.name}</span>
               <Badge kind="gray">{d.chain}</Badge>
               {d.dex && <Badge kind="cyan">{d.dex}</Badge>}
               <RowBadges item={d} />
@@ -392,9 +392,9 @@ export default function TokenPage({ address }: { address: string }) {
                 <Link key={n} href="/narratives" className="badge badge-violet">🧠 {n}</Link>
               ))}
             </div>
-            <div className="flex items-center gap-3 mt-2 text-[10px] text-dim font-mono flex-wrap">
+            <div className="flex items-center gap-3 mt-2 text-xs text-dim font-mono flex-wrap">
               <span className="truncate max-w-[340px]">{d.address}</span>
-              <button className="btn !py-0.5 !px-1.5 !text-[9px]" onClick={() => navigator.clipboard?.writeText(d.address)}>copy</button>
+              <button className="btn !py-0.5 !px-1.5 !text-2xs" onClick={() => navigator.clipboard?.writeText(d.address)}>copy</button>
               {d.url && <a className="text-cyanx hover:underline" href={d.url} target="_blank" rel="noreferrer">DexScreener ↗</a>}
               <span className="text-amberx/70">non-market data simulated</span>
             </div>
@@ -445,15 +445,15 @@ export default function TokenPage({ address }: { address: string }) {
                 cf.deployer_prev_launches != null && cf.deployer_prev_launches >= 3],
             ];
             return (
-              <Panel title={<span>Contract &amp; deployer <span className={`badge ${badge} !text-[8px] ml-1`}>{badgeText}</span></span>}>
-                <div className="p-4 space-y-1.5 text-[11.5px]">
+              <Panel title={<span>Contract &amp; deployer <span className={`badge ${badge} !text-2xs ml-1`}>{badgeText}</span></span>}>
+                <div className="p-4 space-y-1.5 text-sm">
                   {rows.map(([l, v, bad]) => (
                     <div key={l} className="flex justify-between">
                       <span className="text-dim">{l}</span>
                       <span className={v === "unknown" || v === "unavailable" ? "text-dim" : bad ? "text-redx font-semibold" : "text-greenx"}>{v}</span>
                     </div>
                   ))}
-                  <div className="text-[9.5px] text-dim pt-2 border-t border-line/60">
+                  <div className="text-2xs text-dim pt-2 border-t border-line/60">
                     {real
                       ? <>Source: Helius on-chain check{cf.checked_at ? ` · ${new Date(cf.checked_at).toLocaleString()}` : ""}. LP lock and deployer history aren&apos;t checked yet.</>
                       : cf.source === "unverified"
