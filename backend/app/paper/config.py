@@ -28,6 +28,9 @@ DEFAULT_SETTINGS: dict = {
     "max_drawdown_pct": 25.0,
     "max_loss_per_trade_pct": 1.5,    # of equity
     "max_consecutive_losses": 5,
+    "loss_streak_cooldown_hours": 3.0,  # pause after the streak, then auto-resume (streak reset)
+    # max_drawdown_pct pause lasts until the next UTC day, then drawdown is re-measured
+    # from current equity (otherwise an idle account could never trade again)
     "max_hold_hours": 24.0,
     "confidence_collapse_pts": 25.0,  # exit if momentum falls this far vs entry
     "sell_pressure_exit": 60.0,       # exit if sell pressure crosses this

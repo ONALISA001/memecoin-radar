@@ -88,6 +88,7 @@ def paper_summary(db: Session = Depends(get_db), user: User = Depends(get_curren
         "profit_factor": round(gross_w / gross_l, 2) if gross_l > 0 else (None if gross_w == 0 else float("inf")),
         "consec_wins": acct.consec_wins or 0, "consec_losses": acct.consec_losses or 0,
         "day_realized": round(acct.day_realized or 0, 2),
+        "halt": PE.halt_status(acct),     # auto-resuming cool-off (loss streak / drawdown)
         "ts": int(time.time()),
     }
 
@@ -366,6 +367,15 @@ def paper_settings_update(overrides: dict, db: Session = Depends(get_db),
     version = PE.apply_settings(db, acct, overrides or {})
     db.commit()
     return {"ok": True, "strategy": version, "effective": PE.settings_for(acct)}
+
+
+@router.post("/paper/resume")
+def paper_resume(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """End a cool-off pause now (resets the loss streak / re-anchors drawdown)."""
+    acct = _acct(db, user)
+    done = PE.resume_trading(db, acct, int(time.time()), _summary_map(db), manual=True)
+    db.commit()
+    return {"ok": True, "resumed": done, "halt": PE.halt_status(acct)}
 
 
 @router.post("/paper/reset")

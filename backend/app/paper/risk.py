@@ -16,6 +16,14 @@ def chk(rec: dict, name: str, passed: bool, detail: str, fatal: bool = True):
         rec["rejects"].append(detail)
 
 
+def _paused_text(acct_state: dict) -> str:
+    h = acct_state.get("halt") or {}
+    if h.get("active"):
+        why = {"loss_streak": "loss streak", "drawdown": "drawdown limit"}.get(h.get("reason"), h.get("reason"))
+        return f"cool-off after {why} — resumes in {max(1, round(h.get('seconds_left', 0) / 60))} min"
+    return "trading paused by settings"
+
+
 def evaluate_signal(settings: dict, sig: dict, portfolio: dict, acct_state: dict) -> dict:
     """sig: {confidence, risk_score, metrics, why_passed, importance}
     portfolio: {equity, cash, invested, open_count, drawdown_pct, prices...}
@@ -26,7 +34,7 @@ def evaluate_signal(settings: dict, sig: dict, portfolio: dict, acct_state: dict
 
     chk(rec, "trading allowed",
         acct_state.get("trading_allowed", True),
-        "trading paused by settings" if not acct_state.get("trading_allowed", True) else "trading enabled")
+        _paused_text(acct_state) if not acct_state.get("trading_allowed", True) else "trading enabled")
     conf = float(sig.get("confidence") or 0)
     chk(rec, "minimum confidence", conf >= s["min_confidence"],
         f"confidence {conf:.0f} < required {s['min_confidence']:.0f}")
