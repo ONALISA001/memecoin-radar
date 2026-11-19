@@ -317,28 +317,34 @@ function WhalesPanel({ address }: { address: string }) {
 function PostsPanel({ address }: { address: string }) {
   const { data } = useApi(`/tokens/${address}/social`, 30000);
   const posts = data?.posts || [];
+  const tg = data?.source === "telegram";
   return (
-    <Panel title={<span>𝕏 Social feed {data?.mock
+    <Panel title={<span>{tg ? "✈️ Telegram calls" : "𝕏 Social feed"} {data?.mock
       ? <span className="badge badge-amber !text-[8px] ml-1">simulated</span>
+      : tg ? <span className="badge badge-green !text-[8px] ml-1">real · watched channels</span>
       : <span className="badge !text-[8px] ml-1">no source</span>}</span>}>
-      {posts.length === 0 && <Empty text={data?.mock === false
-        ? "No free real X/Twitter source is connected, so no posts are shown and social posts don't count in any score. Attention is measured from real unique buyers instead."
-        : "No posts captured."} />}
+      {posts.length === 0 && <Empty text={data?.mock ? "No posts captured." : tg
+        ? "None of your watched Telegram channels has posted this coin's contract address in the last 3 days."
+        : "No real social source is connected. Add public Telegram call channels in TELEGRAM_CALL_CHANNELS (Railway variables) to see real calls here."} />}
+      {tg && posts.length > 0 && <div className="px-3.5 py-1.5 text-[9.5px] text-amberx border-b border-line/50">{data.note}</div>}
       {posts.slice(0, 10).map((p: any, i: number) => (
         <div key={i} className="px-3.5 py-2 border-b border-line/50">
           <div className="flex items-center gap-2 text-[10px] text-dim">
-            <span className={p.quality > 0.35 ? "text-cyanx" : "text-amberx"}>@{p.author}</span>
-            <span>quality {Math.round(p.quality * 100)}%</span>
+            <span className="text-cyanx">{p.author}</span>
+            {p.platform === "telegram"
+              ? <span>{fmtNum(p.views)} views</span>
+              : <span>quality {Math.round(p.quality * 100)}%</span>}
             <span className="ml-auto">{timeAgo(p.ts)}</span>
           </div>
-          <div className="text-[12px] text-ink/85 mt-0.5">{p.text}</div>
-          <div className="text-[10px] text-dim mt-0.5">♥ {fmtNum(p.likes)} · ⇄ {fmtNum(p.reposts)}</div>
+          <div className="text-[12px] text-ink/85 mt-0.5 whitespace-pre-line break-words">{p.text}</div>
+          {p.url
+            ? <a href={p.url} target="_blank" rel="noopener noreferrer nofollow" className="text-[10px] text-cyanx hover:underline">open on Telegram →</a>
+            : <div className="text-[10px] text-dim mt-0.5">♥ {fmtNum(p.likes)} · ⇄ {fmtNum(p.reposts)}</div>}
         </div>
       ))}
     </Panel>
   );
 }
-
 function RiskEventsPanel({ address }: { address: string }) {
   const { data } = useApi(`/tokens/${address}/risk`, 30000);
   const events = data?.events || [];

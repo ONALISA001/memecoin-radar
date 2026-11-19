@@ -153,10 +153,19 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
             vlr = (d["volume_24h"] / d["liq_now"]) if d["liq_now"] > 0 else 0.0
         p_soc += (6 if tpt >= 7 else 4 if tpt >= 4.5 else 2 if tpt >= 3 else 0) if tpt is not None else 2
         p_soc += 4 if vlr > 30 else 2 if vlr > 15 else 0
+        p_wash = p_soc
+        tg = ctx.telegram or {}
+        if tg.get("tg_coordinated"):
+            p_soc += 4
+            flags.append(f"Coordinated shilling: {len(tg['tg_coord_channels'])} Telegram channels "
+                         f"posted it within 10 minutes")
+            events.append({"category": "social", "severity": "warn",
+                           "message": "Coordinated Telegram push: " + ", ".join(
+                               "@" + c for c in tg["tg_coord_channels"][:5]) + " posted it within 10 min."})
         social = min(10, p_soc)
         soc_value = (f"{tpt:.1f} trades per unique trader (1h)" if tpt is not None else "no trader data yet") \
-            + f", 24h volume {vlr:.1f}x liquidity"
-        if social >= 6:
+            + f", 24h volume {vlr:.1f}x liquidity" + (", coordinated Telegram push" if tg.get("tg_coordinated") else "")
+        if p_wash >= 6:
             flags.append("Possible wash/bot trading: many trades from few wallets or volume far above liquidity")
             events.append({"category": "social", "severity": "warn",
                            "message": f"Trading looks bot-heavy ({soc_value})."})

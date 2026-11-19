@@ -8,6 +8,7 @@ makes can be traced to source rows (§30).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -55,6 +56,7 @@ class TokenContext:
     influencers: dict[int, float] = field(default_factory=dict)
     lowq: dict[int, float] = field(default_factory=dict)
     social_proxy: bool = False      # True: attention inputs are REAL unique buyers, not social posts
+    telegram: Optional[dict] = None  # REAL Telegram call stats ({} = none for this coin; None = feed off)
 
     # derived accelerations & levels
     d: dict[str, float] = field(default_factory=dict)
