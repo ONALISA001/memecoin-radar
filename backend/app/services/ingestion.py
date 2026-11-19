@@ -542,6 +542,9 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
                 "momentum": (mi.get("momentum") or {}).get("score"),
                 "sellp": (mi.get("sell_pressure") or {}).get("score"),
                 "liq_chg_3h": d.get("liq_chg_3h"), "risk": p.get("risk"),
+                # strategy-lab filters / pullback entries
+                "vol_liq_ratio": d.get("vol_liq_ratio"), "buy_share_1h": d.get("buy_share_1h"),
+                "price_chg_15m": d.get("price_chg_15m"), "price_chg_24h": d.get("price_chg_24h"),
                 "regime": {"emerging_momentum": "BULLISH",
                            "potential_distribution": "DISTRIBUTION"}.get(conf_sig, "NEUTRAL"),
             }

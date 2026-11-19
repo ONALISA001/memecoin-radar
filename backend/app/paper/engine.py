@@ -21,6 +21,10 @@ from ..models import (DemoAccount, EquitySnapshot, PaperPosition, PaperSignal,
 from . import config as PC
 from . import execution as X
 from . import risk as R
+from . import filters as F
+from types import SimpleNamespace
+
+_feed_on = True     # Strategy Lab accounts don't post into the public intel feed
 
 log = logging.getLogger("paper")
 
@@ -32,7 +36,8 @@ EXIT_REASONS = ("STOP_LOSS", "TAKE_PROFIT", "TRAILING_STOP", "SELL_SIGNAL",
 # ------------------------------------------------------------------ setup
 def get_or_create_account(db, user_id: int, start_cash: float = 10000.0) -> DemoAccount:
     acct = db.execute(select(DemoAccount).where(
-        DemoAccount.user_id == user_id, DemoAccount.active == True)  # noqa: E712
+        DemoAccount.user_id == user_id, DemoAccount.active == True,  # noqa: E712
+        DemoAccount.strategy_key.is_(None))
         .order_by(DemoAccount.id.desc()).limit(1)).scalar_one_or_none()
     if acct is None:
         ver = _strategy_version(db, PC.merged_settings(None))
@@ -109,6 +114,8 @@ def _feed_row(db, token_id: int, kind: str, key: str, title: str, detail: str,
               severity: str, importance: str, importance_score: int, confidence,
               metrics: dict):
     """Project paper-trading events into the Live Intelligence Feed (§15)."""
+    if not _feed_on:
+        return
     db.add(SignalEvent(
         token_id=token_id, ts=_now_ts, kind=kind, key=key, title=title[:190],
         detail=(detail or "")[:590], severity=severity, metrics_json=metrics or {},
@@ -222,6 +229,8 @@ def _utc(ts: int) -> str:
 
 
 def _run_account(db, acct: DemoAccount, now: int, market: dict, stats: dict) -> None:
+    global _feed_on
+    _feed_on = acct.strategy_key is None
     settings = settings_for(acct)
     day = now - (now % 86400)
     if acct.day_ts != day:
@@ -242,12 +251,15 @@ def _run_account(db, acct: DemoAccount, now: int, market: dict, stats: dict) -> 
             prev = sell_hits.get(ev.token_id)
             if prev is None or (ev.importance_score or 0) > (prev.importance_score or 0):
                 sell_hits[ev.token_id] = ev
-        if ev.kind in PC.BUY_KINDS:
+        allowed = settings.get("allowed_kinds") or []
+        if ev.kind in PC.BUY_KINDS and (not allowed or ev.kind in allowed):
             sig = _ingest_buy_signal(db, acct, ev, now, market, stats)
             if sig is not None:
                 stats["signals"] += 1
                 _risk_and_maybe_execute(db, acct, settings, sig, ev, now, market, stats)
     acct.last_event_id = max([acct.last_event_id or 0] + [r.id for r in rows])
+    if settings.get("pullback_entries"):
+        _pullback_entries(db, acct, settings, now, market, stats)
 
     # ② manage open positions (always — even while new buys are paused)
     pf = portfolio_state(db, acct, market)
@@ -272,6 +284,37 @@ def _run_account(db, acct: DemoAccount, now: int, market: dict, stats: dict) -> 
                 db.add(snap)          # reprocessed in this session) is ignored
         except IntegrityError:
             pass
+
+
+def _pullback_entries(db, acct, settings: dict, now: int, market: dict, stats: dict) -> None:
+    """Buy-the-dip entries built from market data (no intel event): coin in a 24h
+    uptrend, dipped 6–20% over 1h, 15m bounce under way. One per coin per cooldown."""
+    cool = int(float(settings["pullback_cooldown_h"]) * 3600)
+    recent = {tid for (tid,) in db.execute(select(PaperSignal.token_id).where(
+        PaperSignal.account_id == acct.id, PaperSignal.kind == "pullback_bounce",
+        PaperSignal.ts >= now - cool)).all()}
+    for token_id, mkt in market.items():
+        if token_id in recent or not mkt.get("price"):
+            continue
+        ok, checklist = F.pullback_candidate(settings, mkt)
+        if not ok:
+            continue
+        passed = sum(1 for c in checklist if c["passed"])
+        sym = _symbol(db, token_id)
+        sig = PaperSignal(
+            account_id=acct.id, token_id=token_id, ts=now, action="BUY", kind="pullback_bounce",
+            source_event_id=None, price=_price(market, token_id), confidence=60 + 4 * passed,
+            importance="MEDIUM", importance_score=60, risk_score=mkt.get("risk"),
+            market_regime=mkt.get("regime", "NEUTRAL"),
+            metrics_json={"liquidity": mkt.get("liq"), "volume_24h": mkt.get("volume_24h"),
+                          "mcap": mkt.get("mcap"), "momentum": mkt.get("momentum")},
+            why_json=[f"✓ {c['label']} ({c['value']})" for c in checklist], status="pending")
+        db.add(sig)
+        db.flush()
+        stats["signals"] += 1
+        ev = SimpleNamespace(title=f"Trend pullback — ${sym}", signal_text="uptrend dip with bounce",
+                             checklist_json=checklist, kind="pullback_bounce")
+        _risk_and_maybe_execute(db, acct, settings, sig, ev, now, market, stats)
 
 
 def _ingest_buy_signal(db, acct, ev: SignalEvent, now: int, market: dict,
@@ -328,6 +371,11 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
                    "metrics": sig_metrics,
                    "why_passed": sum(1 for c in checks if c.get("passed")),
                    "importance": sig.importance}, pf, acct_state)
+    # strategy-lab rules (only those switched on in settings)
+    tok = db.get(Token, sig.token_id)
+    if tok is not None:
+        for name, ok, detail in F.strategy_checks(db, settings, tok, market.get(sig.token_id) or {}, now):
+            R.chk(decision, name, ok, f"{name}: {detail}")
     # already holding this token?
     if decision["approved"] and db.execute(select(PaperPosition.id).where(
             PaperPosition.account_id == acct.id, PaperPosition.token_id == sig.token_id,
@@ -379,7 +427,8 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
         entry_price=fill["exec_price"], qty=fill["qty"], size_usd=size,
         cost_usd=fill["cost"], entry_fee=fill["fee"], slippage_pct=fill["slip_pct"],
         stop_price=round(fill["exec_price"] * (1 - stop_pct / 100.0), 12),
-        target_price=round(fill["exec_price"] * (1 + float(settings["take_profit_pct"]) / 100.0), 12),
+        target_price=(round(fill["exec_price"] * (1 + float(settings["take_profit_pct"]) / 100.0), 12)
+                      if float(settings["take_profit_pct"]) > 0 else None),     # 0 = let it run
         trail_pct=float(settings["trailing_stop_pct"]) or None,
         peak_price=fill["exec_price"],
         ai_confidence=sig.confidence, risk_score=sig.risk_score,
@@ -393,7 +442,8 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
     stats["bought"] += 1
     detail = (f"Signal ${price:.8g} → fill ${fill['exec_price']:.8g} (slip {fill['slip_pct']:.2f}%) · "
               f"size ${size:,.2f} · fee ${fill['fee']:.2f} · stop ${pos.stop_price:.8g} · "
-              f"target ${pos.target_price:.8g} · regime {sig.market_regime}")
+              f"target {f'${pos.target_price:.8g}' if pos.target_price else 'none (trailing)'} · "
+              f"regime {sig.market_regime}")
     _event(db, acct, pos, sig, "BUY", f"🟢 PAPER BUY — ${sym}",
            f"{ev.title} · conf {sig.confidence:.0f}% · {detail}", {
                "size": size, **fill, "stop": pos.stop_price, "target": pos.target_price})
@@ -413,12 +463,18 @@ def _manage_exit(db, acct, settings, p: PaperPosition, now: int, market: dict,
     if px <= 0:
         return False
     p.peak_price = max(p.peak_price or p.entry_price, px)
+    be = float(settings.get("breakeven_at_pct") or 0)
+    if be > 0 and p.peak_price >= p.entry_price * (1 + be / 100.0):
+        be_px = round(p.entry_price * 1.008, 12)      # entry + round-trip fees
+        if (p.stop_price or 0) < be_px:
+            p.stop_price = be_px
+    arm = 1 + max(2.0, float(settings.get("trail_activate_pct") or 0)) / 100.0
     reason = None
     if px <= (p.stop_price or 0):
-        reason = "STOP_LOSS"
+        reason = "BREAKEVEN_STOP" if be > 0 and p.stop_price >= p.entry_price else "STOP_LOSS"
     elif p.target_price and px >= p.target_price:
         reason = "TAKE_PROFIT"
-    elif p.trail_pct and px <= p.peak_price * (1 - p.trail_pct / 100.0) and p.peak_price > p.entry_price * 1.02:
+    elif p.trail_pct and px <= p.peak_price * (1 - p.trail_pct / 100.0) and p.peak_price > p.entry_price * arm:
         reason = "TRAILING_STOP"
     elif p.token_id in sell_hits:
         reason = "SELL_SIGNAL"
@@ -464,6 +520,7 @@ def _close_position(db, acct, settings, p: PaperPosition, px: float, mkt: dict,
     stats["sold"] += 1
     sym = _symbol(db, p.token_id)
     reason_txt = {"STOP_LOSS": "Stop loss reached", "TAKE_PROFIT": "Take-profit reached",
+                  "BREAKEVEN_STOP": "Break-even stop (trade had moved into profit)",
                   "TRAILING_STOP": "Trailing stop triggered",
                   "SELL_SIGNAL": "AI sell signal / distribution event",
                   "CONFIDENCE_COLLAPSE": "AI confidence collapsed vs entry",
