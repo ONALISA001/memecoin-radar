@@ -45,6 +45,7 @@ from ..models import (Alert, DataSource, HolderSnapshot, LiquiditySnapshot,
 from ..paper import engine as paper_engine
 from ..providers.base import HEALTH, RawToken
 from ..providers import helius as helius_mod
+from ..providers import jupiter as jup_mod
 from .holders import real_holder_stats
 from .contract_facts import is_mock, latest_contract_facts, unverified_facts
 from .launch_alerts import evaluate_launches, send_launch_alerts
@@ -652,16 +653,29 @@ async def onchain_checks() -> dict:
             # failed checks, and old checks that predate real holder counts or real-wallet
             # concentration, retry hourly
             complete = (last.ok and last.holders_count is not None
-                        and last.top10_wallet_pct is not None)
+                        and last.top10_wallet_pct is not None
+                        # checks made before the extension / exit analysts existed
+                        and (not last.token_2022 or last.token_extensions is not None)
+                        and (last.exit_sol_in is not None or not jup_mod.enabled()))
             wait = HELIUS_RECHECK_HOURS if complete else 1.0
             if age_h >= wait:
                 todo.append((-age_h, t.id, t.address))
         todo.sort()
         batch = todo[:HELIUS_MAX_CHECKS_PER_TICK]
     prov = helius_mod.HeliusProvider()
+    jup = jup_mod.JupiterProvider() if jup_mod.enabled() else None
     done = failed = 0
+    exit_ok = exit_failed = 0
     for _, tid, addr in batch:
         r = await prov.check_token(addr)
+        ex = None
+        if jup is not None:
+            try:            # the exit check must never break the Helius check
+                ex = await jup.check_exit(addr)
+            except Exception as exc:     # pragma: no cover - check_exit already catches
+                ex = jup_mod.ExitCheck(ok=False, error=f"{type(exc).__name__}"[:200])
+            exit_ok += 1 if ex.ok else 0
+            exit_failed += 0 if ex.ok else 1
         with SessionLocal() as db:
             db.add(TokenRiskCheck(
                 token_id=tid, ok=r.ok, error=r.error[:200], mint_authority=r.mint_authority,
@@ -669,7 +683,15 @@ async def onchain_checks() -> dict:
                 top1_pct=r.top1_pct, top10_pct=r.top10_pct, holders_sampled=r.holders_sampled,
                 token_2022=r.token_2022, holders_count=r.holders_count,
                 holders_capped=r.holders_capped, top1_wallet_pct=r.top1_wallet_pct,
-                top10_wallet_pct=r.top10_wallet_pct, excluded_pct=r.excluded_pct))
+                top10_wallet_pct=r.top10_wallet_pct, excluded_pct=r.excluded_pct,
+                token_extensions=r.token_extensions if r.ok else None,
+                transfer_fee_bps=r.transfer_fee_bps, transfer_fee_mutable=r.transfer_fee_mutable,
+                exit_sol_in=ex.sol_in if ex else None,
+                exit_buy_route=ex.buy_route if ex and ex.ok else None,
+                exit_sell_route=ex.sell_route if ex and ex.ok else None,
+                exit_round_trip_loss_pct=ex.round_trip_loss_pct if ex and ex.ok else None,
+                exit_route=(ex.route or None) if ex else None,
+                exit_error=(ex.error or None) if ex else None))
             db.commit()
         done += 1 if r.ok else 0
         failed += 0 if r.ok else 1
@@ -681,10 +703,16 @@ async def onchain_checks() -> dict:
         upsert_source(db, "helius", "onchain", status,
                       {"note": "real on-chain risk checks (mint/freeze authority, holder concentration)",
                        "last_batch": {"ok": done, "failed": failed, "pending": max(0, len(todo) - len(batch))}})
+        if jup is not None:
+            upsert_source(db, "jupiter", "onchain", "ok" if (exit_ok or not exit_failed) else "degraded",
+                          {"note": "exit check: round-trip buy/sell quote (no wallet, no transaction)",
+                           "last_batch": {"ok": exit_ok, "failed": exit_failed}})
         db.commit()
     if launch.get("to_send"):
         launch["sent"] = await asyncio.to_thread(send_launch_alerts, launch.pop("to_send"))
-    return {"helius": {"ok": done, "failed": failed}, "launch_alerts": launch}
+    return {"helius": {"ok": done, "failed": failed},
+            "jupiter": {"ok": exit_ok, "failed": exit_failed} if jup is not None else "disabled",
+            "launch_alerts": launch}
 
 
 async def tick() -> dict:

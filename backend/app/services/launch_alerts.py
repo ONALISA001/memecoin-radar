@@ -9,6 +9,8 @@ When a token discovered as a FRESH POOL gets its first complete Helius check
 
 Passing means only that the obvious rug levers are absent. It is NOT a buy
 signal, and the message says so: LP lock and deployer history are unchecked.
+A Jupiter round-trip quote (Exit analyst) failing also skips the alert; the
+exit check being unavailable does not.
 Decisions are stored on Token.launch_alert so nothing is ever sent twice.
 """
 from __future__ import annotations
@@ -22,6 +24,7 @@ from sqlalchemy import select
 from .. import config
 from ..engine import telegram
 from ..models import SystemLog, Token, TrendScore
+from ..providers.jupiter import exit_verdict
 from .contract_facts import latest_contract_facts
 
 log = logging.getLogger("radar.launch")
@@ -40,7 +43,21 @@ def launch_verdict(facts: dict) -> tuple[str | None, list[str]]:
     if facts.get("freeze_authority"):
         bad.append("freeze authority active")
     if facts.get("token_2022"):
-        bad.append("Token-2022 program")
+        exts = facts.get("token_extensions")
+        if exts is None or not config.LAUNCH_ALLOW_CLEAN_TOKEN_2022:
+            bad.append("Token-2022 program")
+        else:
+            bad.extend(f"Token-2022 {n}" for n in exts)
+    fee = facts.get("transfer_fee_bps") or 0
+    if fee:
+        bad.append(f"transfer fee {fee / 100:.2f}%")
+    # Exit analyst: a missing check (Jupiter down) never blocks, a failed one always does
+    ev = exit_verdict(facts.get("exit_buy_route"), facts.get("exit_sell_route"),
+                      facts.get("exit_round_trip_loss_pct"))
+    if ev == "fail":
+        loss = facts.get("exit_round_trip_loss_pct")
+        bad.append("no sell route" if not facts.get("exit_sell_route")
+                   else f"round trip loses {loss:.0f}%")
     if w10 > config.LAUNCH_MAX_TOP10_WALLET_PCT:
         bad.append(f"top-10 wallets {w10:.0f}%")
     if w1 > config.LAUNCH_MAX_TOP1_WALLET_PCT:
@@ -51,6 +68,16 @@ def launch_verdict(facts: dict) -> tuple[str | None, list[str]]:
 def _money(v) -> str:
     v = float(v or 0)
     return f"${v / 1e6:.2f}M" if v >= 1e6 else f"${v / 1e3:.1f}k" if v >= 1e3 else f"${v:.0f}"
+
+
+def _exit_line(facts: dict) -> str:
+    loss, sol = facts.get("exit_round_trip_loss_pct"), facts.get("exit_sol_in") or 0.1
+    if facts.get("exit_sell_route") is None:
+        return "⚠️ Sell route NOT checked (Jupiter unavailable)"
+    if not facts.get("exit_buy_route"):
+        return "⚠️ No Jupiter route yet"
+    return (f"✓ Sell route found · {sol:g} SOL round trip -{loss:.1f}%" if loss is not None
+            else "✓ Sell route found")
 
 
 def format_launch(token: Token, facts: dict, s: dict) -> str:
@@ -67,7 +94,9 @@ def format_launch(token: Token, facts: dict, s: dict) -> str:
         f"Pool created {age} ago on {e(token.dex or '?')}",
         f"Liquidity {_money(s.get('liquidity'))} · MCap {_money(s.get('mcap'))} · Vol 1h {_money(s.get('volume_1h'))}",
         f"1h trades {b + sl} ({b} buys / {sl} sells)",
-        "✓ Mint authority renounced · ✓ No freeze authority · ✓ Standard SPL token",
+        "✓ Mint authority renounced · ✓ No freeze authority · "
+        + ("✓ Token-2022, no risky extensions" if facts.get("token_2022") else "✓ Standard SPL token"),
+        _exit_line(facts),
         f"✓ Top-10 wallets {facts['top10_wallet_pct']:.0f}% · largest {facts['top1_wallet_pct']:.0f}% "
         f"(pools & burn excluded)",
         "⚠️ Not a buy signal. LP lock and deployer history are NOT checked; fresh launches are "

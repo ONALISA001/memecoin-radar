@@ -703,7 +703,16 @@ def token_onchain_risk(address: str, db: Session = Depends(get_db)):
                 "accounts_sampled": last.holders_sampled, "token_2022": bool(last.token_2022),
                 "holders": last.holders_count, "holders_capped": bool(last.holders_capped),
                 "top1_wallet_pct": last.top1_wallet_pct, "top10_wallet_pct": last.top10_wallet_pct,
-                "excluded_pct": last.excluded_pct},
+                "excluded_pct": last.excluded_pct,
+                "token_extensions": helius_mod.ext_names_from_str(last.token_extensions),
+                "transfer_fee_bps": last.transfer_fee_bps,
+                "transfer_fee_mutable": last.transfer_fee_mutable},
+            "exit": None if last.exit_sol_in is None else {
+                "source": "jupiter", "sol_in": last.exit_sol_in,
+                "buy_route": last.exit_buy_route, "sell_route": last.exit_sell_route,
+                "round_trip_loss_pct": last.exit_round_trip_loss_pct,
+                "route": last.exit_route, "error": last.exit_error,
+                "note": "Quote only (no transaction). Freeze/hook/frozen-account checks above still apply."},
             "caveat": ("Wallet figures exclude pools, bonding curves, lockers and burn addresses "
                        "(program-owned accounts). Account figures include them."
                        if last.top10_wallet_pct is not None else

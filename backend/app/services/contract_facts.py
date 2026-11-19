@@ -11,6 +11,7 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from ..models import Token, TokenRiskCheck
+from ..providers.helius import ext_names_from_str
 from ..providers.mock_providers import Sim
 
 
@@ -22,7 +23,10 @@ def unverified_facts() -> dict:
     return {"verified": False, "mint_authority": None, "freeze_authority": None,
             "token_2022": None, "top1_wallet_pct": None, "top10_wallet_pct": None,
             "excluded_pct": None, "lp_burned_pct": None, "deployer_prev_launches": None,
-            "deployer_suspicious": None, "checked_at": None, "source": "unverified"}
+            "deployer_suspicious": None, "token_extensions": None, "transfer_fee_bps": None,
+            "transfer_fee_mutable": None, "exit_buy_route": None, "exit_sell_route": None,
+            "exit_round_trip_loss_pct": None, "exit_sol_in": None,
+            "checked_at": None, "source": "unverified"}
 
 
 def facts_from_check(chk: TokenRiskCheck) -> dict:
@@ -33,6 +37,13 @@ def facts_from_check(chk: TokenRiskCheck) -> dict:
             # REAL-wallet concentration (None for checks made before it existed)
             "top1_wallet_pct": chk.top1_wallet_pct, "top10_wallet_pct": chk.top10_wallet_pct,
             "excluded_pct": chk.excluded_pct,
+            # Token-2022: list of ACTIVE risky extensions (None = not analysed yet)
+            "token_extensions": ext_names_from_str(chk.token_extensions),
+            "transfer_fee_bps": chk.transfer_fee_bps,
+            "transfer_fee_mutable": chk.transfer_fee_mutable,
+            # Exit analyst (Jupiter round trip). sell_route None = not checked
+            "exit_buy_route": chk.exit_buy_route, "exit_sell_route": chk.exit_sell_route,
+            "exit_round_trip_loss_pct": chk.exit_round_trip_loss_pct, "exit_sol_in": chk.exit_sol_in,
             # Not available from our Helius checks yet: unknown, not "fine".
             "lp_burned_pct": None, "deployer_prev_launches": None, "deployer_suspicious": None,
             "checked_at": chk.checked_at.isoformat() if chk.checked_at else None,
