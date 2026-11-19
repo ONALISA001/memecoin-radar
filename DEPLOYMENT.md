@@ -39,6 +39,8 @@ git push -u origin main
    | `JWT_SECRET` | any long random string (`openssl rand -hex 32`) |
    | `INGEST_INTERVAL_SECONDS` | `60` (optional) |
    | `RATE_LIMIT_PER_MIN` | `240` (optional) |
+   | `TELEGRAM_BOT_TOKEN` | token from @BotFather (optional — enables Telegram alerts) |
+   | `TELEGRAM_CHAT_ID` | channel/chat ID, e.g. `-100…` (the bot must be an admin of the channel) |
 5. **Settings → Networking → Generate Domain** → copy the URL, e.g.
    `https://memecoin-radar-api.up.railway.app`.
 6. Wait for green. Check `https://<your-domain>/docs` — Swagger should load.

@@ -4,8 +4,8 @@ Conditions: {metric, op, value, scope, address?}
 Metrics: trend_score | fomo_score | risk_score | mentions_growth_pct |
 volume_growth_pct | holder_growth_pct | liquidity_drop_pct | new_narrative
 Channels: browser (frontend polls /alerts/events + Notification API),
-webhook (POST JSON — Discord/Slack-compatible). Telegram/Email are Phase-5
-adapters against the same Channel interface.
+webhook (POST JSON — Discord/Slack-compatible), telegram (bot token + chat ID
+from env, see engine/telegram.py). Email is a Phase-5 adapter on the same interface.
 """
 from __future__ import annotations
 
@@ -16,8 +16,9 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..config import ALERT_COOLDOWN_SECONDS
+from ..config import ALERT_COOLDOWN_SECONDS, TELEGRAM_MAX_PER_TICK
 from ..models import Alert, AlertEvent
+from . import telegram
 
 OPS = {
     "gt": lambda v, x: v > x,
@@ -72,8 +73,16 @@ def format_message(alert: Alert, symbol: str, payload: dict, value: float) -> di
     }
 
 
-def deliver(channel: dict, message: dict) -> dict:
+def deliver(channel: dict, message: dict, budget: dict | None = None) -> dict:
     ctype = (channel or {}).get("type", "browser")
+    if ctype == "telegram":
+        # per-tick flood guard: a bad rule (e.g. risk_score > 0 on all tokens)
+        # must not fire dozens of messages in one tick
+        if budget is not None:
+            if budget.get("telegram", 0) <= 0:
+                return {"type": "telegram", "ok": False, "error": "tick limit reached"}
+            budget["telegram"] -= 1
+        return telegram.send_alert(message)
     if ctype == "webhook" and channel.get("url"):
         try:
             text = (f"{message['title']}\n{message['alert']}\n${message['token']} — "
@@ -91,6 +100,7 @@ def evaluate_alerts(db: Session, token_payloads: list[dict], now: int,
                     new_narratives: list[str]) -> int:
     alerts = db.execute(select(Alert).where(Alert.enabled == True)).scalars().all()  # noqa: E712
     created = 0
+    budget = {"telegram": TELEGRAM_MAX_PER_TICK}
     for alert in alerts:
         c = alert.condition_json or {}
         metric, op, value = c.get("metric"), c.get("op", "gt"), float(c.get("value", 0))
@@ -107,7 +117,7 @@ def evaluate_alerts(db: Session, token_payloads: list[dict], now: int,
                 msg = {"title": "🚨 MEMECOIN RADAR", "alert": alert.name,
                        "trigger": "new_narrative", "narrative": name, "ts": now}
                 db.add(AlertEvent(alert_id=alert.id, token_id=None, ts=now,
-                                  payload_json=msg, delivered_json=deliver(alert.channel_json or {}, msg)))
+                                  payload_json=msg, delivered_json=deliver(alert.channel_json or {}, msg, budget)))
                 created += 1
             continue
 
@@ -127,7 +137,7 @@ def evaluate_alerts(db: Session, token_payloads: list[dict], now: int,
             if now - last_ts < ALERT_COOLDOWN_SECONDS:
                 continue
             msg = format_message(alert, p["symbol"], p, v)
-            result = deliver(alert.channel_json or {}, msg)
+            result = deliver(alert.channel_json or {}, msg, budget)
             db.add(AlertEvent(alert_id=alert.id, token_id=p["token_id"], ts=now,
                               payload_json=msg, delivered_json=result))
             created += 1
