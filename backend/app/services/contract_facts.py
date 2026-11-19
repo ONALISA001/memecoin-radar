@@ -13,6 +13,7 @@ from sqlalchemy import select
 from ..models import Token, TokenRiskCheck
 from ..providers.helius import ext_names_from_str
 from ..providers.mock_providers import Sim
+from .launch_forensics import latest_launch_rows, launch_facts
 
 
 def is_mock(token: Token) -> bool:
@@ -26,7 +27,7 @@ def unverified_facts() -> dict:
             "deployer_suspicious": None, "token_extensions": None, "transfer_fee_bps": None,
             "transfer_fee_mutable": None, "exit_buy_route": None, "exit_sell_route": None,
             "exit_round_trip_loss_pct": None, "exit_sol_in": None,
-            "checked_at": None, "source": "unverified"}
+            "launch": None, "checked_at": None, "source": "unverified"}
 
 
 def facts_from_check(chk: TokenRiskCheck) -> dict:
@@ -71,6 +72,7 @@ def latest_contract_facts(db, tokens: list[Token]) -> dict[int, dict]:
                                     TokenRiskCheck.id)).scalars().all()
         for r in rows:            # ordered ascending → last one wins
             latest[r.token_id] = r
+    launch_rows = latest_launch_rows(db, real)
     out: dict[int, dict] = {}
     for t in tokens:
         if is_mock(t):
@@ -79,6 +81,8 @@ def latest_contract_facts(db, tokens: list[Token]) -> dict[int, dict]:
             out[t.id] = facts_from_check(latest[t.id])
         else:
             out[t.id] = unverified_facts()
+        if not is_mock(t):
+            out[t.id]["launch"] = launch_facts(launch_rows.get(t.id))
     return out
 
 

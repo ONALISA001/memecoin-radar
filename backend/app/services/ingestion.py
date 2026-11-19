@@ -49,6 +49,7 @@ from ..providers import jupiter as jup_mod
 from .holders import real_holder_stats
 from .contract_facts import is_mock, latest_contract_facts, unverified_facts
 from .launch_alerts import evaluate_launches, send_launch_alerts
+from . import launch_forensics as lf_svc
 from . import onchain_real
 from . import telegram_feed as tg_feed
 from ..providers import telegram_public as tg_public
@@ -695,6 +696,18 @@ async def onchain_checks() -> dict:
             db.commit()
         done += 1 if r.ok else 0
         failed += 0 if r.ok else 1
+    # Launch forensics (bundles/snipers/funders) BEFORE launch alerts are decided,
+    # so a fresh launch is judged with its wallet-level evidence.
+    try:
+        lfx = await lf_svc.run_launch_forensics(SessionLocal)
+    except Exception as exc:          # never let forensics break the on-chain tick
+        lfx = {"error": type(exc).__name__}
+    if lfx.get("analysed"):
+        with SessionLocal() as db:
+            upsert_source(db, "launch-forensics", "onchain", "ok" if lfx.get("ok") else "degraded",
+                          {"note": "wallet-level launch analysis: bundles, snipers, shared funders",
+                           "last_batch": lfx})
+            db.commit()
     with SessionLocal() as db:
         db.execute(delete(TokenRiskCheck).where(
             TokenRiskCheck.checked_at < now - _dt.timedelta(days=7)))   # retention
@@ -712,7 +725,7 @@ async def onchain_checks() -> dict:
         launch["sent"] = await asyncio.to_thread(send_launch_alerts, launch.pop("to_send"))
     return {"helius": {"ok": done, "failed": failed},
             "jupiter": {"ok": exit_ok, "failed": exit_failed} if jup is not None else "disabled",
-            "launch_alerts": launch}
+            "launch_forensics": lfx, "launch_alerts": launch}
 
 
 async def tick() -> dict:
