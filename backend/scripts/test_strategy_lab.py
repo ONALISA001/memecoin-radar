@@ -29,7 +29,7 @@ db.add_all([usr, young, old, trend]); db.flush()
 def mk(price=0.001, **kw):
     m = {"price": price, "liq": 90000, "mcap": 900000, "volume_24h": 400000, "price_chg_1h": 12.0,
          "momentum": 74.0, "sellp": 25.0, "liq_chg_3h": 2.0, "risk": 35.0, "regime": "BULLISH",
-         "vol_liq_ratio": 4.4, "buy_share_1h": 60.0, "price_chg_15m": 1.0, "price_chg_24h": 20.0}
+         "vol_liq_ratio": 4.4, "buy_share_pct": 60.0, "price_chg_15m": 1.0, "price_chg_24h": 20.0}
     m.update(kw); return m
 MKT = {young.id: mk(), old.id: mk(), trend.id: mk(price_chg_24h=5.0)}
 
@@ -45,7 +45,7 @@ def event(tok, ts):
 # --- filters off by default --------------------------------------------------
 check("all strategy rules off by default", F.strategy_checks(db, PC.merged_settings({}), young, mk(), NOW) == [])
 vm = PC.merged_settings(PC.PRESETS["verified_momentum"]["settings"])
-res = {n: ok for n, ok, _ in F.strategy_checks(db, vm, young, mk(price_chg_1h=90, vol_liq_ratio=30, buy_share_1h=45), NOW)}
+res = {n: ok for n, ok, _ in F.strategy_checks(db, vm, young, mk(price_chg_1h=90, vol_liq_ratio=30, buy_share_pct=45), NOW)}
 check("young coin fails age rule", res["coin age"] is False)
 check("unverified contract fails", res["verified contract"] is False and res["wallet concentration"] is False)
 check("wash-volume / chasing / weak buying caught", not res["volume vs liquidity"] and not res["not chasing"]
@@ -134,6 +134,34 @@ API.paper_lab_reset(db=db, user=usr)
 check("lab reset clears lab positions only", db.query(PaperPosition).filter(
     PaperPosition.account_id.in_([a.id for a in accts.values()])).count() == 0
       and db.query(PaperPosition).filter_by(account_id=main.id).count() == 2)
+
+# --- units the engine really receives from an ingestion tick -------------------------
+import asyncio  # noqa: E402
+from app.providers.base import RawToken  # noqa: E402
+from app.services import ingestion as ING  # noqa: E402
+A = "UnitsAAAA" + "1" * 29
+async def fake_discover():
+    return ([RawToken(address=A, chain="solana", name="Units", symbol="UNT")],
+            {A: dict(price_usd=0.001, mcap=2e6, fdv=2e6, liquidity_usd=50000, volume_h24=600000,
+                     volume_h6=200000, volume_h1=40000, volume_m5=3000, pc_m5=1.0, pc_h1=-9.0, pc_h6=30.0,
+                     pc_h24=75.0, txns_h1_buys=300, txns_h1_sells=100, txns_h24_buys=3100,
+                     txns_h24_sells=2600, txns_m5_buys=18, txns_m5_sells=12, pair_liquidity_usd=50000)}, False)
+ING.discover_tokens = fake_discover
+seen = {}
+real_run = ING.paper_engine.run_tick
+def spy(db_, now_, market):
+    seen.update(market); return real_run(db_, now_, market)
+ING.paper_engine.run_tick = spy
+os.environ["HELIUS_API_KEY"] = ""
+asyncio.run(ING.tick())
+m = next(iter(v for v in seen.values()), {})
+with SessionLocal() as s2:
+    tid = s2.query(Token).filter_by(address=A).one().id
+m = seen.get(tid, {})
+check("buy share arrives as a percent (75, not 0.75)", abs((m.get("buy_share_pct") or 0) - 75.0) < 1e-6, str(m.get("buy_share_pct")))
+check("volume/liquidity uses 24h volume (600k / 50k = 12x)", abs((m.get("vol_liq_ratio") or 0) - 12.0) < 0.01, str(m.get("vol_liq_ratio")))
+check("24h/1h change come from live DexScreener, not short history", m.get("price_chg_24h") == 75.0 and m.get("price_chg_1h") == -9.0,
+      f"{m.get('price_chg_24h')} {m.get('price_chg_1h')}")
 
 db.close()
 print(f"\n{len(PASS)} passed, {len(FAIL)} failed")

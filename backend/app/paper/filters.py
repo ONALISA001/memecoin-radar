@@ -51,14 +51,15 @@ def strategy_checks(db, settings: dict, token: Token, mkt: dict, now: int) -> li
     if cap > 0:
         r = mkt.get("vol_liq_ratio")
         out.append(("volume vs liquidity", r is not None and r <= cap,
-                    f"{r:.1f}x vs max {cap:g}x (wash-trading guard)" if r is not None else "no data"))
+                    f"24h volume {r:.1f}x liquidity vs max {cap:g}x (wash-trading guard)"
+                    if r is not None else "no data"))
     cap = s.get("max_chase_pct_1h", 0)
     if cap > 0:
         c = mkt.get("price_chg_1h") or 0.0
         out.append(("not chasing", c <= cap, f"1h {c:+.0f}% vs max +{cap:g}%"))
     mn = s.get("min_buy_share_pct", 0)
     if mn > 0:
-        b = mkt.get("buy_share_1h")
+        b = mkt.get("buy_share_pct")
         out.append(("buyers in control", b is not None and b >= mn,
                     f"buys {b:.0f}% of 1h trades vs min {mn:g}%" if b is not None else "no data"))
     return out
