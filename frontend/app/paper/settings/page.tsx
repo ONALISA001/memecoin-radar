@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { apiPost, useApi } from "@/lib/api";
+import { apiPost, useApi, useRole } from "@/lib/api";
 import { Panel } from "@/components/ui";
 import { SimStrip } from "@/components/paper";
 
@@ -104,10 +104,15 @@ function getPath(obj: any, path: string) {
 }
 
 export default function PaperSettingsPage() {
-  const { data, mutate } = useApi("/paper/settings", 60000) as any;
+  const [rev, setRev] = useState(0);
+  const { data } = useApi(`/paper/settings?r=${rev}`, 60000) as any;
+  const role = useRole();
+  const owner = role === "owner";
   const [form, setForm] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [msg, setMsg] = useState("");
+  const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const [newCapital, setNewCapital] = useState("10000");
 
@@ -123,33 +128,50 @@ export default function PaperSettingsPage() {
   }, [data]);
 
   const save = async () => {
-    setMsg("");
+    setMsg(""); setErr("");
+    // Send EVERY field shown. (Sending only non-default values meant a field set back to its
+    // default was never sent, so the old stored value silently stayed.)
     const overrides: Record<string, any> = {};
-    for (const g of GROUPS) for (const [k] of g.fields) {
-      const raw = form[k];
-      const n = parseFloat(raw);
-      if (raw === "" || isNaN(n)) continue;
-      const def = getPath(data.defaults, k);
+    const bad: string[] = [];
+    for (const g of GROUPS) for (const [k, label] of g.fields) {
+      const raw = (form[k] ?? "").trim();
+      if (raw === "") continue;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) { bad.push(label); continue; }
+      const def = getPath(data?.defaults, k);
       const val: number | boolean = typeof def === "boolean" ? n !== 0 : n;   // on/off switches
-      if (val === def) continue;
       const parts = k.split(".");
       if (parts.length === 1) overrides[k] = val;
       else {
         overrides[parts[0]] = overrides[parts[0]] || {};
-        overrides[parts[0]][parts[1]] = n;
+        overrides[parts[0]][parts[1]] = val;
       }
     }
-    const r = await apiPost("/paper/settings", overrides);
-    setDirty(false);
-    setMsg(`saved — strategy version: ${r.strategy}`);
-    mutate?.();
+    if (bad.length) { setErr(`Not a number: ${bad.join(", ")}`); return; }
+    setSaving(true);
+    try {
+      const r = await apiPost("/paper/settings", overrides);
+      setDirty(false);
+      setMsg(`Saved — strategy version: ${r.strategy}`);
+      setRev(rev + 1);                       // reload what the server now uses
+    } catch (e: any) {
+      setErr(`Not saved: ${e?.message || e}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const reset = async () => {
+    setErr("");
     const n = parseFloat(newCapital);
-    await apiPost(`/paper/reset?starting_cash=${isNaN(n) ? 10000 : n}`);
-    setConfirmReset(false);
-    location.reload();
+    try {
+      await apiPost(`/paper/reset?starting_cash=${isNaN(n) ? 10000 : n}`);
+      setConfirmReset(false);
+      location.reload();
+    } catch (e: any) {
+      setErr(`Reset failed: ${e?.message || e}`);
+      setConfirmReset(false);
+    }
   };
 
   return (
@@ -173,11 +195,15 @@ export default function PaperSettingsPage() {
           </div>
         ))}
         <div className="p-4 flex items-center gap-3">
-          <button disabled={!dirty} onClick={save}
-                  className="pill-mini !text-cyanx !border-cyanx/60 !py-2 !px-4">
-            Save settings
+          <button disabled={!dirty || saving || !owner} onClick={save}
+                  title={!owner ? "Log in as owner to save" : !dirty ? "Change a value first" : undefined}
+                  className="pill-mini !text-cyanx !border-cyanx/60 !py-2 !px-4 disabled:opacity-40 disabled:cursor-not-allowed">
+            {saving ? "Saving…" : "Save settings"}
           </button>
+          {!owner && <span className="text-xs text-amberx">Read-only: log in as owner (sidebar) to save.</span>}
+          {owner && dirty && !saving && <span className="text-xs text-amberx">Unsaved changes</span>}
           {msg && <span className="text-xs text-greenx">{msg}</span>}
+          {err && <span className="text-xs text-redx">{err}</span>}
           <span className="text-2xs text-dim ml-auto">Strategy/risk changes create a new strategy version — historical trades keep their original config (§22).</span>
         </div>
       </Panel>

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { apiPost } from "@/lib/api";
+import { runJob, useRole } from "@/lib/api";
 import { Panel } from "@/components/ui";
 import { EquityCurve, fmtUtc, holdStr, pnlCls, SimStrip, StatTile, usd } from "@/components/paper";
 
@@ -28,9 +28,11 @@ function FamilyCompare() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [r, setR] = useState<any>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const owner = useRole() === "owner";
   const run = async () => {
-    setBusy(true); setErr("");
-    try { setR(await apiPost("/paper/backtest/compare", { hours: parseInt(hours) || 168 })); }
+    setBusy(true); setErr(""); setElapsed(0);
+    try { setR(await runJob("/paper/backtest/compare", { hours: parseInt(hours) || 168 }, (s) => setElapsed(s))); }
     catch (e: any) { setErr(String(e?.message || e)); }
     finally { setBusy(false); }
   };
@@ -49,11 +51,13 @@ function FamilyCompare() {
                {[["24", "last 24h"], ["72", "last 3 days"], ["168", "last 7 days"], ["720", "last 30 days"]].map(([v, l]) =>
                  <option key={v} value={v}>{l}</option>)}
              </select>
-             <button onClick={run} disabled={busy} className="pill-mini !text-cyanx !border-cyanx/60 !py-1.5">
-               {busy ? "running…" : "▶ Compare all"}</button>
+             <button onClick={run} disabled={busy || !owner} title={owner ? undefined : "Log in as owner to run"}
+                     className="pill-mini !text-cyanx !border-cyanx/60 !py-1.5 disabled:opacity-40">
+               {busy ? `running… ${Math.round(elapsed)}s` : "▶ Compare all"}</button>
            </div>}>
       {err && <div className="px-3 py-2 text-xs text-redx">{err}</div>}
-      {!r && !err && <div className="px-4 py-3 text-xs text-dim">Runs every strategy over the chosen window with identical data, then ranks them. Owner only.</div>}
+      {!r && !err && <div className="px-4 py-3 text-xs text-dim">Runs every strategy over the chosen window with identical data, then ranks them.
+        {owner ? " Long windows take a little while; it runs in the background." : <span className="text-amberx"> Log in as owner (sidebar) to run it.</span>}</div>}
       {r && (
         <div>
           <div className="px-4 py-2 text-sm border-b border-line/50">
@@ -227,19 +231,21 @@ export default function BacktestPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [result, setResult] = useState<BTResult | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const owner = useRole() === "owner";
 
   const run = async () => {
-    setBusy(true); setErr("");
+    setBusy(true); setErr(""); setElapsed(0);
     try {
       const strat: Record<string, number> = {};
       for (const [k, v] of Object.entries(params)) {
         const n = parseFloat(v);
         if (!isNaN(n)) strat[k] = n;
       }
-      const r = await apiPost("/paper/backtest", {
+      const r = await runJob("/paper/backtest", {
         hours: parseInt(hours) || 168, capital: parseFloat(capital) || 10000,
         strategy: strat, mode,
-      });
+      }, (s) => setElapsed(s));
       setResult(r);
     } catch (e: any) { setErr(String(e?.message || e)); }
     finally { setBusy(false); }
@@ -271,9 +277,9 @@ export default function BacktestPage() {
             </select>
           </div>
           <div className="flex items-end">
-            <button onClick={run} disabled={busy}
-                    className="pill-mini !text-cyanx !border-cyanx/60 w-full !py-2">
-              {busy ? "running…" : "▶ Run"}
+            <button onClick={run} disabled={busy || !owner} title={owner ? undefined : "Log in as owner to run"}
+                    className="pill-mini !text-cyanx !border-cyanx/60 w-full !py-2 disabled:opacity-40">
+              {busy ? `running… ${Math.round(elapsed)}s` : "▶ Run"}
             </button>
           </div>
         </div>
@@ -287,6 +293,7 @@ export default function BacktestPage() {
           ))}
         </div>
         {err && <div className="px-3 pb-2 text-xs text-redx">{err}</div>}
+        {!owner && <div className="px-3 pb-2 text-xs text-amberx">Read-only: log in as owner (sidebar) to run backtests.</div>}
         <div className="px-3 pb-3 text-2xs text-dim">
           Note: backtesting is bounded by recorded history — the intel event feed exists since the v3 engine shipped;
           window data before that is marked as data gaps, never filled with fabricated signals (§34).

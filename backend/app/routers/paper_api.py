@@ -591,35 +591,68 @@ def _uts(ts: int | None) -> str:
 
 
 # ------------------------------------------------------------------ backtest (§20)
-@router.post("/paper/backtest/compare", dependencies=[Depends(require_owner)])
-def paper_backtest_compare(body: dict, db: Session = Depends(get_db),
-                           user: User = Depends(get_current_user)):
-    """Replay the momentum-strategy family (Baseline + A–F, or ?keys) over the same window."""
-    hours = min(max(int(body.get("hours") or 72), 1), 24 * 30)
+def _compare_job(hours: int, capital: float, keys: tuple) -> dict:
+    from ..database import SessionLocal
     end_ts = int(time.time())
+    with SessionLocal() as db:
+        return BT.compare_family(db, end_ts - hours * 3600, end_ts, capital, keys)
+
+
+def _backtest_job(user_id: int, start_ts: int, end_ts: int, cap: float, overrides: dict, mode: str) -> dict:
+    from ..database import SessionLocal
+    with SessionLocal() as db:
+        result = BT.run(db, start_ts, end_ts, cap, overrides, mode=mode)
+        run = BacktestRun(user_id=user_id, mode=mode, start_ts=start_ts, end_ts=end_ts,
+                          params_json={"capital": cap, "strategy": overrides},
+                          result_json=result["summary"], frames_json=result.get("frames"),
+                          status="done", note=result.get("note"))
+        db.add(run)
+        db.commit()
+        return {"run_id": run.id, "mode": mode, **result}
+
+
+def _submit(user: User, kind: str, fn, *args) -> dict:
+    from ..paper import jobs as JOBS
+    try:
+        return JOBS.submit(user.id, kind, fn, *args)
+    except RuntimeError as exc:
+        raise HTTPException(429, str(exc))
+
+
+@router.post("/paper/backtest/compare", dependencies=[Depends(require_owner)])
+def paper_backtest_compare(body: dict, user: User = Depends(get_current_user)):
+    """Replay the momentum-strategy family (Baseline + A–F, or ?keys) over the same window.
+    {"background": true} returns a job id to poll at /paper/backtest/jobs/{id} (long windows
+    outlast the hosting proxy's request timeout)."""
+    hours = min(max(int(body.get("hours") or 72), 1), 24 * 30)
     capital = min(float(body.get("capital") or 10000.0), 1_000_000)
-    keys = tuple(k for k in (body.get("keys") or PC.MOMENTUM_FAMILY) if k in PC.PRESETS)[:10]
-    return BT.compare_family(db, end_ts - hours * 3600, end_ts, capital, keys or PC.MOMENTUM_FAMILY)
+    keys = tuple(k for k in (body.get("keys") or PC.MOMENTUM_FAMILY) if k in PC.PRESETS)[:10] or PC.MOMENTUM_FAMILY
+    if body.get("background"):
+        return _submit(user, "compare", _compare_job, hours, capital, keys)
+    return _compare_job(hours, capital, keys)
 
 
 @router.post("/paper/backtest", dependencies=[Depends(require_owner)])
-def paper_backtest(body: dict, db: Session = Depends(get_db),
-                   user: User = Depends(get_current_user)):
+def paper_backtest(body: dict, user: User = Depends(get_current_user)):
     start_ts = int(body.get("start_ts") or (time.time() - 86400))
     end_ts = int(body.get("end_ts") or time.time())
     hours = body.get("hours")
     if hours:
         end_ts = int(time.time())
         start_ts = end_ts - min(int(hours), 24 * 30) * 3600
-    capital = float(body.get("capital") or 10000.0)
-    cap = min(capital, 1_000_000)
+    cap = min(float(body.get("capital") or 10000.0), 1_000_000)
     overrides = {k: v for k, v in (body.get("strategy") or {}).items() if k in PC.DEFAULT_SETTINGS}
-    result = BT.run(db, start_ts, end_ts, cap, overrides, mode=body.get("mode", "backtest"))
-    run = BacktestRun(user_id=user.id, mode=body.get("mode", "backtest"),
-                      start_ts=start_ts, end_ts=end_ts,
-                      params_json={"capital": cap, "strategy": overrides},
-                      result_json=result["summary"], frames_json=result.get("frames"),
-                      status="done", note=result.get("note"))
-    db.add(run)
-    db.commit()
-    return {"run_id": run.id, "mode": run.mode, **result}
+    mode = body.get("mode", "backtest") if body.get("mode") in ("backtest", "replay") else "backtest"
+    if body.get("background"):
+        return _submit(user, "backtest", _backtest_job, user.id, start_ts, end_ts, cap, overrides, mode)
+    return _backtest_job(user.id, start_ts, end_ts, cap, overrides, mode)
+
+
+@router.get("/paper/backtest/jobs/{job_id}")
+def paper_backtest_job(job_id: str, user: User = Depends(get_current_user)):
+    """Status (queued / running / done / error) and, when done, the result of a backtest job."""
+    from ..paper import jobs as JOBS
+    j = JOBS.get(job_id, user.id)
+    if j is None:
+        raise HTTPException(404, "job not found (it may have expired or the server restarted) — run it again")
+    return j

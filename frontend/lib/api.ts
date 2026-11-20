@@ -111,6 +111,17 @@ export function useRole(): Role {
   return role;
 }
 
+// ---------------- auth notices ----------------
+// Owner tokens expire (24h). Before, the app then silently fell back to a read-only
+// visitor token, so every Save / Run / Approve was refused with nothing on screen.
+// Now the shell shows a banner with a login button when that happens.
+export const AUTH_NOTICE = "mcr-auth-notice";
+export type AuthNotice = "owner_expired" | "owner_required";
+
+function notifyAuth(kind: AuthNotice) {
+  try { window.dispatchEvent(new CustomEvent(AUTH_NOTICE, { detail: kind })); } catch { /* ignore */ }
+}
+
 export async function api<T = any>(path: string, opts: RequestInit = {}, auth = true): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(opts.headers as any) };
   let tok: string | null = null;
@@ -118,10 +129,12 @@ export async function api<T = any>(path: string, opts: RequestInit = {}, auth = 
     tok = await ensureToken();
     if (tok) headers["Authorization"] = `Bearer ${tok}`;
   }
+  const wasOwner = tokenRole(tok) === "owner" || (tok != null && isOwnerToken(tok));
   let r = await fetch(`/api${path}`, { ...opts, headers });
   if (r.status === 401 && auth) {
     clearStored();
     announceRole();
+    if (wasOwner) notifyAuth("owner_expired");
     tok = await ensureToken();
     if (tok) headers["Authorization"] = `Bearer ${tok}`;
     r = await fetch(`/api${path}`, { ...opts, headers });
@@ -129,9 +142,46 @@ export async function api<T = any>(path: string, opts: RequestInit = {}, auth = 
   if (!r.ok) {
     let msg = `${r.status}`;
     try { msg = (await r.json()).detail || msg; } catch {}
+    if (r.status === 403 && typeof msg === "string" && /owner login required/i.test(msg)) {
+      notifyAuth(wasOwner ? "owner_expired" : "owner_required");
+      msg = "Owner login required — log in as owner (sidebar) and try again.";
+    }
     throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
   }
   return r.json() as Promise<T>;
+}
+
+/** Role claim even if expired (tokenRole() returns null for expired tokens). */
+function isOwnerToken(tok: string): boolean {
+  try {
+    const part = tok.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(part.padEnd(part.length + ((4 - (part.length % 4)) % 4), "="))).role === "owner";
+  } catch { return false; }
+}
+
+/** Show a short error toast (the app shell renders it). Owner-login errors are skipped:
+ *  the login banner already explains those. */
+export const ERROR_NOTICE = "mcr-error";
+export function reportError(e: any) {
+  const msg = String(e?.message || e || "Something went wrong");
+  if (/owner login required/i.test(msg)) return;
+  try { window.dispatchEvent(new CustomEvent(ERROR_NOTICE, { detail: msg })); } catch { /* ignore */ }
+}
+
+/** Start a background backtest job and poll until it finishes. */
+export async function runJob<T = any>(path: string, body: any, onTick?: (elapsedS: number, status: string) => void,
+                                      timeoutMs = 15 * 60 * 1000): Promise<T> {
+  const job = await apiPost<any>(path, { ...body, background: true });
+  if (!job?.id) return job as T;                 // older backend: answered synchronously
+  const t0 = Date.now();
+  for (;;) {
+    await new Promise((res) => setTimeout(res, 1500));
+    const j = await api<any>(`/paper/backtest/jobs/${job.id}`);
+    onTick?.(j.elapsed_s ?? Math.round((Date.now() - t0) / 1000), j.status);
+    if (j.status === "done") return j.result as T;
+    if (j.status === "error") throw new Error(j.error || "backtest failed");
+    if (Date.now() - t0 > timeoutMs) throw new Error("backtest is taking too long — try a shorter window");
+  }
 }
 
 /** Polling fetch hook (auto-refreshing dashboards). */

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { api, apiPost, ownerLogin, ownerLogout, useApi, useRole } from "@/lib/api";
+import { api, apiPost, AUTH_NOTICE, ERROR_NOTICE, ownerLogin, ownerLogout, reportError, useApi, useRole } from "@/lib/api";
 import { Badge, LivePulse } from "./ui";
 import { timeAgo } from "@/lib/format";
 import {
@@ -82,7 +82,7 @@ function AlertBell() {
                 {notify ? "browser: on" : "browser: off"}
               </button>
               <button className="btn !py-0.5 !px-2 !text-2xs"
-                      onClick={async () => { await apiPost("/alerts/events/read-all"); setOpen(false); }}>
+                      onClick={async () => { try { await apiPost("/alerts/events/read-all"); setOpen(false); } catch (e) { reportError(e); } }}>
                 mark read
               </button>
             </div>
@@ -173,6 +173,73 @@ function OutageBanner() {
       <span className="text-amberx font-semibold inline-flex items-center gap-1.5"><PauseCircle size={14} /> Market data paused</span>
       <span className="text-dim"> — DexScreener is unreachable{since ? ` since ${since}` : ""}. You&apos;re seeing the last real data;
         scores, alerts and paper trading resume automatically when it&apos;s back.</span>
+    </div>
+  );
+}
+
+/** Shown when an action needs the owner and the owner session is missing or expired. */
+function AuthBanner() {
+  const role = useRole();
+  const [kind, setKind] = useState<string | null>(null);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    const on = (e: Event) => setKind((e as CustomEvent).detail || "owner_required");
+    window.addEventListener(AUTH_NOTICE, on);
+    return () => window.removeEventListener(AUTH_NOTICE, on);
+  }, []);
+  useEffect(() => { if (role === "owner") setKind(null); }, [role]);
+  if (!kind || role === "owner") return null;
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!key) return;
+    setBusy(true); setErr(null);
+    try { await ownerLogin(key); setKey(""); setKind(null); }
+    catch (ex: any) { setErr(ex.message || "Login failed"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div role="alert" className="bg-amberx/10 border-b border-amberx/40 text-sm px-4 py-2.5">
+      <form onSubmit={submit} className="max-w-[1400px] mx-auto flex flex-wrap items-center gap-2">
+        <Lock size={14} className="text-amberx" />
+        <span className="text-amberx font-semibold">
+          {kind === "owner_expired" ? "Your owner session expired" : "Owner login required"}
+        </span>
+        <span className="text-dim">— saving, running backtests and approving need the owner key. Log in, then try again.</span>
+        <input type="password" autoComplete="current-password" placeholder="Owner key" value={key}
+               onChange={(e) => setKey(e.target.value)} aria-label="Owner key"
+               className="rounded-md bg-panel2 border border-line px-2.5 py-1 text-xs text-ink outline-none focus:border-cyanx w-40" />
+        <button type="submit" disabled={busy || !key} className="rounded-md bg-cyanx/15 text-cyanx text-xs px-3 py-1 disabled:opacity-50">
+          {busy ? "Checking…" : "Log in"}</button>
+        <button type="button" className="text-xs text-dim hover:text-ink" onClick={() => setKind(null)}>Dismiss</button>
+        {err && <span className="text-2xs text-redx w-full">{err}</span>}
+      </form>
+    </div>
+  );
+}
+
+/** Short-lived error toast for failed actions (see reportError). */
+function ErrorToast() {
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const on = (e: Event) => {
+      setMsg((e as CustomEvent).detail);
+      if (t) clearTimeout(t);
+      t = setTimeout(() => setMsg(null), 7000);
+    };
+    window.addEventListener(ERROR_NOTICE, on);
+    return () => { window.removeEventListener(ERROR_NOTICE, on); if (t) clearTimeout(t); };
+  }, []);
+  if (!msg) return null;
+  return (
+    <div role="alert" className="fixed bottom-4 right-4 z-[60] max-w-sm panel !border-redx/50 px-4 py-3 text-sm shadow-lg">
+      <div className="flex items-start gap-3">
+        <span className="text-redx font-semibold">Action failed</span>
+        <button className="ml-auto text-dim hover:text-ink" aria-label="Dismiss" onClick={() => setMsg(null)}><X size={14} /></button>
+      </div>
+      <div className="text-xs text-ink/80 mt-1 break-words">{msg}</div>
     </div>
   );
 }
@@ -313,6 +380,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <div className="sm:hidden px-4 pb-3"><SearchBox /></div>
       </header>
+      <AuthBanner />
+      <ErrorToast />
       <OutageBanner />
       <main className="max-w-[1400px] mx-auto px-4 lg:px-6 py-6">{children}</main>
       <footer className="max-w-[1400px] mx-auto px-4 lg:px-6 py-6 text-xs text-dim border-t border-line/60">
