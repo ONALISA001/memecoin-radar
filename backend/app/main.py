@@ -15,7 +15,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .config import INGEST_INTERVAL_SECONDS
+from .config import (CORS_ORIGINS, DEMO_MODE, INGEST_INTERVAL_SECONDS, JWT_SECRET_IS_EPHEMERAL,
+                     OWNER_KEY)
 from .database import Base, SessionLocal, engine, migrate_postgres
 from .routers import data_api, paper_api, user_api
 from .security import hash_password
@@ -92,6 +93,13 @@ async def scheduler_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if JWT_SECRET_IS_EPHEMERAL:
+        log.warning("JWT_SECRET not set: using a random per-process secret "
+                    "(logins reset on restart). Set JWT_SECRET in Railway > Variables.")
+    if not OWNER_KEY:
+        log.warning("OWNER_KEY not set: nobody can log in as owner, so the app is read-only.")
+    log.info("access: visitors=%s, owner login=%s",
+             "read-only" if DEMO_MODE else "off", "on" if OWNER_KEY else "off")
     ensure_schema_and_demo_user()
     task = asyncio.create_task(scheduler_loop())
     yield
@@ -112,13 +120,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app = FastAPI(title="MemeCoin Radar API", version="0.1.0", lifespan=lifespan,
               docs_url="/docs" if True else None)
 
-# CORS: read-only analytics API, no cookies/credentialed requests — widened so a
-# static frontend hosted anywhere (Netlify Drop, Vercel) can call it cross-origin.
-# No secrets ever leave through responses (§22); a browser app only sends a JWT
-# it already holds.
+# CORS: the Next.js frontend proxies /api/* server-side, so browsers never call
+# this API cross-origin. Only origins listed in CORS_ORIGINS are allowed.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -2,13 +2,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { api, apiPost, useApi } from "@/lib/api";
+import { api, apiPost, ownerLogin, ownerLogout, useApi, useRole } from "@/lib/api";
 import { Badge, LivePulse } from "./ui";
 import { timeAgo } from "@/lib/format";
 import {
   Gavel,
   Bell, BellRing, GitCompareArrows, History, Layers, LayoutDashboard, Menu, Radar, Radio, Search,
-  SlidersHorizontal, Sparkles, Star, Wallet, X, PauseCircle,
+  SlidersHorizontal, Sparkles, Star, Wallet, X, PauseCircle, Lock, LockOpen,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ComponentType<{ size?: number; className?: string }> };
@@ -207,6 +207,61 @@ function SideNav({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+function OwnerAccess() {
+  const role = useRole();
+  const [open, setOpen] = useState(false);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!key) return;
+    setBusy(true); setErr(null);
+    try {
+      await ownerLogin(key);
+      setKey(""); setOpen(false);
+    } catch (ex: any) {
+      setErr(ex.message || "Login failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (role === "owner") {
+    return (
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="flex items-center gap-1.5 text-cyanx"><LockOpen size={14} /> Owner</span>
+        <button className="text-dim hover:text-ink" onClick={() => ownerLogout()}>Log out</button>
+      </div>
+    );
+  }
+  if (!open) {
+    return (
+      <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" onClick={() => setOpen(true)}>
+        <Lock size={14} /> Read-only · Owner login
+      </button>
+    );
+  }
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2">
+      <input type="password" autoComplete="current-password" placeholder="Owner key" value={key} autoFocus
+             onChange={(e) => setKey(e.target.value)}
+             className="w-full rounded-md bg-panel2 border border-line px-2.5 py-1.5 text-xs text-ink outline-none focus:border-cyanx" />
+      {err && <span className="text-2xs text-redx">{err}</span>}
+      <div className="flex gap-2">
+        <button type="submit" disabled={busy || !key}
+                className="flex-1 rounded-md bg-cyanx/15 text-cyanx text-xs py-1.5 disabled:opacity-50">
+          {busy ? "Checking…" : "Log in"}
+        </button>
+        <button type="button" className="text-xs text-dim hover:text-ink px-2" onClick={() => { setOpen(false); setErr(null); }}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function Logo() {
   return (
     <Link href="/" className="flex items-center gap-2.5 shrink-0">
@@ -226,8 +281,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <aside className="hidden lg:flex fixed inset-y-0 left-0 w-60 flex-col bg-panel border-r border-line z-40">
         <div className="h-16 flex items-center px-5 border-b border-line"><Logo /></div>
         <div className="flex-1 overflow-y-auto"><SideNav /></div>
-        <div className="px-5 py-4 border-t border-line text-2xs text-dim leading-relaxed">
-          Analytics only — not financial advice.
+        <div className="px-5 py-4 border-t border-line flex flex-col gap-3">
+          <OwnerAccess />
+          <div className="text-2xs text-dim leading-relaxed">Analytics only — not financial advice.</div>
         </div>
       </aside>
 
@@ -241,6 +297,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
               <button className="text-dim hover:text-ink" onClick={() => setDrawer(false)} aria-label="Close menu"><X size={20} /></button>
             </div>
             <SideNav onNavigate={() => setDrawer(false)} />
+            <div className="px-5 py-4 border-t border-line"><OwnerAccess /></div>
           </aside>
         </div>
       )}

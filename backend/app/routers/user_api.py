@@ -1,4 +1,4 @@
-"""Authenticated user API: demo login, watchlist (§15), alerts (§16)."""
+"""Authenticated user API: visitor/owner login, watchlist (§15), alerts (§16)."""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,26 +7,46 @@ from sqlalchemy.orm import Session
 
 import time
 
-from ..config import DEMO_MODE
+from ..config import DEMO_MODE, OWNER_KEY
+from pydantic import BaseModel, Field
 from ..engine import telegram
 from ..database import get_db
 from ..models import Alert, AlertEvent, Token, TrendScore, User, Watchlist
 from ..schemas import AlertCreate, AlertPatch, WatchlistAdd
-from ..security import get_current_user, issue_token, rate_limit
+from ..security import (ROLE_OWNER, check_owner_key, get_current_user, issue_token,
+                        login_rate_limit, rate_limit, require_owner)
 
 router = APIRouter(dependencies=[Depends(rate_limit)])
 
 
 @router.post("/auth/demo")
 def demo_login(db: Session = Depends(get_db)):
-    """Demo-mode login: returns a JWT for the seeded demo user.
-    Disabled when DEMO_MODE=0 (production)."""
+    """Visitor login: a READ-ONLY JWT for the seeded user (browse dashboards).
+    Disabled when DEMO_MODE=0."""
     if not DEMO_MODE:
         raise HTTPException(403, "demo mode disabled")
     user = db.execute(select(User).where(User.email == "demo@memecoin.radar")).scalar_one_or_none()
     if not user:
         raise HTTPException(500, "demo user missing — run seed.py")
     return {"token": issue_token(user), "user": {"id": user.id, "email": user.email}}
+
+
+class OwnerLogin(BaseModel):
+    key: str = Field(min_length=1, max_length=256)
+
+
+@router.post("/auth/login", dependencies=[Depends(login_rate_limit)])
+def owner_login(body: OwnerLogin, db: Session = Depends(get_db)):
+    """Owner login: the right OWNER_KEY gets a token that can change data."""
+    if not OWNER_KEY:
+        raise HTTPException(503, "owner login not configured (set OWNER_KEY on the server)")
+    if not check_owner_key(body.key):
+        raise HTTPException(401, "wrong key")
+    user = db.execute(select(User).where(User.email == "demo@memecoin.radar")).scalar_one_or_none()
+    if not user:
+        raise HTTPException(500, "user missing — run seed.py")
+    return {"token": issue_token(user, role=ROLE_OWNER), "role": ROLE_OWNER,
+            "user": {"id": user.id, "email": user.email}}
 
 
 # ------------------------------------------------------------- watchlist
@@ -104,7 +124,7 @@ def watchlist_signals(hours: int = 24, min_importance: str = "MEDIUM",
             "ts": now}
 
 
-@router.post("/watchlist")
+@router.post("/watchlist", dependencies=[Depends(require_owner)])
 def watchlist_add(body: WatchlistAdd, db: Session = Depends(get_db),
                   user: User = Depends(get_current_user)):
     token = db.execute(select(Token).where(Token.address == body.address)).scalar_one_or_none()
@@ -119,7 +139,7 @@ def watchlist_add(body: WatchlistAdd, db: Session = Depends(get_db),
     return {"ok": True}
 
 
-@router.delete("/watchlist/{address}")
+@router.delete("/watchlist/{address}", dependencies=[Depends(require_owner)])
 def watchlist_remove(address: str, db: Session = Depends(get_db),
                      user: User = Depends(get_current_user)):
     token = db.execute(select(Token).where(Token.address == address)).scalar_one_or_none()
@@ -149,7 +169,7 @@ def alerts_list(db: Session = Depends(get_db), user: User = Depends(get_current_
                         "new_narrative"]}
 
 
-@router.post("/alerts")
+@router.post("/alerts", dependencies=[Depends(require_owner)])
 def alerts_create(body: AlertCreate, db: Session = Depends(get_db),
                   user: User = Depends(get_current_user)):
     count = db.execute(select(func.count(Alert.id)).where(Alert.user_id == user.id)).scalar() or 0
@@ -176,7 +196,7 @@ def alerts_create(body: AlertCreate, db: Session = Depends(get_db),
     return _alert_out(a)
 
 
-@router.patch("/alerts/{alert_id}")
+@router.patch("/alerts/{alert_id}", dependencies=[Depends(require_owner)])
 def alerts_patch(alert_id: int, body: AlertPatch, db: Session = Depends(get_db),
                  user: User = Depends(get_current_user)):
     a = db.get(Alert, alert_id)
@@ -190,7 +210,7 @@ def alerts_patch(alert_id: int, body: AlertPatch, db: Session = Depends(get_db),
     return _alert_out(a)
 
 
-@router.delete("/alerts/{alert_id}")
+@router.delete("/alerts/{alert_id}", dependencies=[Depends(require_owner)])
 def alerts_delete(alert_id: int, db: Session = Depends(get_db),
                   user: User = Depends(get_current_user)):
     a = db.get(Alert, alert_id)
@@ -210,7 +230,7 @@ def telegram_status(user: User = Depends(get_current_user)):
     return {"configured": telegram.is_configured()}
 
 
-@router.post("/alerts/telegram/test")
+@router.post("/alerts/telegram/test", dependencies=[Depends(require_owner)])
 def telegram_test(user: User = Depends(get_current_user)):
     """Send a test message to the configured chat so the setup can be verified."""
     if not telegram.is_configured():
@@ -247,14 +267,14 @@ def alert_events(since: int = 0, db: Session = Depends(get_db),
                       for e, sym in rows], "unread": unread}
 
 
-@router.post("/admin/backtest/run")
+@router.post("/admin/backtest/run", dependencies=[Depends(require_owner)])
 def admin_backtest_run(user: User = Depends(get_current_user)):
     """Manually (re)run retro score backfill + outcome labeling."""
     from ..services.backfill_scores import run_retro_backfill
     return run_retro_backfill()
 
 
-@router.post("/alerts/events/read-all")
+@router.post("/alerts/events/read-all", dependencies=[Depends(require_owner)])
 def alert_events_read(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     rows = db.execute(
         select(AlertEvent).join(Alert, Alert.id == AlertEvent.alert_id)

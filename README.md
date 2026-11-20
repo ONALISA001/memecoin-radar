@@ -196,8 +196,9 @@ frontend rewrite at `http://backend:8000` instead of `127.0.0.1` (one line in
 The browser only ever talks to the Next server (`/api/*` is proxied to the backend
 server-side), so no API keys or DB credentials are exposed to the client.
 
-Demo login (seeded): handled automatically by the UI via `POST /auth/demo`
-(only available when `DEMO_MODE=1`).
+Access: the UI logs visitors in automatically via `POST /auth/demo` with a
+**read-only** token (only when `DEMO_MODE=1`). Write endpoints need an owner token
+from `POST /auth/login` with the server's `OWNER_KEY` ("Owner login" in the sidebar).
 
 ## Repo layout
 
