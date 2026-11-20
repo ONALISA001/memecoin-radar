@@ -82,3 +82,13 @@ def test_risk_uses_real_creator_messages_and_spares_clean_devs():
     assert clean_pts == 0                                             # 7 launches, clean: no penalty
     _, none_pts = _risk(None)
     assert none_pts == 0
+
+
+def test_systematic_dumper_capped_at_avoid_even_when_band_is_mixed():
+    base = {"risk_engine": {"hard_fails": [], "band": "LOW", "score": 10, "flags": []},
+            "exit": {"round_trip_loss_pct": 1, "buy_route": True}, "market": {"liquidity_usd": 1e6},
+            "launch": {"status": "ok", "early_buyers_funded_by_creator": 0, "bundle_pct": 0,
+                       "sniper_pct": 0, "largest_shared_funder_group": 0}}
+    cr = {**CLEAN_CR, "band": "mixed", "dump_tier": "systematic"}
+    assert clamp("STRONG_WATCH", {**base, "creator": cr})[0] == "AVOID"
+    assert launch_verdict(facts(cr))[0] == "fail"
