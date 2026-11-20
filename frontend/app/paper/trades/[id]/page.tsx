@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useApi } from "@/lib/api";
 import { Badge, Panel } from "@/components/ui";
 import { Bar, fmtUtc, holdStr, px, pnlCls, SimStrip, usd } from "@/components/paper";
+import { ReviewCard } from "@/components/postmortem";
 
 const METRICS: [string, string, number][] = [
   ["momentum", "⚡ Momentum", 100], ["sell_pressure", "🔻 Sell pressure", 100],
@@ -52,6 +53,8 @@ export default function TradeDetailPage({ params }: { params: Promise<{ id: stri
           </div>
         )}
       </Panel>
+
+      <ReviewCard review={d.review} open={t.status === "open"} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Panel title="SIGNAL ANALYSIS — metrics at decision">

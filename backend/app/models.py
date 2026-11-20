@@ -579,6 +579,37 @@ class PaperPosition(Base):
     realized_pnl = Column(Float)
     pnl_pct = Column(Float)
     hold_secs = Column(Integer)
+    trough_price = Column(Float)             # lowest price seen while open (post-mortem MAE)
+
+
+class PaperTradeReview(Base):
+    """Post-mortem of one closed paper trade (paper/postmortem.py).
+
+    Written provisionally at close from what happened during the trade, then
+    finalized once POSTMORTEM_HOURS of real prices after the exit are in, so
+    'stopped out, then recovered' and 'rugged after we left' can be judged."""
+    __tablename__ = "paper_trade_reviews"
+    id = Column(Integer, primary_key=True)
+    position_id = Column(Integer, ForeignKey("paper_positions.id"), unique=True, index=True)
+    account_id = Column(Integer, ForeignKey("demo_accounts.id"), index=True)
+    token_id = Column(Integer, ForeignKey("tokens.id"), index=True)
+    exit_ts = Column(Integer, index=True)
+    reviewed_ts = Column(Integer)
+    status = Column(String(12), default="provisional", index=True)   # provisional | final
+    outcome = Column(String(8))              # win | loss
+    cause = Column(String(24), index=True)   # see postmortem.CAUSES
+    lesson = Column(String(300))
+    pnl_pct = Column(Float)
+    mfe_pct = Column(Float)                  # best point while open, vs entry
+    mae_pct = Column(Float)                  # worst point while open, vs entry
+    post_max_pct = Column(Float)             # best price after exit, vs ENTRY
+    post_min_pct = Column(Float)             # worst price after exit, vs ENTRY
+    post_end_pct = Column(Float)             # price at the end of the window, vs ENTRY
+    post_hours = Column(Float)               # hours of real post-exit data seen
+    reached_target_after = Column(Boolean)   # price later hit the entry's target level
+    rugged = Column(Boolean)
+    entry_chg_1h = Column(Float)             # how far it had already run in the hour before entry
+    facts_json = Column(JSON)
 
 
 class PaperTradeEvent(Base):
