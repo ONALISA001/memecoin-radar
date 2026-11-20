@@ -104,6 +104,13 @@ async def run_verdicts(session_factory, llm=None) -> dict:
     with session_factory() as db:
         due = collect(db)
         llm_left = max(0, config.VERDICT_DAILY_LLM_MAX - llm_used_24h(db))
+        record = None
+        if config.VERDICT_TRACK_RECORD and due:
+            from .outcomes import track_record_text
+            try:
+                record = track_record_text(db)
+            except Exception:          # never let the memory block a verdict
+                record = None
     use_llm = llm_mod.enabled() or llm is not None
     llm = llm or (llm_mod.LLMClient() if use_llm else None)
     res = {"due": len(due), "gate": 0, "rules": 0, "llm": 0, "llm_errors": 0}
@@ -115,7 +122,8 @@ async def run_verdicts(session_factory, llm=None) -> dict:
             if llm_budget > 0:
                 llm_budget -= 1
                 try:
-                    out = await V.debate(item["evidence"], llm, config.LLM_QUICK_MODEL, config.LLM_JUDGE_MODEL)
+                    out = await V.debate(item["evidence"], llm, config.LLM_QUICK_MODEL, config.LLM_JUDGE_MODEL,
+                                         track_record=record)
                     model = config.LLM_JUDGE_MODEL
                     res["llm"] += 1
                 except llm_mod.LLMError as exc:
