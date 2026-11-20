@@ -491,6 +491,7 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
             "liq_band": mi["liquidity_health"]["band"],
             "ath_status": mi["ath"]["status"], "ath_distance": mi["ath"].get("distance_pct"),
             "vol_accel_h1": mi["volume_accel"]["h1"]["growth_pct"],
+            "volume_g_1h": d.get("volume_g_1h"),     # paper momentum strategies (live + backtest)
             "whale_class": mi["whales"]["classification"],
             "confluence": mi["confluence"]["signal"],
             "reversals": len(mi["reversals"]),
@@ -619,6 +620,7 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
                                  100.0 * (d.get("buy_share_1h") or 0.0),
                 "vol_liq_ratio": ((lv.get("volume_h24") or d.get("volume_24h") or 0.0) / liq) if liq > 0 else None,
                 "price_chg_15m": d.get("price_chg_15m"),
+                "volume_g_1h": d.get("volume_g_1h"),
                 "price_chg_24h": lv.get("pc_h24", d.get("price_chg_24h")),
                 "regime": {"emerging_momentum": "BULLISH",
                            "potential_distribution": "DISTRIBUTION"}.get(conf_sig, "NEUTRAL"),

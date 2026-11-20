@@ -48,6 +48,26 @@ const GROUPS: { title: string; fields: [string, string, string][] }[] = [
     ],
   },
   {
+    title: "Momentum Confluence (0 = off · switches: 1 on / 0 off)",
+    fields: [
+      ["min_momentum", "Min momentum at entry", "e.g. 65"],
+      ["momentum_confirm_readings", "Momentum held for N readings", "5-min readings, e.g. 2"],
+      ["momentum_rising", "Momentum must be rising", "1 = latest reading above previous"],
+      ["min_volume_accel_pct", "Min 1h volume growth (%)", "e.g. 40"],
+      ["require_bullish_regime", "Bullish regime only", "1 = coin regime must be BULLISH"],
+      ["block_distribution_regime", "Block distribution regime", "1 = never buy while distributing"],
+      ["max_entry_sell_pressure", "Max sell pressure at entry", "e.g. 40"],
+      ["min_market_breadth_pct", "Min market breadth (%)", "coins up 24h, e.g. 50"],
+      ["confluence_sizing", "Size by confluence", "1 = 4 factors full, 3 → 60%, fewer skip"],
+      ["confluence_min_factors", "Min factors to trade", "with sizing on"],
+      ["momentum_exit_below", "Exit if momentum below", "e.g. 50"],
+      ["regime_exit", "Exit on distribution regime", "1 = on"],
+      ["time_stop_hours", "Time stop (h)", "close if not up enough by then"],
+      ["time_stop_min_gain_pct", "Time stop: min gain (%)", "e.g. 2"],
+      ["reentry_cooldown_h", "Re-entry cooldown (h)", "per coin"],
+    ],
+  },
+  {
     title: "Risk Management",
     fields: [
       ["stop_loss_pct", "Stop-loss (%)", "from entry fill"],
@@ -96,7 +116,7 @@ export default function PaperSettingsPage() {
       const f: Record<string, string> = {};
       for (const g of GROUPS) for (const [k] of g.fields) {
         const v = getPath(data.effective, k);
-        if (v != null) f[k] = String(v);
+        if (v != null) f[k] = typeof v === "boolean" ? (v ? "1" : "0") : String(v);
       }
       setForm(f);
     }
@@ -110,9 +130,10 @@ export default function PaperSettingsPage() {
       const n = parseFloat(raw);
       if (raw === "" || isNaN(n)) continue;
       const def = getPath(data.defaults, k);
-      if (n === def) continue;
+      const val: number | boolean = typeof def === "boolean" ? n !== 0 : n;   // on/off switches
+      if (val === def) continue;
       const parts = k.split(".");
-      if (parts.length === 1) overrides[k] = n;
+      if (parts.length === 1) overrides[k] = val;
       else {
         overrides[parts[0]] = overrides[parts[0]] || {};
         overrides[parts[0]][parts[1]] = n;
@@ -145,7 +166,7 @@ export default function PaperSettingsPage() {
                   <label className="text-xs text-ink/70">{label}</label>
                   <input className="inp w-full mt-1 num" value={form[k] ?? ""}
                          onChange={(e) => { setForm({ ...form, [k]: e.target.value }); setDirty(true); }} />
-                  {hint && <div className="text-2xs text-dim mt-0.5">{hint} · default {getPath(data?.defaults, k)}</div>}
+                  {hint && <div className="text-2xs text-dim mt-0.5">{hint} · default {String(getPath(data?.defaults, k) === false ? 0 : getPath(data?.defaults, k) === true ? 1 : getPath(data?.defaults, k))}</div>}
                 </div>
               ))}
             </div>

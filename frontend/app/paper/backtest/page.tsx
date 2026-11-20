@@ -15,6 +15,87 @@ const PARAM_FIELDS: [string, string, string][] = [
 
 type BTResult = any;
 
+const EXIT_SHORT: Record<string, string> = {
+  STOP_LOSS: "stop", TAKE_PROFIT: "target", TRAILING_STOP: "trail", BREAKEVEN_STOP: "break-even",
+  SELL_SIGNAL: "sell signal", MOMENTUM_EXIT: "momentum fade", REGIME_EXIT: "regime flip", TIME_STOP: "time stop",
+  VERDICT_EXIT: "verdict", MAX_HOLD: "max hold", END_OF_WINDOW: "window end",
+};
+const pctS = (v?: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
+
+/** Baseline + strategies A–F replayed over the same window, side by side. */
+function FamilyCompare() {
+  const [hours, setHours] = useState("168");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [r, setR] = useState<any>(null);
+  const run = async () => {
+    setBusy(true); setErr("");
+    try { setR(await apiPost("/paper/backtest/compare", { hours: parseInt(hours) || 168 })); }
+    catch (e: any) { setErr(String(e?.message || e)); }
+    finally { setBusy(false); }
+  };
+  const rows: any[] = r?.strategies || [];
+  const best = (f: string, hi = true) => {
+    const ok = rows.filter((x) => (x.trades || 0) >= 1 && x[f] != null);
+    if (!ok.length) return null;
+    return ok.reduce((a, b) => ((hi ? b[f] > a[f] : b[f] < a[f]) ? b : a)).key;
+  };
+  const bWin = best("win_rate_pct"), bRet = best("total_return_pct"), bPf = best("profit_factor"), bDd = best("max_drawdown_pct", false);
+  const hl = (k: string, b: string | null) => (k === b ? "text-greenx font-bold" : "");
+  return (
+    <Panel title={<span>⚖️ Momentum strategies, side by side <span className="panel-sub">— Baseline + A–F replayed over the same history and costs</span></span>}
+           right={<div className="flex items-center gap-1">
+             <select className="sel !w-auto !py-1 !text-xs" aria-label="History window" value={hours} onChange={(e) => setHours(e.target.value)}>
+               {[["24", "last 24h"], ["72", "last 3 days"], ["168", "last 7 days"], ["720", "last 30 days"]].map(([v, l]) =>
+                 <option key={v} value={v}>{l}</option>)}
+             </select>
+             <button onClick={run} disabled={busy} className="pill-mini !text-cyanx !border-cyanx/60 !py-1.5">
+               {busy ? "running…" : "▶ Compare all"}</button>
+           </div>}>
+      {err && <div className="px-3 py-2 text-xs text-redx">{err}</div>}
+      {!r && !err && <div className="px-4 py-3 text-xs text-dim">Runs every strategy over the chosen window with identical data, then ranks them. Owner only.</div>}
+      {r && (
+        <div>
+          <div className="px-4 py-2 text-sm border-b border-line/50">
+            {r.leader ? <>Leader: <b className="text-greenx">{rows.find((x) => x.key === r.leader)?.name}</b> (best profit factor with 10+ trades)</>
+              : <span className="text-amberx">No strategy has 10+ trades in this window yet — treat every number as noise. Try a longer window.</span>}
+            <span className="text-dim text-xs"> · {r.signals_seen} signals in window</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="tbl w-full">
+              <thead><tr><th className="!text-left">Strategy</th><th>Trades</th><th>Win rate</th><th>Return</th><th>vs base</th>
+                <th>Profit factor</th><th>Avg trade (95%)</th><th>Max DD</th><th className="!text-left">Exits</th><th className="!text-left">Main filter</th></tr></thead>
+              <tbody>
+                {rows.map((x) => (
+                  <tr key={x.key} className={x.key === r.leader ? "bg-greenx/5" : ""}>
+                    <td className="!text-left !py-2"><div className="font-semibold text-sm whitespace-nowrap">{x.name}</div></td>
+                    <td className="num">{x.trades}{(x.trades || 0) < 10 && <div className="text-2xs text-dim">few</div>}</td>
+                    <td className={`num ${hl(x.key, bWin)}`}>{x.win_rate_pct != null ? `${x.win_rate_pct}%` : "—"}</td>
+                    <td className={`num ${pnlCls(x.total_return_pct)} ${hl(x.key, bRet)}`}>{pctS(x.total_return_pct)}</td>
+                    <td className={`num ${pnlCls(x.vs_baseline_pp)}`}>{x.vs_baseline_pp == null ? "—" : `${x.vs_baseline_pp >= 0 ? "+" : ""}${x.vs_baseline_pp} pp`}</td>
+                    <td className={`num ${hl(x.key, bPf)}`}>{x.profit_factor ?? "—"}</td>
+                    <td className="num">{pctS(x.avg_trade_pct)}
+                      {x.avg_trade_ci95 && <div className={`text-2xs ${x.edge === "positive" ? "text-greenx" : x.edge === "negative" ? "text-redx" : "text-dim"}`}>
+                        {pctS(x.avg_trade_ci95[0])} to {pctS(x.avg_trade_ci95[1])}</div>}</td>
+                    <td className={`num ${hl(x.key, bDd)}`}>{x.max_drawdown_pct != null ? `${x.max_drawdown_pct}%` : "—"}</td>
+                    <td className="!text-left text-2xs text-dim whitespace-normal min-w-[140px]">
+                      {Object.entries(x.exits || {}).sort((a: any, b: any) => b[1] - a[1]).slice(0, 3)
+                        .map(([k, v]: any) => `${EXIT_SHORT[k] || k} ${v}`).join(" · ") || "—"}</td>
+                    <td className="!text-left text-2xs text-dim whitespace-normal min-w-[140px]">
+                      {x.own_top_rejection ? <span className="text-amberx">{x.own_top_rejection[0]} ×{x.own_top_rejection[1]}</span>
+                        : (x.top_rejections || [])[0] ? `${x.top_rejections[0][0]} ×${x.top_rejections[0][1]}` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-2 text-2xs text-dim border-t border-line/50">{r.note} Green = best in column.</div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 function ResultView({ r }: { r: BTResult }) {
   const s = r.summary;
   return (
@@ -167,6 +248,7 @@ export default function BacktestPage() {
   return (
     <div className="space-y-3">
       <SimStrip compact />
+      <FamilyCompare />
       <Panel title={<span>▶ Strategy Backtester <span className="panel-sub">— runs the same strategy core over recorded signal & price history only (no look-ahead, §20)</span></span>}>
         <div className="p-3 grid grid-cols-2 md:grid-cols-4 gap-2">
           <div>

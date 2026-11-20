@@ -113,6 +113,7 @@ def compare(db, user_id: int, market: dict) -> dict:
     for key, p in PC.PRESETS.items():
         a = accts.get(key)
         row = {"key": key, "name": p["name"], "summary": p["summary"], "running": a is not None,
+               "family": "momentum" if key in PC.MOMENTUM_FAMILY and key != "baseline" else "core",
                "since": int(a.created_at.timestamp()) if a is not None and a.created_at else None}
         if a is not None:
             row.update(_stats(db, a, market))

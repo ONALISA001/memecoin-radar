@@ -53,6 +53,23 @@ DEFAULT_SETTINGS: dict = {
     "block_bad_verdicts": 0,          # 1 = never buy a coin rated Avoid / Rug risk (even with filter off)
     "verdict_sizing": 0,              # 1 = size by conviction (Strong watch/high = full size ... low = 40%)
     "verdict_exit": 0,                # 1 = close if the coin is re-judged Avoid / Rug risk after entry
+    # momentum-confluence rules (paper/confluence.py). All OFF by default.
+    "min_momentum": 0.0,              # buy only if momentum ≥ this (e.g. 65)
+    "momentum_confirm_readings": 0,   # …for this many consecutive 5-min readings (anti-chase)
+    "momentum_rising": False,         # latest momentum reading above the previous one
+    "min_volume_accel_pct": 0.0,      # 1h volume growth ≥ this % (e.g. 40)
+    "require_bullish_regime": False,  # coin-level regime must be BULLISH
+    "block_distribution_regime": False,  # never buy in a DISTRIBUTION regime
+    "max_entry_sell_pressure": 0.0,   # sell pressure must be below this (e.g. 40)
+    "min_market_breadth_pct": 0.0,    # % of tracked coins up over 24h (market-wide filter)
+    "confluence_sizing": False,       # size by factors met: 4 → full, 3 → 60%, fewer → skip
+    "confluence_min_factors": 3,
+    "confluence_size_3": 0.6,
+    "momentum_exit_below": 0.0,       # close when momentum falls below this (e.g. 50)
+    "regime_exit": False,             # close when the coin's regime turns DISTRIBUTION
+    "time_stop_hours": 0.0,           # close a trade that hasn't worked after N hours…
+    "time_stop_min_gain_pct": 2.0,    # …i.e. isn't up at least this much
+    "reentry_cooldown_h": 0.0,        # at most one entry per coin per N hours
     # pullback entries: generated from market data, not from intel events
     "pullback_entries": False,
     "pullback_min_chg_24h": 40.0,     # established uptrend
@@ -97,6 +114,19 @@ SELL_KINDS = (
 _EXITS_LET_RUN = {"take_profit_pct": 0.0, "breakeven_at_pct": 20.0,
                   "trailing_stop_pct": 20.0, "trail_activate_pct": 30.0}
 _SAFETY = {"require_verified_contract": True, "max_top10_wallet_pct": 35.0, "max_vol_liq_ratio": 15.0}
+
+# Momentum-confluence family (A–F): built on what the paper analytics showed working —
+# strong momentum (≥65), momentum + accelerating volume, bullish regime. Shared:
+# let winners run (break-even at +15%, then a 20% trail), exit when momentum fades
+# below 50 or the regime turns to distribution, a 3h time stop for trades that never
+# worked, no chasing 1h pumps over 60%, one entry per coin per 4h.
+_MOMENTUM_EXITS = {"take_profit_pct": 0.0, "breakeven_at_pct": 15.0, "trailing_stop_pct": 20.0,
+                   "trail_activate_pct": 25.0, "momentum_exit_below": 50.0, "regime_exit": True,
+                   "time_stop_hours": 3.0, "time_stop_min_gain_pct": 2.0, "max_hold_hours": 8.0,
+                   "stop_loss_pct": 12.0, "max_loss_per_trade_pct": 1.0}
+_NO_CHASE = {"max_chase_pct_1h": 60.0, "reentry_cooldown_h": 4.0, "max_vol_liq_ratio": 15.0,
+             "block_distribution_regime": True}
+_MOM65 = {"min_momentum": 65.0, "momentum_rising": True, "momentum_confirm_readings": 2}
 
 PRESETS: dict[str, dict] = {
     "baseline": {
@@ -155,7 +185,50 @@ PRESETS: dict[str, dict] = {
                      "max_position_usd": 800.0, "max_position_pct": 8.0, "max_open_positions": 6,
                      "max_loss_per_trade_pct": 1.0},
     },
+    "mom_a": {
+        "name": "A · Momentum 65",
+        "summary": "Buys only when momentum is ≥65 for two readings in a row and still rising. "
+                   "Momentum exits, no chasing, one entry per coin per 4h.",
+        "settings": {**_MOM65, **_MOMENTUM_EXITS, **_NO_CHASE},
+    },
+    "mom_b": {
+        "name": "B · Momentum + Volume",
+        "summary": "A, plus 1h volume must be up at least 40% — momentum confirmed by money flowing in.",
+        "settings": {**_MOM65, **_MOMENTUM_EXITS, **_NO_CHASE, "min_volume_accel_pct": 40.0},
+    },
+    "mom_c": {
+        "name": "C · Bullish Regime",
+        "summary": "Your current rules, but only when the coin's regime is bullish (emerging momentum); "
+                   "closes if the regime turns to distribution. Isolates the regime effect.",
+        "settings": {"require_bullish_regime": True, "regime_exit": True},
+    },
+    "mom_d": {
+        "name": "D · Full Confluence",
+        "summary": "All of A + B + C, sell pressure under 40, and at least half the market up over 24h. "
+                   "Fewest trades, highest bar.",
+        "settings": {**_MOM65, **_MOMENTUM_EXITS, **_NO_CHASE, "min_volume_accel_pct": 40.0,
+                     "require_bullish_regime": True, "max_entry_sell_pressure": 40.0,
+                     "min_market_breadth_pct": 50.0},
+    },
+    "mom_e": {
+        "name": "E · Confluence + AI Verdict",
+        "summary": "D, plus the FOMO verdict must be Watch or Strong watch; sells if re-judged Avoid / Rug risk.",
+        "settings": {**_MOM65, **_MOMENTUM_EXITS, **_NO_CHASE, "min_volume_accel_pct": 40.0,
+                     "require_bullish_regime": True, "max_entry_sell_pressure": 40.0,
+                     "min_market_breadth_pct": 50.0, "verdict_filter": 1, "block_bad_verdicts": 1,
+                     "verdict_exit": 1, "verdict_max_age_h": 6.0},
+    },
+    "mom_f": {
+        "name": "F · Confluence Sizing",
+        "summary": "No hard momentum filter: counts the 4 factors (momentum ≥65, volume +40%, bullish regime, "
+                   "sell pressure <40) — full size with 4, 60% with 3, skips 2 or fewer. More trades, "
+                   "money weighted to the best setups.",
+        "settings": {**_MOMENTUM_EXITS, **_NO_CHASE, "confluence_sizing": True, "confluence_min_factors": 3},
+    },
 }
+
+# the Strategy Lab's momentum family, compared side by side in the backtester
+MOMENTUM_FAMILY = ("baseline", "mom_a", "mom_b", "mom_c", "mom_d", "mom_e", "mom_f")
 
 
 def merged_settings(overrides: dict | None) -> dict:
