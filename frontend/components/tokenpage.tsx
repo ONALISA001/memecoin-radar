@@ -9,6 +9,7 @@ import { ageLabel, fomoBandClass, fmtNum, fmtPct, fmtPrice, fmtUsd, pctColor,
 import { Badge, ConfChip, Empty, Gauge, Panel, RiskPill, RowBadges, Sparkline, TokenAvatar } from "./ui";
 import ForensicsPanel from "./forensics";
 import TimeMachinePanel from "./timemachine";
+import { LaunchWalletsPanel, VerdictPanel, utcSeconds } from "./verdict";
 import { MarketIntelPanel } from "./marketintel";
 import { IntelFeed } from "./intelfeed";
 import { HoldersChart, LiquidityChart, PriceChart, ScoreChart, SocialChart, VolumeChart } from "./charts";
@@ -283,10 +284,32 @@ function OnchainRiskPanel({ address }: { address: string }) {
             <div className="flex justify-between"><span className="text-dim">Top account</span><span className="num">{fmtPct(f.top1_pct, false)}</span></div>
             <div className="flex justify-between"><span className="text-dim">Top 10 accounts</span><span className="num">{fmtPct(f.top10_pct, false)}</span></div>
           </>)}
+          {f.token_extensions != null && (
+            <div className="flex justify-between"><span className="text-dim">Token-2022 extensions</span>
+              <span className={f.token_extensions.length ? "text-redx" : "text-greenx"}>
+                {f.token_extensions.length ? f.token_extensions.join(", ") : "none risky ✓"}</span></div>
+          )}
+          {f.transfer_fee_bps ? (
+            <div className="flex justify-between"><span className="text-dim">Transfer fee (sell tax)</span>
+              <span className={`num ${f.transfer_fee_bps >= 500 ? "text-redx" : "text-amberx"}`}>{(f.transfer_fee_bps / 100).toFixed(2)}%</span></div>
+          ) : null}
+          {data.exit && (data.exit.sell_route == null ? (
+            <div className="flex justify-between"><span className="text-dim">Sell route (Jupiter)</span>
+              <span className="text-dim">not checked{data.exit.error ? " (Jupiter unavailable)" : ""}</span></div>
+          ) : (<>
+            <div className="flex justify-between"><span className="text-dim">Sell route (Jupiter)</span>
+              <span className={data.exit.sell_route ? "text-greenx" : "text-redx font-semibold"}>
+                {data.exit.sell_route ? "found ✓" : data.exit.buy_route ? "NONE: can buy, can't sell ✗" : "no route yet"}</span></div>
+            {data.exit.round_trip_loss_pct != null && (
+              <div className="flex justify-between"><span className="text-dim">{data.exit.sol_in} SOL buy+sell loses</span>
+                <span className={`num ${data.exit.round_trip_loss_pct >= 25 ? "text-redx" : data.exit.round_trip_loss_pct >= 10 ? "text-amberx" : ""}`}>
+                  {fmtPct(data.exit.round_trip_loss_pct, false)}</span></div>
+            )}
+          </>))}
           {data.flags?.map((fl: any) => (
             <div key={fl.id} className={`text-xs ${sevCls[fl.severity] || ""}`}>⚠ {fl.message}</div>
           ))}
-          <div className="text-2xs text-dim pt-1">{data.caveat} Checked {timeAgo(Math.floor(new Date(data.checked_at).getTime() / 1000))}.</div>
+          <div className="text-2xs text-dim pt-1">{data.caveat} Checked {timeAgo(utcSeconds(data.checked_at) ?? Math.floor(Date.now() / 1000))}.</div>
         </div>
       )}
     </Panel>
@@ -412,6 +435,7 @@ export default function TokenPage({ address }: { address: string }) {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
         <div className="xl:col-span-2 space-y-4">
           {sc && <ScoresRow d={d} sc={sc} />}
+          <VerdictPanel address={d.address} />
           <AnalysisPanel address={d.address} />
           <TimeMachinePanel address={d.address} />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -457,7 +481,7 @@ export default function TokenPage({ address }: { address: string }) {
                   ))}
                   <div className="text-2xs text-dim pt-2 border-t border-line/60">
                     {real
-                      ? <>Source: Helius on-chain check{cf.checked_at ? ` · ${new Date(cf.checked_at).toLocaleString()}` : ""}. LP lock and deployer history aren&apos;t checked yet.</>
+                      ? <>Source: Helius on-chain check{cf.checked_at ? ` · ${new Date(cf.checked_at).toLocaleString()}` : ""}. LP lock isn&apos;t checked yet; see Launch wallets for what the creator did at launch.</>
                       : cf.source === "unverified"
                         ? <>No on-chain check yet — the risk score counts this as a partial risk until Helius verifies it.</>
                         : <>Source: {cf.source} (demo data).</>}
@@ -467,6 +491,7 @@ export default function TokenPage({ address }: { address: string }) {
             );
           })()}
           <OnchainRiskPanel address={d.address} />
+          <LaunchWalletsPanel address={d.address} />
           <WhalesPanel address={d.address} />
           <PostsPanel address={d.address} />
           <RiskEventsPanel address={d.address} />
