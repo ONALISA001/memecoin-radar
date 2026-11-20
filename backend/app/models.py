@@ -656,3 +656,24 @@ class BacktestRun(Base):
     frames_json = Column(JSON)                      # replay mode: per-tick frames
     status = Column(String(12), default="done")
     note = Column(String(300))
+
+
+class StrategyProposal(Base):
+    """A change the strategy supervisor suggests for the paper trader. Nothing happens
+    until the owner approves it (retire a strategy, start a challenger, promote a
+    challenger, or apply a post-mortem fix to the main account)."""
+    __tablename__ = "strategy_proposals"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    created_ts = Column(Integer, index=True)
+    kind = Column(String(16))                # retire | challenger | promote | fix_main
+    fingerprint = Column(String(64), index=True)   # dedupe: same suggestion isn't re-proposed
+    account_id = Column(Integer, ForeignKey("demo_accounts.id"))   # the account it concerns
+    title = Column(String(160))
+    reason = Column(Text)
+    evidence_json = Column(JSON)             # stats, post-mortem cause, backtest check
+    change_json = Column(JSON)               # settings to apply / challenger settings
+    ai_note = Column(Text)                   # optional LLM explanation
+    status = Column(String(12), default="pending", index=True)   # pending | approved | rejected | expired
+    decided_ts = Column(Integer)
+    result_json = Column(JSON)               # what approving actually did

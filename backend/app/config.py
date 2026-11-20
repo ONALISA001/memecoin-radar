@@ -148,6 +148,9 @@ VERDICT_TELEGRAM = os.getenv("VERDICT_TELEGRAM", "1") == "1"   # follow-up for l
 OUTCOMES_ENABLED = os.getenv("OUTCOMES_ENABLED", "1") == "1"
 OUTCOME_JUDGE_HOURS = int(os.getenv("OUTCOME_JUDGE_HOURS", "12"))     # calls judged this long after
 VERDICT_TRACK_RECORD = os.getenv("VERDICT_TRACK_RECORD", "1") == "1"   # show the judge its record
+# Strategy supervisor: reviews the Strategy Lab and PROPOSES changes (owner approves each one)
+SUPERVISOR_ENABLED = os.getenv("SUPERVISOR_ENABLED", "1") == "1"
+SUPERVISOR_INTERVAL_H = float(os.getenv("SUPERVISOR_INTERVAL_H", "6"))
 SCORECARD_TELEGRAM = os.getenv("SCORECARD_TELEGRAM", "1") == "1"       # daily summary
 SCORECARD_HOUR_UTC = int(os.getenv("SCORECARD_HOUR_UTC", "6"))         # 06 UTC = 09:00 Nairobi
 # Creator track record (earlier launches by a coin's creator; model from GMGN dev-score)

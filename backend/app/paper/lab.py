@@ -38,9 +38,13 @@ def lab_accounts(db, user_id: int) -> dict[str, DemoAccount]:
 def start_lab(db, user_id: int) -> dict[str, DemoAccount]:
     """Create any missing preset accounts. Idempotent; existing ones keep running."""
     have = lab_accounts(db, user_id)
+    # a preset the owner retired (supervisor proposal) stays retired
+    retired = {k for (k,) in db.execute(select(DemoAccount.strategy_key).where(
+        DemoAccount.user_id == user_id, DemoAccount.active == False,  # noqa: E712
+        DemoAccount.strategy_key.isnot(None))).all()}
     edge = db.execute(select(func.max(SignalEvent.id))).scalar() or 0   # never trade stale signals
     for key, p in PC.PRESETS.items():
-        if key in have:
+        if key in have or key in retired:
             continue
         acct = DemoAccount(user_id=user_id, label=f"Lab · {p['name']}", strategy_key=key,
                            starting_cash=LAB_CASH, cash=LAB_CASH, peak_equity=LAB_CASH,
@@ -109,15 +113,30 @@ def _stats(db, acct: DemoAccount, market: dict) -> dict:
 def compare(db, user_id: int, market: dict) -> dict:
     accts = lab_accounts(db, user_id)
     main = PE.get_or_create_account(db, user_id)
+    retired = {k for (k,) in db.execute(select(DemoAccount.strategy_key).where(
+        DemoAccount.user_id == user_id, DemoAccount.active == False,  # noqa: E712
+        DemoAccount.strategy_key.isnot(None))).all()}
     rows = []
     for key, p in PC.PRESETS.items():
         a = accts.get(key)
         row = {"key": key, "name": p["name"], "summary": p["summary"], "running": a is not None,
-               "family": "momentum" if key in PC.MOMENTUM_FAMILY and key != "baseline" else "core",
+               "retired": a is None and key in retired,
+               "family": "momentum" if (key in PC.MOMENTUM_FAMILY and key != "baseline") or key == "priority"
+               else "core",
                "since": int(a.created_at.timestamp()) if a is not None and a.created_at else None}
         if a is not None:
             row.update(_stats(db, a, market))
         rows.append(row)
+    # challengers started by approved supervisor proposals
+    for key, a in accts.items():
+        if key in PC.PRESETS:
+            continue
+        rows.append({"key": key, "name": (a.label or key).replace("Lab · ", ""),
+                     "summary": "Started from a supervisor proposal: a copy of a strategy with one change "
+                                "learned from its losing trades.",
+                     "running": True, "retired": False, "family": "challenger",
+                     "since": int(a.created_at.timestamp()) if a.created_at else None,
+                     **_stats(db, a, market)})
     main_row = {"key": "main", "name": "Your main account", "summary": "Your own settings.",
                 "running": True, **_stats(db, main, market)}
     # rank by return, but flag samples too small to mean anything; a strategy only
@@ -131,4 +150,9 @@ def compare(db, user_id: int, market: dict) -> dict:
 
 def apply_to_main(db, user_id: int, key: str) -> str:
     main = PE.get_or_create_account(db, user_id)
-    return PE.apply_settings(db, main, dict(PC.PRESETS[key]["settings"]))
+    if key in PC.PRESETS:
+        return PE.apply_settings(db, main, dict(PC.PRESETS[key]["settings"]))
+    ch = lab_accounts(db, user_id).get(key)      # a running challenger
+    if ch is None:
+        raise KeyError(key)
+    return PE.apply_settings(db, main, dict(ch.settings_json or {}))

@@ -301,6 +301,8 @@ def _run_account(db, acct: DemoAccount, now: int, market: dict, stats: dict) -> 
     acct.last_event_id = max([acct.last_event_id or 0] + [r.id for r in rows])
     if settings.get("pullback_entries"):
         _pullback_entries(db, acct, settings, now, market, stats)
+    if settings.get("priority_entries"):
+        _priority_entries(db, acct, settings, now, market, stats)
 
     # ② manage open positions (always — even while new buys are paused)
     pf = portfolio_state(db, acct, market)
@@ -355,6 +357,57 @@ def _pullback_entries(db, acct, settings: dict, now: int, market: dict, stats: d
         stats["signals"] += 1
         ev = SimpleNamespace(title=f"Trend pullback — ${sym}", signal_text="uptrend dip with bounce",
                              checklist_json=checklist, kind="pullback_bounce")
+        _risk_and_maybe_execute(db, acct, settings, sig, ev, now, market, stats)
+
+
+_PRIO_CACHE: dict[tuple, dict] = {}
+
+
+def _priority_list(db, now: int, window_h: int) -> dict:
+    """The Priority coins list, computed once per tick per window (shared by accounts)."""
+    from ..services import market_views as MV
+    key = (now, int(window_h))
+    if key not in _PRIO_CACHE:
+        _PRIO_CACHE.clear()
+        win = f"{int(window_h)}h" if f"{int(window_h)}h" in MV.WINDOWS_S else "4h"
+        _PRIO_CACHE[key] = MV.priority_now(db, win, limit=20)
+    return _PRIO_CACHE[key]
+
+
+def _priority_entries(db, acct, settings: dict, now: int, market: dict, stats: dict) -> None:
+    """Buy candidates from the Priority coins list. Each coin still goes through the full
+    risk engine and this account's own entry rules (momentum, regime, cooldown …)."""
+    cool = int(float(settings.get("priority_signal_cooldown_h") or 2) * 3600)
+    recent = {tid for (tid,) in db.execute(select(PaperSignal.token_id).where(
+        PaperSignal.account_id == acct.id, PaperSignal.kind == "priority_coin",
+        PaperSignal.ts >= now - cool)).all()}
+    held = {tid for (tid,) in db.execute(select(PaperPosition.token_id).where(
+        PaperPosition.account_id == acct.id, PaperPosition.status == "open")).all()}
+    min_score = float(settings.get("priority_min_score") or 0)
+    for c in _priority_list(db, now, int(settings.get("priority_window_h") or 4))["items"]:
+        tid = c.get("token_id")
+        if tid is None or tid in recent or tid in held or (c.get("score") or 0) < min_score:
+            continue
+        mkt = market.get(tid) or {}
+        if not mkt.get("price"):
+            continue
+        checklist = [{"label": k["label"], "passed": k["passed"], "value": k["value"]} for k in c["checks"]]
+        sig = PaperSignal(
+            account_id=acct.id, token_id=tid, ts=now, action="BUY", kind="priority_coin",
+            source_event_id=None, price=_price(market, tid), confidence=float(c.get("score") or 0),
+            importance="HIGH", importance_score=int(c.get("score") or 0), risk_score=mkt.get("risk"),
+            market_regime=mkt.get("regime", "NEUTRAL"),
+            metrics_json={"liquidity": mkt.get("liq"), "volume_24h": mkt.get("volume_24h"),
+                          "mcap": mkt.get("mcap"), "momentum": mkt.get("momentum"),
+                          "sell_pressure": mkt.get("sellp"), "volume_g_1h": mkt.get("volume_g_1h"),
+                          "priority_score": c.get("score"), "verdict_at_list": c.get("verdict")},
+            why_json=[f"✓ {k['label']} ({k['value']})" for k in checklist], status="pending")
+        db.add(sig)
+        db.flush()
+        stats["signals"] += 1
+        ev = SimpleNamespace(title=f"Priority coin — ${c.get('symbol')}",
+                             signal_text=f"passes every priority gate (score {c.get('score'):.0f})",
+                             checklist_json=checklist, kind="priority_coin")
         _risk_and_maybe_execute(db, acct, settings, sig, ev, now, market, stats)
 
 

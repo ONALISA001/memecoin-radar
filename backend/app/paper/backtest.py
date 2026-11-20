@@ -29,7 +29,7 @@ from . import risk as R
 
 SNAP_MAX_AGE = 900          # a score snapshot older than 15 min at time t is "no data"
 _UNMODELLED = ("require_verified_contract", "max_top10_wallet_pct", "fresh_pool_only",
-               "min_token_age_h", "max_token_age_h")
+               "min_token_age_h", "max_token_age_h", "priority_entries")
 
 
 def _load(db, start: int, end: int):

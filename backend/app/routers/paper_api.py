@@ -454,11 +454,56 @@ def paper_lab_reset(db: Session = Depends(get_db), user: User = Depends(get_curr
 def paper_lab_apply(key: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Copy a preset's rules onto the main account (the main account's history is kept)."""
     from ..paper import config as PCFG, lab as LAB
-    if key not in PCFG.PRESETS:
+    try:
+        version = LAB.apply_to_main(db, user.id, key)
+    except KeyError:
         raise HTTPException(404, "unknown strategy")
-    version = LAB.apply_to_main(db, user.id, key)
     db.commit()
     return {"ok": True, "strategy": version, "effective": PE.settings_for(PE.get_or_create_account(db, user.id))}
+
+
+# ---------------------------------------------------------------- strategy supervisor
+@router.get("/paper/supervisor")
+def paper_supervisor(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Pending proposals (retire / challenger / promote / main-account fix) and the decision log."""
+    from ..paper import supervisor as SUP
+    return SUP.listing(db, user.id)
+
+
+@router.post("/paper/supervisor/review", dependencies=[Depends(require_owner)])
+async def paper_supervisor_review(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Run a supervisor review now (it also runs on its own every few hours)."""
+    from ..config import LLM_JUDGE_MODEL
+    from ..database import SessionLocal
+    from ..paper import supervisor as SUP
+    from ..providers import llm as llm_mod
+    res = SUP.review(db, user.id, _summary_map(db))
+    db.commit()
+    SUP._LAST_REVIEW[user.id] = res["ts"]
+    if llm_mod.enabled() and res["created"]:
+        try:
+            await SUP.add_ai_notes(SessionLocal, [p["id"] for p in res["created"]], llm_mod.LLMClient(),
+                                   LLM_JUDGE_MODEL)
+        except llm_mod.LLMError:
+            pass
+    return {**res, **SUP.listing(db, user.id)}
+
+
+@router.post("/paper/supervisor/proposals/{proposal_id}/{action}", dependencies=[Depends(require_owner)])
+def paper_supervisor_decide(proposal_id: int, action: str, db: Session = Depends(get_db),
+                            user: User = Depends(get_current_user)):
+    """approve = carry the proposal out; reject = dismiss it (not re-proposed for a few days)."""
+    from ..paper import supervisor as SUP
+    if action not in ("approve", "reject"):
+        raise HTTPException(404, "unknown action")
+    try:
+        p = SUP.decide(db, user.id, proposal_id, action == "approve")
+    except LookupError:
+        raise HTTPException(404, "proposal not found")
+    except ValueError as exc:
+        raise HTTPException(409, str(exc))
+    db.commit()
+    return {"ok": True, "proposal": SUP.proposal_dict(p)}
 
 
 @router.post("/paper/resume", dependencies=[Depends(require_owner)])

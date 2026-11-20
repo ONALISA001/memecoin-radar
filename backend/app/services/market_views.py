@@ -129,3 +129,18 @@ def distribution_watch(cards: list[dict], window_change: dict[str, float | None]
     }
     out.sort(key=keys.get(sort, keys["sellp"]), reverse=True)
     return {"items": out[:limit], "total": len(out)}
+
+
+def priority_now(db, window: str = "4h", limit: int = 20) -> dict:
+    """Priority coins straight from the database (same result as /signals/priority).
+    Used by the paper trader's priority-coin entries."""
+    from ..routers.data_api import _event_flow, _latest_ratings, card, latest_score_rows
+    rows = latest_score_rows(db)
+    tokens = [t for _, t in rows]
+    flow = _event_flow(db, [t.id for t in tokens], WINDOWS_S.get(window, 14400))
+    events = {t.address: flow[t.id] for t in tokens if t.id in flow}
+    out = priority_coins([card(t, sc) for sc, t in rows], _latest_ratings(db, tokens), events, limit)
+    by_addr = {t.address: t.id for t in tokens}
+    for it in out["items"]:
+        it["token_id"] = by_addr.get(it["address"])
+    return out
