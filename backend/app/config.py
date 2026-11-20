@@ -154,8 +154,24 @@ SCORECARD_HOUR_UTC = int(os.getenv("SCORECARD_HOUR_UTC", "6"))         # 06 UTC 
 LAUNCH_ALLOW_CLEAN_TOKEN_2022 = os.getenv("LAUNCH_ALLOW_CLEAN_TOKEN_2022", "1") == "1"
 
 # Security
+# DEMO_MODE=1: anyone gets a READ-ONLY visitor token (browse the dashboards).
+# Changing anything (alerts, watchlist, paper trader, admin jobs) needs an owner
+# token, which /api/auth/login issues only for the right OWNER_KEY.
 DEMO_MODE = os.getenv("DEMO_MODE", "1") == "1"
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-insecure-secret-change-me")
+OWNER_KEY = os.getenv("OWNER_KEY", "").strip()
+_INSECURE_JWT_DEFAULT = "dev-only-insecure-secret-change-me"
+_jwt = os.getenv("JWT_SECRET", "").strip()
+JWT_SECRET_IS_EPHEMERAL = not _jwt or _jwt == _INSECURE_JWT_DEFAULT
+if JWT_SECRET_IS_EPHEMERAL:
+    # Never sign tokens with a publicly known secret. A random per-process secret
+    # is safe; the only cost is that logins reset when the server restarts.
+    import secrets as _secrets
+    _jwt = _secrets.token_urlsafe(48)
+JWT_SECRET = _jwt
+LOGIN_ATTEMPTS_PER_MIN = int(os.getenv("LOGIN_ATTEMPTS_PER_MIN", "5"))
+# Browsers reach the API through the Netlify /api proxy (same origin), so no
+# cross-origin access is needed. List extra origins comma-separated if ever required.
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
 JWT_TTL_HOURS = 24
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "240"))
 

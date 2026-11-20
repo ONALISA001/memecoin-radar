@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import (BacktestRun, DemoAccount, EquitySnapshot, PaperPosition,
                       PaperSignal, PaperTradeEvent, PriceSnapshot, Token, User)
-from ..security import get_current_user, rate_limit
+from ..security import get_current_user, rate_limit, require_owner
 from ..services.ingestion import latest_market_map
 from ..paper import engine as PE
 from ..paper import config as PC
@@ -368,7 +368,7 @@ def paper_settings(db: Session = Depends(get_db), user: User = Depends(get_curre
             "effective": PE.settings_for(acct), "strategy": _strategy(db, acct)}
 
 
-@router.post("/paper/settings")
+@router.post("/paper/settings", dependencies=[Depends(require_owner)])
 def paper_settings_update(overrides: dict, db: Session = Depends(get_db),
                           user: User = Depends(get_current_user)):
     acct = _acct(db, user)
@@ -389,7 +389,7 @@ def paper_lab(db: Session = Depends(get_db), user: User = Depends(get_current_us
     return out
 
 
-@router.post("/paper/lab/start")
+@router.post("/paper/lab/start", dependencies=[Depends(require_owner)])
 def paper_lab_start(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from ..paper import lab as LAB
     accts = LAB.start_lab(db, user.id)
@@ -397,7 +397,7 @@ def paper_lab_start(db: Session = Depends(get_db), user: User = Depends(get_curr
     return {"ok": True, "running": sorted(accts)}
 
 
-@router.post("/paper/lab/reset")
+@router.post("/paper/lab/reset", dependencies=[Depends(require_owner)])
 def paper_lab_reset(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from ..paper import lab as LAB
     LAB.reset_lab(db, user.id)
@@ -405,7 +405,7 @@ def paper_lab_reset(db: Session = Depends(get_db), user: User = Depends(get_curr
     return {"ok": True}
 
 
-@router.post("/paper/lab/apply/{key}")
+@router.post("/paper/lab/apply/{key}", dependencies=[Depends(require_owner)])
 def paper_lab_apply(key: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """Copy a preset's rules onto the main account (the main account's history is kept)."""
     from ..paper import config as PCFG, lab as LAB
@@ -416,7 +416,7 @@ def paper_lab_apply(key: str, db: Session = Depends(get_db), user: User = Depend
     return {"ok": True, "strategy": version, "effective": PE.settings_for(PE.get_or_create_account(db, user.id))}
 
 
-@router.post("/paper/resume")
+@router.post("/paper/resume", dependencies=[Depends(require_owner)])
 def paper_resume(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """End a cool-off pause now (resets the loss streak / re-anchors drawdown)."""
     acct = _acct(db, user)
@@ -425,7 +425,7 @@ def paper_resume(db: Session = Depends(get_db), user: User = Depends(get_current
     return {"ok": True, "resumed": done, "halt": PE.halt_status(acct)}
 
 
-@router.post("/paper/reset")
+@router.post("/paper/reset", dependencies=[Depends(require_owner)])
 def paper_reset(starting_cash: float = 10000.0, db: Session = Depends(get_db),
                 user: User = Depends(get_current_user)):
     acct = _acct(db, user)
@@ -434,7 +434,7 @@ def paper_reset(starting_cash: float = 10000.0, db: Session = Depends(get_db),
     return {"ok": True, "starting_cash": acct.starting_cash}
 
 
-@router.post("/paper/trades/{position_id}/close")
+@router.post("/paper/trades/{position_id}/close", dependencies=[Depends(require_owner)])
 def paper_manual_close(position_id: int, db: Session = Depends(get_db),
                        user: User = Depends(get_current_user)):
     acct = _acct(db, user)
@@ -501,7 +501,7 @@ def _uts(ts: int | None) -> str:
 
 
 # ------------------------------------------------------------------ backtest (§20)
-@router.post("/paper/backtest")
+@router.post("/paper/backtest", dependencies=[Depends(require_owner)])
 def paper_backtest(body: dict, db: Session = Depends(get_db),
                    user: User = Depends(get_current_user)):
     start_ts = int(body.get("start_ts") or (time.time() - 86400))

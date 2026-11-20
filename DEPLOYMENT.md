@@ -37,6 +37,8 @@ git push -u origin main
    |---|---|
    | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (click the variable-reference helper) |
    | `JWT_SECRET` | any long random string (`openssl rand -hex 32`) |
+   | `OWNER_KEY` | another long random string — your owner login (`openssl rand -hex 24`) |
+   | `DEMO_MODE` | `1` = visitors can browse read-only; `0` = owner only |
    | `INGEST_INTERVAL_SECONDS` | `60` (optional) |
    | `RATE_LIMIT_PER_MIN` | `240` (optional) |
    | `TELEGRAM_BOT_TOKEN` | token from @BotFather (optional — enables Telegram alerts) |
@@ -94,10 +96,10 @@ against the same Railway backend and pick one for your custom domain.
 ## Step 3 — optional polish
 
 - **Custom domain:** Vercel → Settings → Domains (free, automatic HTTPS).
-- **Demo login:** the UI ships with demo credentials (email `demo@memecoin.radar`,
-  password `radar-demo-2026`, auto-created on first boot). For a shared public
-  deployment, either keep `DEMO_MODE=1` (read-only analytics is harm-free) or set
-  `DEMO_MODE=0` and rotate the password in the DB.
+- **Access:** visitors are logged in automatically with a **read-only** token
+  (when `DEMO_MODE=1`). Anything that changes data — alerts, watchlist, paper
+  trader, admin jobs — needs **Owner login** (sidebar) with `OWNER_KEY`. Set
+  `DEMO_MODE=0` to hide the app from visitors entirely.
 - **Notes (§31):** the app is analytics-only — keep it that way if you share it.
 
 ## Updating the site

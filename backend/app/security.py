@@ -1,7 +1,7 @@
 """Auth + abuse protection (§22).
 
-- Demo-mode issues a short-lived JWT for the seeded demo user.
-- Write endpoints require a valid bearer token.
+- Demo-mode issues a short-lived READ-ONLY ("visitor") JWT for the seeded user.
+- Owner login (OWNER_KEY) issues an "owner" JWT; every write endpoint requires it.
 - Token-bucket rate limiting per client IP (in-memory; swap for Redis in prod).
 - Input validation is handled by Pydantic schemas + explicit allowlists for
   sort/filter fields (no user input ever reaches raw SQL).
@@ -16,7 +16,8 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from .config import DEMO_MODE, JWT_SECRET, JWT_TTL_HOURS, RATE_LIMIT_PER_MIN
+from .config import (DEMO_MODE, JWT_SECRET, JWT_TTL_HOURS, LOGIN_ATTEMPTS_PER_MIN, OWNER_KEY,
+                     RATE_LIMIT_PER_MIN)
 from .database import SessionLocal
 from .models import User
 
@@ -38,19 +39,34 @@ def verify_password(pw: str, stored: str) -> bool:
     return hmac.compare_digest(check, digest)
 
 
-def issue_token(user: User) -> str:
+ROLE_OWNER = "owner"
+ROLE_VISITOR = "visitor"
+
+
+def issue_token(user: User, role: str = ROLE_VISITOR) -> str:
     now = int(time.time())
-    payload = {"sub": str(user.id), "email": user.email, "iat": now, "exp": now + JWT_TTL_HOURS * 3600}
+    payload = {"sub": str(user.id), "email": user.email, "role": role,
+               "iat": now, "exp": now + JWT_TTL_HOURS * 3600}
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 
 
-def get_current_user(creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> User:
+def check_owner_key(candidate: str) -> bool:
+    """Constant-time compare; always False when no OWNER_KEY is configured."""
+    if not OWNER_KEY or not candidate:
+        return False
+    return hmac.compare_digest(candidate.encode(), OWNER_KEY.encode())
+
+
+def _decode(creds: HTTPAuthorizationCredentials | None) -> dict:
     if creds is None:
         raise HTTPException(status_code=401, detail="Missing bearer token")
     try:
-        payload = jwt.decode(creds.credentials, JWT_SECRET, algorithms=["HS256"])
+        return jwt.decode(creds.credentials, JWT_SECRET, algorithms=["HS256"])
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+def _load_user(payload: dict) -> User:
     with SessionLocal() as db:
         try:
             user = db.get(User, int(payload.get("sub")))
@@ -59,6 +75,19 @@ def get_current_user(creds: HTTPAuthorizationCredentials | None = Depends(bearer
     if user is None:
         raise HTTPException(status_code=401, detail="Unknown user")
     return user
+
+
+def get_current_user(creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> User:
+    """Any valid token (visitor or owner). Use for read endpoints."""
+    return _load_user(_decode(creds))
+
+
+def require_owner(creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> User:
+    """Owner token only. Use for every endpoint that changes data or runs jobs."""
+    payload = _decode(creds)
+    if payload.get("role") != ROLE_OWNER:
+        raise HTTPException(status_code=403, detail="Read-only access: owner login required")
+    return _load_user(payload)
 
 
 # ---------------- rate limiting ----------------
@@ -73,6 +102,21 @@ def rate_limit(request: Request):
         q.popleft()
     if len(q) >= RATE_LIMIT_PER_MIN:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
+    q.append(now)
+
+
+_login_hits: dict[str, deque] = defaultdict(deque)
+
+
+def login_rate_limit(request: Request):
+    """Much stricter bucket for owner-key guesses (brute-force protection)."""
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    q = _login_hits[ip]
+    while q and now - q[0] > 60:
+        q.popleft()
+    if len(q) >= LOGIN_ATTEMPTS_PER_MIN:
+        raise HTTPException(status_code=429, detail="Too many login attempts; wait a minute")
     q.append(now)
 
 
