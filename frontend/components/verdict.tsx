@@ -1,7 +1,7 @@
 "use client";
 import React, { useState } from "react";
 import { useApi } from "@/lib/api";
-import { fmtPct, timeAgo } from "@/lib/format";
+import { fmtPct, fmtUsd, timeAgo } from "@/lib/format";
 import { Empty, Panel } from "./ui";
 
 /* Backend timestamps are naive UTC ("2026-11-20T08:15:00"); without a zone the
@@ -214,6 +214,106 @@ export function LaunchWalletsPanel({ address }: { address: string }) {
           )}
           <div className="text-2xs text-dim px-3.5 py-2 border-t border-line/60">
             {d.caveat} {when ? `Analysed ${timeAgo(when)}.` : ""}
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+/* ------------------------------------------------------------ creator track record */
+const CREATOR_BADGE: Record<string, string> = {
+  clean: "badge-green", mixed: "badge-amber", avoid: "badge-red", stay_away: "badge-red", new: "badge-gray",
+};
+
+function dur(sec?: number | null): string {
+  if (sec == null) return "—";
+  if (sec < 90) return `${Math.round(sec)}s`;
+  if (sec < 5400) return `${Math.round(sec / 60)} min`;
+  if (sec < 172800) return `${(sec / 3600).toFixed(1)} h`;
+  return `${(sec / 86400).toFixed(1)} d`;
+}
+
+export function CreatorPanel({ address }: { address: string }) {
+  const { data: d } = useApi(`/tokens/${address}/creator`, 300000);
+  const [all, setAll] = useState(false);
+  const when = utcSeconds(d?.scored_at);
+  const coins: any[] = d?.coins || [];
+  const isNew = d?.band === "new";
+  return (
+    <Panel title={<span>Creator track record <span className="badge badge-green !text-2xs ml-1">real · Helius</span></span>}>
+      {!d && <Empty text="Loading…" />}
+      {d && !d.available && (
+        <Empty text={d.reason === "not scored yet"
+          ? "Creator not scored yet. Runs for creators of actively tracked coins."
+          : d.reason === "scoring failed; it will retry" ? "Scoring failed; it will retry."
+          : "Creator unknown until the launch wallets are analysed."} />
+      )}
+      {d?.available && (
+        <div>
+          <div className="flex items-center gap-3 px-3.5 py-3 border-b border-line/60">
+            <div className="num text-2xl font-semibold">{d.total == null ? "—" : Math.round(d.total)}<span className="text-sm text-dim">/100</span></div>
+            <span className={`badge ${CREATOR_BADGE[d.band] || "badge-gray"}`}>{d.label}</span>
+            <a className="ml-auto text-xs font-mono text-cyanx hover:underline" href={`https://solscan.io/account/${d.creator}`}
+              target="_blank" rel="noreferrer">{short(d.creator)}</a>
+          </div>
+          {!isNew && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 divide-x divide-y divide-line/60 border-b border-line/60">
+              <Stat label="Earlier launches" value={d.launches ?? "—"} />
+              <Stat label="Dumped at open" value={d.traded ? `${d.dumps} of ${d.traded}` : "—"}
+                bad={(d.dump_rate ?? 0) > 0.3} warn={(d.dumps ?? 0) > 0} />
+              <Stat label="Fastest first sell" value={dur(d.fastest_first_sell_s)}
+                bad={d.fastest_first_sell_s != null && d.fastest_first_sell_s <= 30} />
+              <Stat label="Graduated · alive" value={`${d.graduated ?? 0} · ${d.alive ?? 0}`} />
+              <Stat label="Best peak" value={d.peak_mcap_usd ? fmtUsd(d.peak_mcap_usd, 0) : "—"} />
+              <Stat label="Conduct · power" value={`${Math.round(d.conduct ?? 0)} · ${Math.round(d.power ?? 0)}`}
+                bad={(d.conduct ?? 100) < 45} warn={(d.conduct ?? 100) < 65} />
+            </div>
+          )}
+          <div className="px-3.5 py-2 text-xs">{d.summary}</div>
+          {coins.length > 0 && (
+            <div className="border-t border-line/60">
+              <table className="w-full text-xs">
+                <thead><tr className="text-dim text-2xs">
+                  <th className="text-left px-3.5 py-1 font-normal">Coin</th>
+                  <th className="text-right font-normal whitespace-nowrap" title="SOL he took out ÷ SOL he put in">Out÷in</th>
+                  <th className="text-right font-normal whitespace-nowrap pl-2" title="First sell, time after launch">1st sell</th>
+                  <th className="text-right font-normal">Peak</th>
+                  <th className="text-right px-3.5 font-normal">Status</th>
+                </tr></thead>
+                <tbody>
+                  {(all ? coins : coins.slice(0, 6)).map((c: any) => (
+                    <tr key={c.mint} className="border-t border-line/40">
+                      <td className="px-3.5 py-1">
+                        <a className="text-cyanx hover:underline" href={`https://solscan.io/token/${c.mint}`} target="_blank" rel="noreferrer">
+                          {c.symbol ? `$${c.symbol}` : short(c.mint)}
+                        </a>
+                        {c.dumped && <span className="badge badge-red !text-2xs ml-1">dumped</span>}
+                        {c.moved_out && <span className="badge badge-amber !text-2xs ml-1">moved supply</span>}
+                      </td>
+                      <td className="text-right num">{c.pull_multiple != null ? `${c.pull_multiple}×` : "—"}</td>
+                      <td className={`text-right num ${c.first_sell_s != null && c.first_sell_s <= 30 ? "text-redx" : ""}`}>{dur(c.first_sell_s)}</td>
+                      <td className="text-right num">{c.peak_used_usd ? fmtUsd(c.peak_used_usd, 0) : "—"}</td>
+                      <td className="text-right px-3.5">
+                        <span className={`badge !text-2xs whitespace-nowrap ${c.alive ? "badge-green" : "badge-gray"}`}>
+                          {c.alive ? "alive" : c.graduated ? "dead" : "died on curve"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {coins.length > 6 && (
+                <button className="btn !py-0.5 !px-2 !text-2xs m-2" onClick={() => setAll(!all)}>
+                  {all ? "Show fewer" : `Show all ${coins.length}`}
+                </button>
+              )}
+            </div>
+          )}
+          <div className="text-2xs text-dim px-3.5 py-2 border-t border-line/60">
+            Earlier launches only (this coin excluded), from the creator&apos;s last {d.txs_scanned ?? "?"} transactions.
+            {" "}{(d.limits || [])[0]} Scoring model: GMGN dev-score (MIT).
+            {when ? ` Scored ${timeAgo(when)}.` : ""}
           </div>
         </div>
       )}

@@ -11,6 +11,8 @@
 * The LLM never sees anything but the evidence pack, and the code clamps its rating:
   it can never rate a token above what the risk engine allows (caps()).
 * No LLM key => rules_verdict(): the same evidence, transparent thresholds.
+* Creator analyst: the creator's earlier launches, scored with GMGN's dev-score model
+  (engine/dev_score.py). A dumping creator caps the rating however clean the coin looks.
 
 Ratings are research labels for what to WATCH, never buy/sell instructions.
 """
@@ -35,6 +37,7 @@ def build_evidence(token, facts: dict, score) -> dict:
     comp = (score.components_json or {}) if score is not None else {}
     s = comp.get("summary") or {}
     lf = facts.get("launch") or {}
+    cr = facts.get("creator") or {}
     fee = facts.get("transfer_fee_bps")
     return {
         "token": {"symbol": token.symbol, "name": token.name, "dex": token.dex,
@@ -68,6 +71,13 @@ def build_evidence(token, facts: dict, score) -> dict:
                    "largest_shared_funder_group": lf.get("shared_funder_wallets"),
                    "fresh_wallets_among_checked": lf.get("fresh_early_wallets"),
                    "wallets_checked": lf.get("funder_checked"), "source": "helius launch forensics"},
+        "creator": {"status": cr.get("status"), "band": cr.get("band"), "score": cr.get("total"),
+                    "conduct": cr.get("conduct"), "power": cr.get("power"), "dump_tier": cr.get("dump_tier"),
+                    "earlier_launches": cr.get("launches"), "launches_he_traded": cr.get("traded"),
+                    "dumps_at_open": cr.get("dumps"), "fastest_first_sell_s": cr.get("fastest_first_sell_s"),
+                    "graduated": cr.get("graduated"), "still_alive": cr.get("alive"),
+                    "best_peak_mcap_usd": cr.get("peak_mcap_usd"), "summary": cr.get("summary"),
+                    "source": "creator track record (GMGN dev-score model, helius+dexscreener)"},
         "risk_engine": {"score": _r(score.risk if score is not None else None, 0),
                         "band": score.risk_class if score is not None else None,
                         "flags": (comp.get("risk_flags") or [])[:6],
@@ -81,6 +91,7 @@ def evidence_hash(ev: dict) -> str:
     bucket = lambda v: None if not v else int(math.log2(max(float(v), 1)))  # noqa: E731
     sign = lambda v: None if v is None else (2 if v > 25 else 1 if v > 0 else -1 if v > -25 else -2)  # noqa: E731
     key = [rk["band"], sorted(rk["hard_fails"]), x["sell_route"], la["status"], la["early_buyers_funded_by_creator"],
+           (ev.get("creator") or {}).get("band"),
            bucket(m["liquidity_usd"]), bucket(m["mcap_usd"]), sign(m["price_change_1h_pct"]),
            ev["contract"]["mint_authority_active"], ev["contract"]["freeze_authority_active"],
            None if ev["holders"]["top10_wallet_pct"] is None else int(ev["holders"]["top10_wallet_pct"] // 10)]
@@ -134,6 +145,24 @@ def caps(ev: dict) -> tuple[str, list[str]]:
         cap("NEUTRAL", "liquidity under $10k")
     if la["status"] != "ok":
         cap("WATCH", "launch wallets not analysed")
+    cr = ev.get("creator") or {}
+    cb = cr.get("band")
+    # The score is GMGN's; this stricter rule is ours: frequent dumping at open is disqualifying
+    # for a coin rating even when power lifts the creator's total into "mixed".
+    if cr.get("dump_tier") == "systematic":
+        cap("AVOID", "creator dumps at open in most launches")
+    elif cr.get("dump_tier") == "often":
+        cap("NEUTRAL", "creator often dumps at open")
+    if cb == "stay_away":
+        cap("AVOID", "creator dumps on holders")
+    elif cb == "avoid":
+        cap("NEUTRAL", "creator track record poor")
+    elif cb == "mixed":
+        cap("WATCH", "creator track record mixed")
+    elif cb == "new":
+        cap("WATCH", "creator has no earlier launches to judge")
+    elif cb is None:
+        cap("WATCH", "creator track record not checked")
     return top, why
 
 
@@ -160,6 +189,11 @@ def rules_verdict(ev: dict) -> dict:
         pos.append(f"healthy buy share {bs:.0%}")
     if (m["price_change_1h_pct"] or 0) > 0 and (m["holder_growth_pct"] or 0) > 0:
         pos.append("price and holders rising")
+    cr = ev.get("creator") or {}
+    if cr.get("band") == "clean":
+        pos.append(f"creator record clean ({cr['score']:.0f}/100)")
+    elif cr.get("band") in ("avoid", "stay_away"):
+        neg.insert(0, f"creator record {cr['score']:.0f}/100: {cr.get('summary') or cr['band']}")
     score = len(pos) - (2 if risk >= 50 else 0)
     rating = "STRONG_WATCH" if score >= 5 else "WATCH" if score >= 3 else "AVOID" if risk >= 70 else "NEUTRAL"
     rating, capped = clamp(rating, ev)
@@ -185,7 +219,8 @@ JUDGE = SYSTEM_COMMON + (
     " You are the RISK JUDGE. Weigh the evidence and both arguments, then reply with ONE JSON object only:\n"
     '{"rating": "STRONG_WATCH|WATCH|NEUTRAL|AVOID|RUG_RISK", "confidence": "low|medium|high", '
     '"reason": "max 45 words citing fields", "positives": ["max 3 short items"], "risks": ["max 3 short items"]}\n'
-    "STRONG_WATCH needs clean contract, real sell route, clean launch and healthy liquidity and flow. "
+    "STRONG_WATCH needs clean contract, real sell route, clean launch, a clean creator record (creator.band=clean) "
+    "and healthy liquidity and flow. A creator who dumped his earlier coins (creator.dumps_at_open) is a major risk. "
     "When evidence conflicts or is thin, choose the more cautious rating.")
 
 

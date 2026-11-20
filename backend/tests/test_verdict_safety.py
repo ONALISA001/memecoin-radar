@@ -13,6 +13,7 @@ CLEAN = {
                "price_change_1h_pct": 8.0, "holder_growth_pct": 4.0},
     "launch": {"status": "ok", "early_buyers_funded_by_creator": 0, "bundle_pct": 2,
                "sniper_pct": 5, "largest_shared_funder_group": 1},
+    "creator": {"status": "ok", "band": "clean", "score": 82, "summary": "6 earlier launches"},
 }
 
 
@@ -52,6 +53,13 @@ def test_llm_cannot_rate_above_the_caps():
         (ev(exit__buy_route=False), "NEUTRAL"),
         (ev(market__liquidity_usd=4_000), "NEUTRAL"),
         (ev(launch__status="error"), "WATCH"),
+        (ev(creator__band="stay_away"), "AVOID"),
+        (ev(creator__band="avoid"), "NEUTRAL"),
+        (ev(creator__band="mixed"), "WATCH"),
+        (ev(creator__band="new"), "WATCH"),
+        (ev(creator__band=None), "WATCH"),
+        (ev(creator__band="mixed", creator__dump_tier="often"), "NEUTRAL"),
+        (ev(creator__band="mixed", creator__dump_tier="systematic"), "AVOID"),
     ]
     for e, ceiling in cases:
         got, why = clamp("STRONG_WATCH", e)
@@ -70,3 +78,14 @@ def test_rules_verdict_never_exceeds_caps():
 def test_risk_bands():
     assert classify(0) == "LOW" and classify(29.9) == "LOW"
     assert classify(30) == "MODERATE" and classify(50) == "ELEVATED" and classify(70) == "HIGH"
+
+
+def test_old_evidence_without_creator_section_is_capped_not_crashing():
+    e = copy.deepcopy(CLEAN)
+    del e["creator"]
+    assert clamp("STRONG_WATCH", e)[0] == "WATCH"
+
+
+def test_dumping_creator_shows_in_rules_reason():
+    out = rules_verdict(ev(creator__band="stay_away", creator__score=20, creator__summary="dumped 5 of 6"))
+    assert out["rating"] in ("AVOID", "NEUTRAL") and "dumped 5 of 6" in out["reason"]
