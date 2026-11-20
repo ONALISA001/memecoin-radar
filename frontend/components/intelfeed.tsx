@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { apiPost, useApi } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { Panel } from "@/components/ui";
+import { PriorityCoins, WindowPills } from "@/components/priority";
 
 /* ------------------------------------------------ meta (§20 card design) */
 export const CAT_META: Record<string, { icon: string; label: string; color: string }> = {
@@ -273,7 +274,14 @@ export function MarketPulse({ window: win, onWindow }: { window: string; onWindo
 export interface FeedFilters {
   categories: string[]; importance: string; age: string; momentum: string;
   sort: string; search: string;
+  window: string;   // "" = any time, else 1h … 24h
+  tone: string;     // "" | constructive | risk
 }
+export const EMPTY_FILTERS: FeedFilters = {
+  categories: [], importance: "", age: "", momentum: "", sort: "smart", search: "", window: "", tone: "",
+};
+const WINDOW_SECS: Record<string, number> = { "1h": 3600, "2h": 7200, "4h": 14400, "6h": 21600, "12h": 43200, "24h": 86400 };
+const TONES: [string, string, string][] = [["", "All signals", "#8593A8"], ["constructive", "🟢 Constructive", "#34D399"], ["risk", "🔴 Risk / distribution", "#F87171"]];
 const SORTS: [string, string][] = [
   ["smart", "smart (importance × recency)"], ["recent", "most recent"],
   ["importance", "importance"], ["confidence", "confidence"],
@@ -286,8 +294,22 @@ const MOM_BANDS: [string, string][] = [
 export function FeedFilterBar({ f, setF }: { f: FeedFilters; setF: (g: FeedFilters) => void }) {
   const toggleCat = (c: string) =>
     setF({ ...f, categories: f.categories.includes(c) ? f.categories.filter((x) => x !== c) : [...f.categories, c] });
+  const active = f.categories.length > 0 || f.importance || f.momentum || f.age || f.search || f.window || f.tone;
   return (
-    <div className="space-y-2">
+    <div className="panel p-3 space-y-2.5">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <WindowPills label="Time" value={f.window || "any"} options={["any", "1h", "2h", "4h", "6h", "12h", "24h"]}
+                     onChange={(w) => setF({ ...f, window: w === "any" ? "" : w })} />
+        <div className="flex items-center gap-1" role="group" aria-label="Signal tone">
+          {TONES.map(([v, l, c]) => (
+            <button key={v} onClick={() => setF({ ...f, tone: v })} aria-pressed={f.tone === v} className="pill-mini"
+                    style={f.tone === v ? { color: c, borderColor: c + "99", background: c + "1c" } : {}}>{l}</button>
+          ))}
+        </div>
+        <button className="pill-mini" aria-pressed={f.importance === "HIGH"}
+                style={f.importance === "HIGH" ? { color: "#F59E0B", borderColor: "#F59E0B99", background: "#F59E0B1c" } : {}}
+                onClick={() => setF({ ...f, importance: f.importance === "HIGH" ? "" : "HIGH" })}>⚡ High+ only</button>
+      </div>
       <div className="flex gap-1 flex-wrap">
         {Object.entries(CAT_META).filter(([k]) => k !== "uncategorized").map(([k, m]) => (
           <button key={k} onClick={() => toggleCat(k)} className="pill-mini"
@@ -316,10 +338,10 @@ export function FeedFilterBar({ f, setF }: { f: FeedFilters; setF: (g: FeedFilte
         </select>
         <input className="inp !w-44" placeholder="search symbol / title…" value={f.search}
                onChange={(e) => setF({ ...f, search: e.target.value })} />
-        {(f.categories.length > 0 || f.importance || f.momentum || f.age || f.search) && (
+        {active && (
           <button className="text-xs text-dim hover:text-ink hover:underline"
-                  onClick={() => setF({ categories: [], importance: "", age: "", momentum: "", sort: f.sort, search: "" })}>
-            reset
+                  onClick={() => setF({ ...EMPTY_FILTERS, sort: f.sort })}>
+            reset all
           </button>
         )}
       </div>
@@ -335,13 +357,15 @@ export function feedQuery(f: FeedFilters, extra = ""): string {
   if (f.momentum) p.set("momentum", f.momentum);
   if (f.sort) p.set("sort", f.sort);
   if (f.search.trim()) p.set("search", f.search.trim());
+  if (f.window && WINDOW_SECS[f.window]) p.set("since_secs", String(WINDOW_SECS[f.window]));
+  if (f.tone) p.set("tone", f.tone);
   const s = p.toString();
   return s ? `&${s}` : "";
 }
 
 /* ------------------------------------------------- main feed list */
 export function IntelFeed({ address, compact, focusId }: { address?: string; compact?: number; focusId?: number }) {
-  const [f, setF] = useState<FeedFilters>({ categories: [], importance: "", age: "", momentum: "", sort: "smart", search: "" });
+  const [f, setF] = useState<FeedFilters>(EMPTY_FILTERS);
   const [win, setWin] = useState("1h");
   const q = useMemo(() => {
     const lim = compact || 120;
@@ -360,16 +384,26 @@ export function IntelFeed({ address, compact, focusId }: { address?: string; com
   }, [focusId, items.length]);
 
   const seenFocus = focusId && items.some((e) => e.id === focusId);
-  return (
-    <div className="space-y-3">
-      {!address && !compact && <MarketPulse window={win} onWindow={setWin} />}
-      {!address && !compact && <FeedFilterBar f={f} setF={setF} />}
+  const tone = useMemo(() => ({
+    up: items.filter((e) => e.severity === "positive").length,
+    down: items.filter((e) => e.severity === "danger" || e.severity === "warning").length,
+    high: items.filter((e) => e.importance === "HIGH" || e.importance === "CRITICAL").length,
+  }), [items]);
+  const full = !address && !compact;
+  const feed = (
       <Panel title={<span>{address ? "Intelligence timeline" : compact ? "Live intelligence" : "Live Intelligence Feed"}
-        <span className="panel-sub"> — {items.length} events{!compact && data?.filters ? ` · sort: ${f.sort}` : ""}</span></span>}
-           right={compact ? <Link href="/feed" className="text-xs text-cyanx hover:underline">open full feed →</Link> : undefined}>
+        <span className="panel-sub"> — {items.length} events{full && f.window ? ` · last ${f.window}` : ""}{full ? ` · sort: ${f.sort}` : ""}</span></span>}
+           right={compact ? <Link href="/feed" className="text-xs text-cyanx hover:underline">open full feed →</Link>
+             : full && items.length > 0 ? (
+               <span className="text-2xs num flex gap-2">
+                 <span className="text-greenx">{tone.up} constructive</span>
+                 <span className="text-redx">{tone.down} risk</span>
+                 <span className="text-amberx">{tone.high} high+</span>
+               </span>) : undefined}>
         {items.length === 0 && (
           <div className="p-5 text-dim text-xs">
-            No events match — the engine only writes when observed signals cross thresholds (never fills silence).
+            No events match{full && f.window ? ` in the last ${f.window}` : ""} — the engine only writes when observed
+            signals cross thresholds (never fills silence).
           </div>
         )}
         <div className="max-h-[70vh] overflow-y-auto">
@@ -383,16 +417,31 @@ export function IntelFeed({ address, compact, focusId }: { address?: string; com
           </div>
         )}
       </Panel>
+  );
+  if (!full) return feed;
+  return (
+    <div className="space-y-3">
+      <FeedFilterBar f={f} setF={setF} />
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-3 items-start">
+        <div className="xl:col-span-3 min-w-0">{feed}</div>
+        <div className="xl:col-span-2 space-y-3 min-w-0">
+          <PriorityCoins limit={8} />
+          <MarketPulse window={win} onWindow={setWin} />
+        </div>
+      </div>
     </div>
   );
 }
 
 /* ------------------------------------------------- watchlist intelligence §30 */
-export function WatchlistIntel({ hours = 24 }: { hours?: number }) {
+export function WatchlistIntel({ hours: initialHours = 24 }: { hours?: number }) {
+  const [hours, setHours] = useState(initialHours);
   const { data } = useApi(`/signals/watchlist?hours=${hours}`, 30000, true);
   const items: any[] = data?.items || [];
   return (
-    <Panel title={<span>Watchlist Intelligence <span className="panel-sub">— events on your tokens, last {hours}h</span></span>}>
+    <Panel title={<span>Watchlist Intelligence <span className="panel-sub">— events on your tokens, last {hours}h</span></span>}
+           right={<WindowPills value={`${hours}h`} options={["2h", "4h", "6h", "12h", "24h", "72h"]}
+                               onChange={(w) => setHours(parseInt(w, 10))} />}>
       {items.length === 0 && <div className="p-4 text-dim text-xs">Watch tokens to see their event intelligence here.</div>}
       {items.length > 0 && items.every((t) => t.event_count === 0) && (
         <div className="px-4 pt-3 text-sm text-dim">Quiet period — no MEDIUM+ events on watched tokens in {hours}h. Silence is data.</div>

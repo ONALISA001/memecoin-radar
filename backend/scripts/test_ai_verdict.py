@@ -46,9 +46,16 @@ def ev(**over):
 def unit():
     g = V.gate(ev(risk_engine__hard_fails=["No sell route"]), False)
     check("hard fail => RUG_RISK without LLM", g["rating"] == "RUG_RISK" and g["source"] == "gate")
-    g = V.gate(ev(exit__sell_route=None), False)
-    check("missing sell-route check => REVIEW", g["rating"] == "REVIEW" and "Jupiter" in g["reason"])
-    check("recent launch without forensics => REVIEW", V.gate(ev(launch__status=None), True)["rating"] == "REVIEW")
+    e = ev(exit__sell_route=None)
+    miss = V.missing_checks(e, False)
+    check("missing sell-route check => provisional, capped at WATCH",
+          V.gate(e, False) is None and any("Jupiter" in m for m in miss)
+          and V.clamp("STRONG_WATCH", e)[0] == "WATCH" and V.rules_verdict(e, miss)["provisional"])
+    e = ev(launch__status=None)
+    check("recent launch without forensics => provisional, capped at WATCH",
+          V.gate(e, True) is None and "launch forensics" in V.missing_checks(e, True)
+          and V.clamp("STRONG_WATCH", e)[0] == "WATCH")
+    check("missing market data => REVIEW", V.gate(ev(market__liquidity_usd=None), False)["rating"] == "REVIEW")
     check("old token without forensics is not blocked", V.gate(ev(launch__status=None), False) is None)
     check("complete evidence passes the gate", V.gate(ev(), True) is None)
 
@@ -195,6 +202,27 @@ async def service_tests():
         latest = SVC.latest_verdicts(db, [gid])[gid]
         check("AI down => rules verdict with a note", latest.source == "rules" and "AI unavailable" in latest.reason
               and res["llm_errors"] == 1, latest.reason)
+
+    # AI queue busy: the coin still gets a (rules) call now, and the AI reviews it on a later tick
+    with SessionLocal() as db:
+        db.query(TokenVerdict).delete(); db.commit()
+    keep = (config.VERDICT_LLM_PER_TICK, config.VERDICT_DAILY_LLM_MAX)
+    config.VERDICT_LLM_PER_TICK, config.VERDICT_DAILY_LLM_MAX = 0, 50
+    q_llm = L.LLMClient(transport=anthropic_mock('{"rating":"WATCH","confidence":"medium","reason":"ok"}', []))
+    res = await SVC.run_verdicts(SessionLocal, q_llm)
+    with SessionLocal() as db:
+        latest = SVC.latest_verdicts(db, [gid])[gid]
+        check("no AI slot => rules verdict now, AI review queued (never left without a call)",
+              latest.source == "rules" and "AI review queued" in latest.reason and q_llm.calls == 0, latest.reason)
+    config.VERDICT_LLM_PER_TICK = 1
+    res = await SVC.run_verdicts(SessionLocal, q_llm)
+    with SessionLocal() as db:
+        latest = SVC.latest_verdicts(db, [gid])[gid]
+        check("queued coin gets its AI review on the next free slot", latest.source == "llm" and res["llm"] == 1,
+              str(res))
+    res = await SVC.run_verdicts(SessionLocal, q_llm)
+    check("after the AI review nothing is re-judged", res["due"] == 0, str(res))
+    config.VERDICT_LLM_PER_TICK, config.VERDICT_DAILY_LLM_MAX = keep
 
     from fastapi.testclient import TestClient
     from app.main import app

@@ -2,7 +2,7 @@
 import copy
 
 from app.engine.risk import classify
-from app.engine.verdict import RATINGS, clamp, gate, rules_verdict
+from app.engine.verdict import RATINGS, clamp, gate, missing_checks, rules_verdict
 
 CLEAN = {
     "risk_engine": {"hard_fails": [], "band": "LOW", "score": 12, "flags": []},
@@ -36,11 +36,34 @@ def test_hard_fail_is_rug_risk_without_llm():
     assert out["rating"] == "RUG_RISK" and out["source"] == "gate"
 
 
-def test_unknown_data_is_review_not_safe():
-    assert gate(ev(exit__sell_route=None), False)["rating"] == "REVIEW"
-    assert gate(ev(holders__top10_wallet_pct=None), False)["rating"] == "REVIEW"
-    assert gate(ev(contract__verified=False), False)["rating"] == "REVIEW"
-    assert gate(ev(launch__status=None), launch_expected=True)["rating"] == "REVIEW"
+def test_missing_market_data_is_review():
+    assert gate(ev(market__liquidity_usd=None), False)["rating"] == "REVIEW"
+    assert gate(ev(risk_engine__band=None), False)["rating"] == "REVIEW"
+
+
+def test_unknown_onchain_data_gives_provisional_verdict_never_top_rating():
+    """Missing on-chain checks no longer park a coin in REVIEW: it gets a verdict, but the
+    unknown is treated as risk — capped at WATCH, low confidence, labelled provisional."""
+    cases = [ev(exit__sell_route=None), ev(holders__top10_wallet_pct=None),
+             ev(contract__verified=False), ev(launch__status=None)]
+    for e in cases:
+        assert gate(e, launch_expected=True) is None
+        assert clamp("STRONG_WATCH", e)[0] == "WATCH"
+        missing = missing_checks(e, launch_expected=True)
+        assert missing
+        out = rules_verdict(e, missing)
+        assert out["rating"] == "WATCH" and out["confidence"] == "low" and out["provisional"]
+        assert "Provisional" in out["reason"]
+
+
+def test_rules_verdict_is_decisive_on_weak_flow():
+    """Distribution + fading momentum + thin liquidity => Avoid, not a default Neutral."""
+    weak = ev(market__sell_pressure="distribution", market__momentum="weakening",
+              market__liquidity_health="thin", market__price_change_1h_pct=-25.0,
+              market__organic_score=30, market__buy_share_1h=0.3, market__holder_growth_pct=-2.0)
+    weak["risk_engine"]["score"] = 45
+    assert rules_verdict(weak)["rating"] == "AVOID"
+    assert clamp("STRONG_WATCH", ev(market__sell_pressure="heavy_distribution"))[0] == "NEUTRAL"
 
 
 def test_llm_cannot_rate_above_the_caps():

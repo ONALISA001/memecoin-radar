@@ -132,6 +132,29 @@ PRESETS: dict[str, dict] = {
                      "breakeven_at_pct": 12.0, "max_hold_hours": 8.0, "min_confidence": 60.0,
                      "max_loss_per_trade_pct": 1.0},
     },
+    "ai_verdict": {
+        "name": "AI Verdict Follower",
+        "summary": "Trades only coins the FOMO verdict rates Watch or Strong watch (verdict under 6h old), "
+                   "sizes by the verdict's conviction and sells if the coin is re-judged Avoid / Rug risk; "
+                   "clean contracts, let-winners-run exits. Tests whether the verdict adds an edge.",
+        "settings": {**_SAFETY, **_EXITS_LET_RUN, "verdict_filter": 1, "block_bad_verdicts": 1,
+                     "verdict_sizing": 1, "verdict_exit": 1, "verdict_max_age_h": 6.0,
+                     "min_confidence": 55.0, "stop_loss_pct": 15.0, "max_hold_hours": 12.0,
+                     "max_loss_per_trade_pct": 1.0},
+    },
+    "liquid_scalper": {
+        "name": "Liquid Scalper",
+        "summary": "A different market: only established coins (≥24h old, liquidity ≥$150K, mcap ≥$1M) "
+                   "with real buying; quick in and out — +10% target, 6% stop, 3h max hold, no chasing "
+                   "1h pumps over 25%. Lower costs per trade, smaller swings.",
+        "settings": {"require_verified_contract": True, "max_vol_liq_ratio": 15.0,
+                     "min_token_age_h": 24.0, "min_liquidity_usd": 150000.0, "min_mcap_usd": 1_000_000.0,
+                     "min_volume_24h_usd": 100000.0, "min_buy_share_pct": 55.0, "max_chase_pct_1h": 25.0,
+                     "take_profit_pct": 10.0, "stop_loss_pct": 6.0, "breakeven_at_pct": 5.0,
+                     "max_hold_hours": 3.0, "max_risk_score": 50.0, "min_confidence": 60.0,
+                     "max_position_usd": 800.0, "max_position_pct": 8.0, "max_open_positions": 6,
+                     "max_loss_per_trade_pct": 1.0},
+    },
 }
 
 

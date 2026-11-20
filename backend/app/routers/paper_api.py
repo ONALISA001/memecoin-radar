@@ -413,6 +413,27 @@ def paper_lab(db: Session = Depends(get_db), user: User = Depends(get_current_us
     return out
 
 
+@router.get("/paper/lab/review")
+async def paper_lab_review(ai: bool = True, db: Session = Depends(get_db),
+                           user: User = Depends(get_current_user)):
+    """AI verdict on the Strategy Lab: ranks every strategy account by risk-adjusted
+    results, compares the AI-verdict strategy with the baseline and, when an LLM key is
+    set, adds a short written summary (cached; built only from these stats)."""
+    from ..config import LLM_JUDGE_MODEL
+    from ..paper import lab as LAB, lab_review as LR
+    from ..providers import llm as llm_mod
+    rev = LR.review(LAB.compare(db, user.id, _summary_map(db)))
+    db.commit()
+    rev["ai_text"] = None
+    if ai and rev.get("available") and llm_mod.enabled():
+        try:
+            rev["ai_text"] = await LR.ai_summary(rev, llm_mod.LLMClient(), LLM_JUDGE_MODEL)
+            rev["source"] = "rules+llm"
+        except llm_mod.LLMError as exc:
+            rev["ai_error"] = str(exc)[:120]
+    return rev
+
+
 @router.post("/paper/lab/start", dependencies=[Depends(require_owner)])
 def paper_lab_start(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from ..paper import lab as LAB

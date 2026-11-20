@@ -5,6 +5,8 @@ import { useApi } from "@/lib/api";
 import { ageLabel, fmtNum, fmtPct, fmtPrice, fmtUsd, pctColor, timeAgo } from "@/lib/format";
 import { Badge, Empty, Panel, RiskPill, SimTag, SkeletonRows, TokenAvatar, TrendPill } from "./ui";
 import { IntelFeed } from "./intelfeed";
+import { BAND_COLORS, bandLabel } from "./marketintel";
+import { PriorityCoins, WindowPills } from "./priority";
 import { ChevronDown, Flame } from "lucide-react";
 
 const C = { green: "#34D399", red: "#F87171", amber: "#FBBF24", cyan: "#22D3EE", violet: "#A78BFA", ink: "#E6ECF3" };
@@ -329,6 +331,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
         <div className="xl:col-span-2"><TrendingTable /></div>
         <div className="space-y-6">
+          <PriorityCoins compact limit={6} />
           <RiskFeed />
           <MarketTabs />
         </div>
@@ -342,29 +345,87 @@ export default function Dashboard() {
 }
 
 /* v2 §6/§21: tokens most likely distributing right now (sell-pressure leaders,
-   excluding dead-liquidity dust so the list stays decision-useful). */
+   excluding dead-liquidity dust so the list stays decision-useful). Filterable by
+   momentum band, whale flow, liquidity and a 1h–24h look-back window. */
+const DIST_MOMENTUM: [string, string][] = [
+  ["", "Any momentum"], ["weakening,low", "Fading (weakening / low)"], ["developing", "Developing"],
+  ["strong,extreme", "Still strong (strong / extreme)"],
+];
+const DIST_WHALE: [string, string][] = [
+  ["", "Any whale flow"], ["distributing,heavy_distribution", "Whales distributing"],
+  ["neutral", "Whales neutral"], ["accumulating", "Whales accumulating"],
+];
+const DIST_SORT: [string, string][] = [
+  ["sellp", "Sell pressure"], ["price_drop", "Biggest drop in window"], ["momentum_low", "Weakest momentum"],
+  ["liquidity", "Liquidity"], ["volume", "Volume 1h"],
+];
+const DIST_SELLP: [string, string][] = [["55", "Sell pressure ≥ 55"], ["65", "Heavy only (≥ 65)"], ["45", "Any distribution (≥ 45)"]];
+const DIST_LIQ: [string, string][] = [["3000", "Liq ≥ $3K"], ["10000", "Liq ≥ $10K"], ["50000", "Liq ≥ $50K"], ["0", "Any liquidity"]];
+
 function DistributionWatch() {
-  const { data } = useApi("/screener?status=distribution&sort=momentum&limit=6&min_liquidity=3000", 30000);
-  const items = data?.items || [];
-  if (!items.length) return null;
+  const [win, setWin] = useState("4h");
+  const [mom, setMom] = useState("");
+  const [whale, setWhale] = useState("");
+  const [sort, setSort] = useState("sellp");
+  const [minLiq, setMinLiq] = useState("3000");
+  const [minSellp, setMinSellp] = useState("55");
+  const qs = `/market/distribution?window=${win}&sort=${sort}&min_liquidity=${minLiq}&min_sellp=${minSellp}&limit=10`
+    + (mom ? `&momentum=${mom}` : "") + (whale ? `&whale=${whale}` : "");
+  const { data, loading } = useApi(qs, 30000);
+  const items: any[] = data?.items || [];
+  const filtered = !!(mom || whale || minLiq !== "3000" || minSellp !== "55");
   return (
-    <Panel title="Distribution watch" right={<span className="text-xs text-dim" title="Highest sell-pressure flow among liquid tokens — investigate, not condemn">high sell pressure</span>}>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 p-3">
-        {items.map((t: any) => (
-          <Link key={t.address} href={`/token/${t.address}`}
-                className="flex items-center gap-2.5 py-2 border-b border-line/40 last:border-0 hover:bg-bg/40 px-2 rounded">
-            <TokenAvatar url={t.image_url} symbol={t.symbol} size={26} />
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-semibold truncate">{t.symbol} <span className="text-dim font-normal text-xs">{t.name}</span></div>
-              <div className="text-2xs text-dim num">Sell pressure {Math.round(t.sellp)}/100 · whale {t.whale_class}</div>
-            </div>
-            <div className="text-right">
-              <div className={`num text-sm font-semibold ${(t.price_change_h24 || 0) >= 0 ? "text-greenx" : "text-redx"}`}>{fmtPct(t.price_change_h24)}</div>
-              <div className="text-2xs text-dim num">liq ${fmtNum(t.liquidity)}</div>
-            </div>
-          </Link>
-        ))}
+    <Panel title={<span>Distribution watch <span className="panel-sub">— {data?.total ?? 0} under sell pressure</span></span>}
+           right={<WindowPills value={win} onChange={setWin} />}>
+      <div className="flex flex-wrap gap-2 px-4 py-2.5 border-b border-line/60">
+        <select className="sel !w-auto" aria-label="Momentum" value={mom} onChange={(e) => setMom(e.target.value)}>
+          {DIST_MOMENTUM.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <select className="sel !w-auto" aria-label="Whale flow" value={whale} onChange={(e) => setWhale(e.target.value)}>
+          {DIST_WHALE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <select className="sel !w-auto" aria-label="Sell pressure threshold" value={minSellp} onChange={(e) => setMinSellp(e.target.value)}>
+          {DIST_SELLP.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <select className="sel !w-auto" aria-label="Liquidity" value={minLiq} onChange={(e) => setMinLiq(e.target.value)}>
+          {DIST_LIQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <select className="sel !w-auto" aria-label="Sort" value={sort} onChange={(e) => setSort(e.target.value)}>
+          {DIST_SORT.map(([v, l]) => <option key={v} value={v}>Sort: {l}</option>)}
+        </select>
+        {filtered && (
+          <button className="text-xs text-dim hover:text-ink hover:underline"
+                  onClick={() => { setMom(""); setWhale(""); setMinLiq("3000"); setMinSellp("55"); }}>reset</button>
+        )}
       </div>
+      {loading && !data ? <SkeletonRows rows={4} /> : items.length === 0 ? (
+        <Empty text={filtered ? "No token under sell pressure matches these filters." : "No liquid token is under heavy sell pressure right now."} />
+      ) : (
+        <div className="max-h-[440px] overflow-y-auto">
+          {items.map((t: any) => (
+            <Link key={t.address} href={`/token/${t.address}`}
+                  className="flex items-center gap-3 px-4 py-2.5 border-b border-line/40 last:border-0 hover:bg-panel2">
+              <TokenAvatar url={t.image_url} symbol={t.symbol} size={26} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold truncate">{t.symbol} <span className="text-dim font-normal text-xs">{t.name}</span></div>
+                <div className="text-2xs num flex flex-wrap gap-x-2">
+                  <span style={{ color: BAND_COLORS[t.sellp_band] || C.amber }}>sell pressure {Math.round(t.sellp)}</span>
+                  <span style={{ color: BAND_COLORS[t.momentum_band] || "#8593A8" }}>{bandLabel(t.momentum_band)}{t.momentum != null ? ` ${Math.round(t.momentum)}` : ""}</span>
+                  <span className="text-dim">whale {(t.whale_class || "neutral").replace("_", " ")}</span>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className={`num text-sm font-semibold ${pctColor(t.window_change)}`}
+                     title={t.window_change == null ? "Not enough price history for this window yet" : `Price change over the last ${win}`}>
+                  {t.window_change == null ? "—" : fmtPct(t.window_change)}
+                </div>
+                <div className="text-2xs text-dim num">{win} · liq ${fmtNum(t.liquidity)}</div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+      <div className="px-4 py-2 border-t border-line/50 text-2xs text-dim">Investigate, don&apos;t condemn: sell pressure and whale flow are inferred from aggregate trades.</div>
     </Panel>
   );
 }

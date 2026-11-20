@@ -246,11 +246,13 @@ async def update_outcomes(session_factory, now: int | None = None, transport=Non
 
 
 # ---------------------------------------------------------------- scorecard
-def scorecard(db, days: int = 7, now: int | None = None) -> dict:
-    """Accuracy per rating and source. One call per (token, rating): the first one."""
+def scorecard(db, days: int = 7, now: int | None = None, hours: float | None = None) -> dict:
+    """Accuracy per rating and source. One call per (token, rating): the first one.
+    `hours` (e.g. 2, 4, 6, 12) overrides `days` for short look-back windows."""
     now = now or int(time.time())
+    window_s = int(hours * 3600) if hours else days * 86400
     rows = db.execute(select(VerdictOutcome, Token).join(Token, Token.id == VerdictOutcome.token_id)
-                      .where(VerdictOutcome.verdict_ts >= now - days * 86400)
+                      .where(VerdictOutcome.verdict_ts >= now - window_s)
                       .order_by(VerdictOutcome.verdict_ts)).all()
     first: dict[tuple, tuple] = {}
     for o, t in rows:
@@ -277,7 +279,8 @@ def scorecard(db, days: int = 7, now: int | None = None) -> dict:
     by_source = {s: stats([c for c in calls if c[0].source == s]) for s in ("llm", "rules", "gate")}
     misses = [c for c in calls if c[0].result == "wrong"]
     misses.sort(key=lambda c: -abs(_ret_j(c[0]) or 0))
-    return {"days": days, "judge_h": judge_hours(), "overall": stats(calls), "by_rating": by_rating,
+    return {"days": days, "hours": hours or days * 24, "judge_h": judge_hours(), "overall": stats(calls),
+            "by_rating": by_rating,
             "by_source": by_source,
             "worst_misses": [{"symbol": t.symbol, "address": t.address, "rating": o.rating, "source": o.source,
                               "ret_judged": _ret_j(o), "judge_h": o.judge_h or 24, "ret_24h": o.ret_24h,

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..models import LiquiditySnapshot, PriceSnapshot, SignalOutcome, TrendScore
 from .timeseries import series_list, value_at_or_before
 
-HORIZONS = (3600, 14400)          # 1h, 4h
+HORIZONS = (3600, 7200, 14400)    # 1h, 2h, 4h
 STRIDE = 5                        # label every 5th score snapshot (per token)
 
 
@@ -117,8 +117,48 @@ def _curve(rows: list[SignalOutcome], attr: str, horizon: int) -> list[dict]:
     return out
 
 
-def calibration_report(db: Session) -> dict:
-    rows = db.execute(select(SignalOutcome)).scalars().all()
+def _summary(seg: list[SignalOutcome]) -> dict:
+    """Headline numbers for one horizon: how often signals continued / reversed."""
+    if not seg:
+        return {"n": 0}
+    n = len(seg)
+    outcomes: dict[str, int] = {}
+    for r in seg:
+        outcomes[r.outcome or "neutral"] = outcomes.get(r.outcome or "neutral", 0) + 1
+    rets = [r.fwd_ret_pct for r in seg if r.fwd_ret_pct is not None]
+    dds = [r.max_dd_pct for r in seg if r.max_dd_pct is not None]
+    return {"n": n,
+            "continuation_rate": round(100 * outcomes.get("continued", 0) / n, 1),
+            "reversal_rate": round(100 * (outcomes.get("reversal", 0) + outcomes.get("rug", 0)) / n, 1),
+            "median_fwd_ret": _bucket_stats(rets).get("median"),
+            "p25_fwd_ret": _bucket_stats(rets).get("p25"), "p75_fwd_ret": _bucket_stats(rets).get("p75"),
+            "median_max_dd": _bucket_stats(dds).get("median"),
+            "outcomes": outcomes}
+
+
+RULES = [
+    # (name, predicate, outcome that counts as a hit, adverse outcomes)
+    ("trend ≥ 70", lambda r: (r.trend or 0) >= 70, "continued", ("rug", "reversal")),
+    ("trend ≥ 70 & risk < 50", lambda r: (r.trend or 0) >= 70 and (r.risk or 100) < 50,
+     "continued", ("rug", "reversal")),
+    ("fomo ≥ 80", lambda r: (r.fomo or 0) >= 80, "continued", ("rug", "reversal")),
+    ("fomo 40–80 (building)", lambda r: 40 <= (r.fomo or 0) < 80, "continued", ("rug", "reversal")),
+    ("emerging flag", lambda r: bool(r.emerging), "continued", ("rug", "reversal")),
+    ("emerging & risk < 50", lambda r: bool(r.emerging) and (r.risk or 100) < 50,
+     "continued", ("rug", "reversal")),
+    ("risk ≥ 70", lambda r: (r.risk or 0) >= 70, "rug", ("rug", "reversal")),
+    ("fomo ≥ 80 & risk ≥ 70", lambda r: (r.fomo or 0) >= 80 and (r.risk or 0) >= 70,
+     "rug", ("rug", "reversal")),
+]
+
+
+def calibration_report(db: Session, days: float | None = None, now: int | None = None) -> dict:
+    """`days` limits the report to score snapshots from the last N days (None = all)."""
+    q = select(SignalOutcome)
+    if days:
+        import time as _t
+        q = q.where(SignalOutcome.ts >= (now or int(_t.time())) - int(days * 86400))
+    rows = db.execute(q).scalars().all()
     n = len(rows)
     horizons = {}
     for h in HORIZONS:
@@ -128,32 +168,30 @@ def calibration_report(db: Session) -> dict:
             "fomo_curve": _curve(rows, "fomo", h),
             "risk_curve": _curve(rows, "risk", h),
             "n": len(sub),
+            "summary": _summary(sub),
         }
     rules = []
-    for name, fn, good, bad in [
-        ("trend ≥ 70", lambda r: (r.trend or 0) >= 70, "continued", ("rug", "reversal")),
-        ("fomo ≥ 80", lambda r: (r.fomo or 0) >= 80, "continued", ("rug", "reversal")),
-        ("emerging flag", lambda r: bool(r.emerging), "continued", ("rug", "reversal")),
-        ("risk ≥ 70", lambda r: (r.risk or 0) >= 70, "rug", ("rug", "reversal")),
-        ("fomo ≥ 80 & risk ≥ 70", lambda r: (r.fomo or 0) >= 80 and (r.risk or 0) >= 70,
-         "rug", ("rug", "reversal")),
-    ]:
+    for name, fn, good, bad in RULES:
         for h in HORIZONS:
             seg = [r for r in rows if r.horizon_secs == h and fn(r)]
             if not seg:
                 continue
             target = sum(1 for r in seg if r.outcome == good) if isinstance(good, str) else 0
             adverse = sum(1 for r in seg if r.outcome in bad)
-            if name.startswith("risk") or "&" in name:
+            if good == "rug":         # risk rules: a "hit" is the adverse outcome they warn about
                 metric_val = round(adverse / len(seg) * 100, 1)
             else:
                 metric_val = round(target / len(seg) * 100, 1)
+            rets = [r.fwd_ret_pct for r in seg if r.fwd_ret_pct is not None]
             rules.append({"rule": name, "horizon_secs": h, "n": len(seg),
-                          "hit_rate_pct": metric_val,
-                          "target": good if name.startswith("risk") or "&" in name else good,
+                          "hit_rate_pct": metric_val, "target": good,
+                          "kind": "risk" if good == "rug" else "signal",
+                          "median_fwd_ret": _bucket_stats(rets).get("median"),
                           "adverse_rate_pct": round(adverse / len(seg) * 100, 1)})
     retro = sum(1 for r in rows if r.kind == "retro")
     return {
+        "days": days,
+        "horizon_list": list(HORIZONS),
         "total_outcomes": n,
         "retro_share": round(retro / n, 3) if n else 0.0,
         "data_sufficiency": ("GOOD" if n >= 400 else "BUILDING" if n >= 80 else "INSUFFICIENT"),
