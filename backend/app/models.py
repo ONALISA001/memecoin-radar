@@ -403,6 +403,31 @@ class TokenVerdict(Base):
     telegram_sent = Column(Boolean, default=False)
 
 
+class VerdictOutcome(Base):
+    """What happened after a verdict: returns at 1h / 6h / 24h, best and worst point,
+    liquidity collapse, and whether the call was right. One row per verdict."""
+    __tablename__ = "verdict_outcomes"
+    id = Column(Integer, primary_key=True)
+    verdict_id = Column(Integer, ForeignKey("token_verdicts.id"), unique=True, index=True, nullable=False)
+    token_id = Column(Integer, ForeignKey("tokens.id"), index=True, nullable=False)
+    rating = Column(String(16))
+    source = Column(String(8))
+    verdict_ts = Column(Integer, index=True)  # epoch seconds
+    price_at = Column(Float)
+    liquidity_at = Column(Float)
+    ret_1h = Column(Float)                   # % change in price
+    ret_6h = Column(Float)
+    ret_24h = Column(Float)
+    max_up_24h = Column(Float)               # best point vs price_at, %
+    max_dd_24h = Column(Float)               # worst point vs price_at, %
+    liq_change_24h = Column(Float)           # %
+    rugged = Column(Boolean)
+    data_source = Column(String(24))         # snapshots | dexscreener
+    status = Column(String(10), default="pending")   # pending | done | no_data
+    result = Column(String(8))               # right | wrong | mixed (after 24h)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class DataSource(Base):
     __tablename__ = "data_sources"
     id = Column(Integer, primary_key=True)

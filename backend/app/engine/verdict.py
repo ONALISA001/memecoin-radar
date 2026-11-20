@@ -193,13 +193,16 @@ def _ev_text(ev: dict) -> str:
     return "EVIDENCE:\n" + json.dumps(ev, separators=(",", ":"), default=str)
 
 
-async def debate(ev: dict, llm, quick_model: str, judge_model: str) -> dict:
-    """Bull + bear (quick model), then judge (JSON). Raises LLMError on failure."""
+async def debate(ev: dict, llm, quick_model: str, judge_model: str,
+                 track_record: str | None = None) -> dict:
+    """Bull + bear (quick model), then judge (JSON). Raises LLMError on failure.
+    track_record: the judge's own recent scorecard and worst misses (memory)."""
     from ..providers.llm import extract_json
     text = _ev_text(ev)
     bull = (await llm.complete(BULL, text, quick_model, 260))[:900]
     bear = (await llm.complete(BEAR, text, quick_model, 260))[:900]
-    raw = await llm.complete(JUDGE, f"{text}\n\nBULL:\n{bull}\n\nBEAR:\n{bear}", judge_model, 350)
+    memory = f"\n\nTRACK RECORD:\n{track_record[:1200]}" if track_record else ""
+    raw = await llm.complete(JUDGE, f"{text}\n\nBULL:\n{bull}\n\nBEAR:\n{bear}{memory}", judge_model, 350)
     out = extract_json(raw)
     rating = str(out.get("rating", "")).upper().strip()
     if rating not in RATINGS:

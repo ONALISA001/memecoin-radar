@@ -760,9 +760,26 @@ def token_verdict(address: str, db: Session = Depends(get_db)):
                       .order_by(TokenVerdict.id.desc()).limit(10)).scalars().all()
     if not rows:
         return {"available": False, "reason": "no verdict yet"}
-    return {"available": True, "latest": _verdict_json(rows[0], full=True),
-            "history": [_verdict_json(r) for r in rows[1:]],
+    from ..models import VerdictOutcome
+    outs = {o.verdict_id: o for o in db.execute(select(VerdictOutcome).where(
+        VerdictOutcome.verdict_id.in_([r.id for r in rows]))).scalars().all()}
+    def with_outcome(r, full=False):
+        d, o = _verdict_json(r, full), outs.get(r.id)
+        d["outcome"] = None if o is None else {
+            "status": o.status, "result": o.result, "ret_1h": o.ret_1h, "ret_6h": o.ret_6h,
+            "ret_24h": o.ret_24h, "max_up_24h": o.max_up_24h, "max_dd_24h": o.max_dd_24h,
+            "rugged": o.rugged, "data_source": o.data_source}
+        return d
+    return {"available": True, "latest": with_outcome(rows[0], full=True),
+            "history": [with_outcome(r) for r in rows[1:]],
             "disclaimer": "Research label from real on-chain and market evidence. Not a buy or sell signal."}
+
+
+@router.get("/verdicts/scorecard")
+def verdict_scorecard(days: int = 7, db: Session = Depends(get_db)):
+    """How FOMO's verdicts aged: accuracy per rating and per source (AI vs rules)."""
+    from ..services.outcomes import scorecard
+    return scorecard(db, max(1, min(days, 30)))
 
 
 @router.get("/verdicts")
