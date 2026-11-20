@@ -13,6 +13,7 @@ from sqlalchemy import select
 from ..models import Token, TokenRiskCheck
 from ..providers.helius import ext_names_from_str
 from ..providers.mock_providers import Sim
+from ..engine.dev_score import creator_concerns
 from .creator_profiles import profile_facts, profiles_for
 from .launch_forensics import latest_launch_rows, launch_facts
 
@@ -90,7 +91,8 @@ def latest_contract_facts(db, tokens: list[Token]) -> dict[int, dict]:
             out[t.id]["creator"] = cf
             if cf is not None:
                 out[t.id]["deployer_prev_launches"] = cf["launches"]
-                out[t.id]["deployer_suspicious"] = cf["band"] in ("avoid", "stay_away")
+                # same line as the verdict caps: a poor band OR frequent dumping at open
+                out[t.id]["deployer_suspicious"] = bool(creator_concerns(cf))
     return out
 
 

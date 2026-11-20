@@ -8,6 +8,7 @@ from ..config import ANOMALY_Z
 from ..providers.helius import RISKY_EXTENSIONS, TRANSFER_FEE_HIGH_BPS
 from ..providers.jupiter import exit_verdict
 from .context import TokenContext
+from .dev_score import creator_concerns
 
 # Risk floor when a single fact can make a token unsellable / rug-able on its own.
 HARD_FAIL_FLOOR = 85.0
@@ -157,13 +158,20 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
 
     # ---- launch & deployer risk /10 (launch forensics; unknown → scored 0) ----
     p_deployer = 0.0
+    cr = facts.get("creator") or {}
     if facts.get("deployer_suspicious"):
         p_deployer += 6
-        flags.append(f"Deployer shows suspicious launch patterns{tag}")
-        events.append({"category": "deployer", "severity": "warn",
-                       "message": f"Deployer wallet matches patterns of repeated short-lived launches{tag}."})
+        if cr:                # REAL creator track record: say exactly what he did
+            for msg in creator_concerns(cr) or ["creator track record is poor"]:
+                flags.append(msg[0].upper() + msg[1:])
+                events.append({"category": "deployer", "severity": "warn", "message": msg[0].upper() + msg[1:] + "."})
+        else:
+            flags.append(f"Deployer shows suspicious launch patterns{tag}")
+            events.append({"category": "deployer", "severity": "warn",
+                           "message": f"Deployer wallet matches patterns of repeated short-lived launches{tag}."})
     prev = facts.get("deployer_prev_launches")
-    if prev is not None:
+    # many launches are only a risk when the record is not clean
+    if prev is not None and cr.get("band") != "clean":
         p_deployer += 4 if prev >= 5 else 2 if prev >= 3 else 0
         if prev >= 3:
             flags.append(f"Deployer linked to ~{prev} previous launches")

@@ -54,9 +54,12 @@ def candidates(db, now: dt.datetime | None = None) -> list[tuple[str, set[str]]]
     prio: dict[str, tuple] = {}
     for lf, tok in rows:
         mints.setdefault(lf.creator, set()).add(tok.address)
-        if tok.id not in trend:
+        # a fresh launch still waiting for its alert decision goes first, so the creator's
+        # record is known before the alert is decided (same tick, right after forensics)
+        deciding = tok.discovery_source == "new_pool" and tok.launch_alert is None
+        if tok.id not in trend and not deciding:
             continue
-        p = (0 if tok.launch_alert == "sent" else 1, -(trend[tok.id] or 0))
+        p = (0 if deciding else 1 if tok.launch_alert == "sent" else 2, -(trend.get(tok.id) or 0))
         if lf.creator not in prio or p < prio[lf.creator]:
             prio[lf.creator] = p
     if not prio:
