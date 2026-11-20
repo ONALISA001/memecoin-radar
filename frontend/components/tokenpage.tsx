@@ -9,7 +9,7 @@ import { ageLabel, fomoBandClass, fmtNum, fmtPct, fmtPrice, fmtUsd, pctColor,
 import { Badge, ConfChip, Empty, Gauge, Panel, RiskPill, RowBadges, Sparkline, TokenAvatar } from "./ui";
 import ForensicsPanel from "./forensics";
 import TimeMachinePanel from "./timemachine";
-import { LaunchWalletsPanel, VerdictPanel, utcSeconds } from "./verdict";
+import { CreatorPanel, LaunchWalletsPanel, VerdictPanel, utcSeconds } from "./verdict";
 import { MarketIntelPanel } from "./marketintel";
 import { IntelFeed } from "./intelfeed";
 import { HoldersChart, LiquidityChart, PriceChart, ScoreChart, SocialChart, VolumeChart } from "./charts";
@@ -494,6 +494,7 @@ export default function TokenPage({ address }: { address: string }) {
           })()}
           <OnchainRiskPanel address={d.address} />
           <LaunchWalletsPanel address={d.address} />
+          <CreatorPanel address={d.address} />
           <WhalesPanel address={d.address} />
           <PostsPanel address={d.address} />
           <RiskEventsPanel address={d.address} />

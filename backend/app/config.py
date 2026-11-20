@@ -150,6 +150,15 @@ OUTCOME_JUDGE_HOURS = int(os.getenv("OUTCOME_JUDGE_HOURS", "12"))     # calls ju
 VERDICT_TRACK_RECORD = os.getenv("VERDICT_TRACK_RECORD", "1") == "1"   # show the judge its record
 SCORECARD_TELEGRAM = os.getenv("SCORECARD_TELEGRAM", "1") == "1"       # daily summary
 SCORECARD_HOUR_UTC = int(os.getenv("SCORECARD_HOUR_UTC", "6"))         # 06 UTC = 09:00 Nairobi
+# Creator track record (earlier launches by a coin's creator; model from GMGN dev-score)
+CREATOR_SCORE_ENABLED = os.getenv("CREATOR_SCORE_ENABLED", "1") == "1"
+CREATOR_PER_TICK = int(os.getenv("CREATOR_PER_TICK", "1"))
+CREATOR_DAILY_MAX = int(os.getenv("CREATOR_DAILY_MAX", "40"))         # creators scored per 24 h
+CREATOR_TTL_H = float(os.getenv("CREATOR_TTL_H", "24"))               # re-score a creator after
+CREATOR_TX_SCAN = int(os.getenv("CREATOR_TX_SCAN", "300"))            # Developer-plan fast path
+CREATOR_RPC_TX = int(os.getenv("CREATOR_RPC_TX", "100"))              # free-plan path: 1 call per tx
+CREATOR_USE_GTFA = os.getenv("CREATOR_USE_GTFA", "1") == "1"
+CREATOR_PEAK_LOOKUPS = int(os.getenv("CREATOR_PEAK_LOOKUPS", "4"))    # GeckoTerminal calls per creator
 # Fresh-launch alerts: allow Token-2022 tokens whose extensions were read and are all harmless
 LAUNCH_ALLOW_CLEAN_TOKEN_2022 = os.getenv("LAUNCH_ALLOW_CLEAN_TOKEN_2022", "1") == "1"
 
