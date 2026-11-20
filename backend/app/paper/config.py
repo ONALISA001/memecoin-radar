@@ -47,6 +47,12 @@ DEFAULT_SETTINGS: dict = {
     "min_buy_share_pct": 0.0,         # buys as % of 1h trades
     "breakeven_at_pct": 0.0,          # once up this much, stop moves to break-even (+fees)
     "trail_activate_pct": 0.0,        # trailing stop only arms after this gain (0 = +2%)
+    # AI verdict rules (bull / bear / judge verdicts). All OFF by default.
+    "verdict_filter": 0,              # 0 off · 1 = only Watch or Strong watch · 2 = Strong watch only
+    "verdict_max_age_h": 6.0,         # a verdict older than this doesn't count
+    "block_bad_verdicts": 0,          # 1 = never buy a coin rated Avoid / Rug risk (even with filter off)
+    "verdict_sizing": 0,              # 1 = size by conviction (Strong watch/high = full size ... low = 40%)
+    "verdict_exit": 0,                # 1 = close if the coin is re-judged Avoid / Rug risk after entry
     # pullback entries: generated from market data, not from intel events
     "pullback_entries": False,
     "pullback_min_chg_24h": 40.0,     # established uptrend

@@ -19,7 +19,7 @@ function ScoreRow({ name, s }: { name: React.ReactNode; s: any }) {
       <td className="text-right num text-greenx">{s.right}</td>
       <td className="text-right num text-redx">{s.wrong}</td>
       <td className="text-right num font-semibold">{hit(s.hit_rate)}</td>
-      <td className={`text-right num ${(s.avg_ret_24h ?? 0) >= 0 ? "text-greenx" : "text-redx"}`}>{s.avg_ret_24h == null ? "—" : fmtPct(s.avg_ret_24h)}</td>
+      <td className={`text-right num ${(s.avg_ret_judged ?? 0) >= 0 ? "text-greenx" : "text-redx"}`}>{s.avg_ret_judged == null ? "—" : fmtPct(s.avg_ret_judged)}</td>
       <td className="text-right px-3.5 num">{hit(s.rug_rate)}</td>
     </tr>
   );
@@ -35,7 +35,7 @@ export default function VerdictsPage() {
     <div className="space-y-4">
       <div className="panel p-4 flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-extrabold">🧠 FOMO verdicts</h1>
-        <span className="text-sm text-dim">Every call is scored from real prices at 1h, 6h and 24h, so you can see how often FOMO is right.</span>
+        <span className="text-sm text-dim">Every call is tracked with real prices at 1h, 6h, 12h and 24h and judged right or wrong at {sc?.judge_h ?? 12}h.</span>
         <div className="flex-1" />
         <select className="btn !py-1 bg-panel" value={days} onChange={(e) => setDays(Number(e.target.value))}>
           {[1, 3, 7, 14, 30].map((d) => <option key={d} value={d}>Last {d} day{d > 1 ? "s" : ""}</option>)}
@@ -43,14 +43,14 @@ export default function VerdictsPage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 items-start">
-        <Panel className="xl:col-span-2" title={<span>Scorecard <span className="panel-sub">judged at 24h</span></span>}>
+        <Panel className="xl:col-span-2" title={<span>Scorecard <span className="panel-sub">judged at {sc?.judge_h ?? 12}h</span></span>}>
           {!sc && <Empty text="Loading…" />}
           {sc && !o?.calls && <Empty text="No verdicts in this period yet." />}
           {sc && o?.calls > 0 && (
             <div>
               <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-line/60 border-b border-line/60">
                 {[["Calls scored", `${o.scored}`], ["Hit rate", hit(o.hit_rate)],
-                  ["Right / wrong / mixed", `${o.right} / ${o.wrong} / ${o.mixed}`], ["Waiting for 24h", `${o.pending}`]]
+                  ["Right / wrong / mixed", `${o.right} / ${o.wrong} / ${o.mixed}`], [`Waiting for ${sc.judge_h ?? 12}h`, `${o.pending}`]]
                   .map(([l, v]) => (
                     <div key={l} className="px-3.5 py-2.5"><div className="text-2xs text-dim">{l}</div>
                       <div className="text-xl font-extrabold num">{v}</div></div>
@@ -60,7 +60,7 @@ export default function VerdictsPage() {
                 <thead><tr className="text-dim text-2xs">
                   <th className="text-left px-3.5 py-1 font-normal">Rating</th><th className="text-right font-normal">Scored</th>
                   <th className="text-right font-normal">Right</th><th className="text-right font-normal">Wrong</th>
-                  <th className="text-right font-normal">Hit rate</th><th className="text-right font-normal">Avg 24h</th>
+                  <th className="text-right font-normal">Hit rate</th><th className="text-right font-normal">Avg {sc.judge_h ?? 12}h</th>
                   <th className="text-right px-3.5 font-normal">Rugged</th>
                 </tr></thead>
                 <tbody>
@@ -73,7 +73,7 @@ export default function VerdictsPage() {
                   ))}
                 </tbody>
               </table>
-              <div className="text-2xs text-dim px-3.5 py-2 border-t border-line/60 whitespace-pre-line">{String(sc.rules || "").replace(/^\(judged at 24h\)\s*/, "")}</div>
+              <div className="text-2xs text-dim px-3.5 py-2 border-t border-line/60 whitespace-pre-line">{String(sc.rules || "").replace(/^\(judged at \d+h\)\s*/, "")}</div>
             </div>
           )}
         </Panel>
@@ -85,7 +85,7 @@ export default function VerdictsPage() {
               <span className="font-semibold">${m.symbol}</span><RatingBadge rating={m.rating} />
               <span className="flex-1" />
               {m.rugged ? <span className="badge badge-red !text-2xs">rugged</span>
-                : <span className={`num ${m.ret_24h >= 0 ? "text-greenx" : "text-redx"}`}>{fmtPct(m.ret_24h)}</span>}
+                : <span className={`num ${(m.ret_judged ?? 0) >= 0 ? "text-greenx" : "text-redx"}`}>{fmtPct(m.ret_judged)} <span className="text-dim text-2xs">at {m.judge_h}h</span></span>}
             </Link>
           ))}
         </Panel>

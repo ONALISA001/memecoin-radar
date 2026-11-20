@@ -21,7 +21,7 @@ def check(name, cond, extra=""):
 
 def matrix():
     j = O.judge_call
-    check("WATCH +20% at 24h => right", j("WATCH", 20, 25, False) == "right")
+    check("WATCH +20% at the judging point => right", j("WATCH", 20, 25, False) == "right")
     check("WATCH spiked +80% then faded => right (upside showed up)", j("WATCH", -5, 80, False) == "right")
     check("WATCH rugged => wrong", j("STRONG_WATCH", 5, 60, True) == "wrong")
     check("WATCH -40% => wrong", j("WATCH", -40, 5, False) == "wrong")
@@ -38,7 +38,7 @@ def seed(now):
     t0b = bucket(t0)
     with SessionLocal() as db:
         toks = {s: Token(chain="solana", address=f"{s}Mint", symbol=s) for s in
-                ("PUMP", "RUG", "LIQRUG", "GONE", "NODATA", "FRESH", "REV", "DUP")}
+                ("PUMP", "RUG", "LIQRUG", "GONE", "NODATA", "FRESH", "REV", "DUP", "LOST")}
         db.add_all(toks.values()); db.flush()
         def verdict(sym, rating, created, price=1.0, liq=100_000, source="llm", ev=None):
             v = TokenVerdict(token_id=toks[sym].id, rating=rating, source=source, price_at=price,
@@ -50,7 +50,8 @@ def seed(now):
         verdict("LIQRUG", "WATCH", created, ev={"launch": {"sniper_pct": 31, "bundle_pct": 12},
                                                  "holders": {"top10_wallet_pct": 44},
                                                  "market": {"liquidity_usd": 15000, "price_change_1h_pct": 40}})
-        verdict("GONE", "STRONG_WATCH", dt.datetime.utcfromtimestamp(now - 24 * 3600 - 600))
+        verdict("GONE", "STRONG_WATCH", dt.datetime.utcfromtimestamp(now - 12 * 3600 - 600))
+        verdict("LOST", "NEUTRAL", dt.datetime.utcfromtimestamp(now - 12 * 3600 - 1800))
         verdict("NODATA", "WATCH", dt.datetime.utcfromtimestamp(now - 31 * 3600))
         verdict("FRESH", "WATCH", dt.datetime.utcfromtimestamp(now - 2 * 3600))
         verdict("REV", "REVIEW", created)
@@ -60,11 +61,12 @@ def seed(now):
             for off_h, p in pts:
                 db.add(PriceSnapshot(token_id=toks[sym].id, ts=bucket(t0 + int(off_h * 3600)), price_usd=p))
             if liq_end is not None:
-                db.add(LiquiditySnapshot(token_id=toks[sym].id, ts=bucket(t0 + 24 * 3600), liquidity_usd=liq_end))
-        path("PUMP", [(0, 1.0), (1, 1.2), (3, 2.1), (6, 1.6), (24, 1.3)], liq_end=140_000)
-        path("RUG", [(0, 1.0), (1, 0.9), (6, 0.3), (24, 0.04)], liq_end=900)
-        path("LIQRUG", [(0, 1.0), (1, 1.1), (6, 0.8), (24, 0.5)], liq_end=10_000)
-        path("DUP", [(0, 1.0), (1, 1.0), (6, 0.7), (24, 0.6)], liq_end=50_000)
+                for h in (12, 24):
+                    db.add(LiquiditySnapshot(token_id=toks[sym].id, ts=bucket(t0 + h * 3600), liquidity_usd=liq_end))
+        path("PUMP", [(0, 1.0), (1, 1.2), (3, 2.1), (6, 1.6), (12, 1.4), (24, 1.3)], liq_end=140_000)
+        path("RUG", [(0, 1.0), (1, 0.9), (6, 0.3), (12, 0.1), (24, 0.04)], liq_end=900)
+        path("LIQRUG", [(0, 1.0), (1, 1.1), (6, 0.8), (12, 0.6), (24, 0.5)], liq_end=10_000)
+        path("DUP", [(0, 1.0), (1, 1.0), (6, 0.7), (12, 0.65), (24, 0.6)], liq_end=50_000)
         fresh_t = now - 2 * 3600
         db.add(PriceSnapshot(token_id=toks["FRESH"].id, ts=bucket(fresh_t + 3600), price_usd=1.05))
         db.commit()
@@ -81,27 +83,36 @@ async def service(now, ids):
         o = {db.get(Token, x.token_id).symbol: x for x in db.query(VerdictOutcome).all()}
         check("REVIEW verdicts are not scored", "REV" not in o)
         p = o["PUMP"]
-        check("PUMP returns 1h/6h/24h from snapshots", (p.ret_1h, p.ret_6h, p.ret_24h) == (20.0, 60.0, 30.0),
-              f"{p.ret_1h} {p.ret_6h} {p.ret_24h}")
-        check("PUMP best point +110%, liquidity +40%", p.max_up_24h == 110.0 and p.liq_change_24h == 40.0)
-        check("PUMP WATCH => right", p.status == "done" and p.result == "right" and p.rugged is False)
+        check("PUMP returns 1h/6h/12h/24h from snapshots",
+              (p.ret_1h, p.ret_6h, p.ret_12h, p.ret_24h) == (20.0, 60.0, 40.0, 30.0),
+              f"{p.ret_1h} {p.ret_6h} {p.ret_12h} {p.ret_24h}")
+        check("PUMP judged at 12h: +40%, best +110%, liquidity +40%", p.judge_h == 12 and p.ret_judge == 40.0
+              and p.max_up_judge == 110.0 and p.liq_change_judge == 40.0)
+        check("PUMP WATCH => right; 24h numbers still to finish", p.result == "right" and p.rugged is False
+              and p.status == "judged")
         r = o["RUG"]
-        check("RUG: -96% and liquidity gone => rugged; AVOID right", r.rugged and r.result == "right")
+        check("RUG: -90% at 12h and liquidity gone => rugged; AVOID right", r.rugged and r.result == "right")
         lr = o["LIQRUG"]
-        check("LIQRUG: liquidity -90% => rugged even at -50% price; WATCH wrong", lr.rugged and lr.result == "wrong")
+        check("LIQRUG: liquidity -90% => rugged even at -40% price; WATCH wrong", lr.rugged and lr.result == "wrong")
         g = o["GONE"]
-        check("GONE: untracked token scored via one DexScreener call", g.ret_24h == 150.0
-              and g.data_source == "dexscreener" and g.result == "right" and len(hits) == 1, str(hits))
-        check("NODATA: no price after 30h => no_data (not guessed)", o["NODATA"].status == "no_data"
-              and o["NODATA"].ret_24h is None)
+        check("GONE: untracked token judged at 12h via one DexScreener call", g.ret_judge == 150.0
+              and g.data_source == "dexscreener" and g.result == "right" and len(hits) == 1
+              and "LOSTMint" in hits[0], str(hits))
+        check("NODATA: no price at 12h (+6h grace) => no_data (not guessed)", o["NODATA"].status == "no_data"
+              and o["NODATA"].ret_judge is None and o["NODATA"].result is None)
+        check("LOST: no data yet, still inside the fallback window", o["LOST"].status == "pending")
         f = o["FRESH"]
         check("FRESH: 1h scored, still pending", f.ret_1h == 5.0 and f.status == "pending" and f.result is None)
     res2 = await O.update_outcomes(SessionLocal, now=now, transport=httpx.MockTransport(dex))
-    check("idempotent: finished rows not touched, no repeat DexScreener call within 15 min",
-          res2["done"] == 0 and len(hits) == 1, str(res2))
-    await O.update_outcomes(SessionLocal, now=now + 16 * 60, transport=httpx.MockTransport(dex))
+    check("idempotent: nothing re-judged, no repeat DexScreener call within 15 min",
+          res2["judged"] == 0 and res2["fallback"] == 0 and len(hits) == 1, str(res2))
+    res3 = await O.update_outcomes(SessionLocal, now=now + 16 * 60, transport=httpx.MockTransport(dex))
     check("unresolved fallback retried after 15 min, only for the unresolved token",
-          len(hits) == 2 and "GONEMint" not in hits[1], str(hits[1:]))
+          len(hits) == 2 and "GONEMint" not in hits[1] and "LOSTMint" in hits[1], str(hits[1:]))
+    with SessionLocal() as db:
+        p = db.query(VerdictOutcome).filter_by(token_id=ids["PUMP"]).one()
+        check("after 24h a judged call moves to done; result unchanged", p.status == "done"
+              and p.result == "right" and p.liq_change_24h == 40.0 and p.max_up_24h == 110.0, str(res3))
 
 def card(now):
     with SessionLocal() as db:

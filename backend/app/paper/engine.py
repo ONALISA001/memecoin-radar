@@ -365,6 +365,10 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
                   "day_realized": acct.day_realized or 0.0,
                   "consec_losses": acct.consec_losses or 0}
     sig_metrics = dict(sig.metrics_json or {})
+    # tag every trade with the AI verdict it was opened under (for analytics), rules or not
+    verdict = F.latest_verdict(db, sig.token_id, now)
+    if verdict:
+        sig_metrics["verdict"] = verdict
     checks = ev.checklist_json or []
     decision = R.evaluate_signal(
         settings, {"confidence": sig.confidence, "risk_score": sig.risk_score or 100,
@@ -396,6 +400,10 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
     size = R.position_size(settings, pf)
     stop_pct = float(settings["stop_loss_pct"])
     size = R.loss_cap_size(settings, pf, size, stop_pct)
+    if settings.get("verdict_sizing") and verdict:
+        mult = F.verdict_size_mult(verdict)
+        size = round(size * mult, 2)
+        sig_metrics["verdict_size_mult"] = mult
     if size < float(settings["execution"]["min_order_usd"]):
         sig.status = "rejected"
         sig.reject_reason = f"order ${size:.2f} below minimum ${settings['execution']['min_order_usd']:.0f}"
@@ -444,6 +452,9 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
               f"size ${size:,.2f} · fee ${fill['fee']:.2f} · stop ${pos.stop_price:.8g} · "
               f"target {f'${pos.target_price:.8g}' if pos.target_price else 'none (trailing)'} · "
               f"regime {sig.market_regime}")
+    if verdict:
+        detail += (f" · AI verdict {verdict['rating'].replace('_', ' ').title()} ({verdict['confidence']})"
+                   + (f", size ×{sig_metrics['verdict_size_mult']:g}" if "verdict_size_mult" in sig_metrics else ""))
     _event(db, acct, pos, sig, "BUY", f"🟢 PAPER BUY — ${sym}",
            f"{ev.title} · conf {sig.confidence:.0f}% · {detail}", {
                "size": size, **fill, "stop": pos.stop_price, "target": pos.target_price})
@@ -489,12 +500,21 @@ def _manage_exit(db, acct, settings, p: PaperPosition, now: int, market: dict,
     elif (mkt.get("liq_chg_3h") is not None
           and mkt["liq_chg_3h"] <= float(settings["liquidity_exit_pct"])):
         reason = "LIQUIDITY_EXIT"
+    elif settings.get("verdict_exit") and _downgraded(db, p, now):
+        reason = "VERDICT_EXIT"
     elif now - p.entry_ts >= (p.max_hold_secs or 86400):
         reason = "MAX_HOLD"
     if reason is None:
         return False
     _close_position(db, acct, settings, p, px, mkt, now, reason, stats)
     return True
+
+
+def _downgraded(db, p: PaperPosition, now: int) -> bool:
+    """True if the coin got a NEW verdict after entry rating it Avoid / Rug risk."""
+    v = F.latest_verdict(db, p.token_id, now)
+    entered = ((p.metrics_json or {}).get("verdict") or {}).get("id")
+    return bool(v and v["rating"] in F.BAD_VERDICTS and v["created_ts"] >= p.entry_ts and v["id"] != entered)
 
 
 def _close_position(db, acct, settings, p: PaperPosition, px: float, mkt: dict,
@@ -530,6 +550,7 @@ def _close_position(db, acct, settings, p: PaperPosition, px: float, mkt: dict,
                   "RISK_EXIT": "Risk threshold exceeded (sell pressure)",
                   "LIQUIDITY_EXIT": "Liquidity deteriorated",
                   "MAX_HOLD": "Maximum holding period reached",
+                  "VERDICT_EXIT": "AI verdict downgraded to Avoid / Rug risk",
                   "MANUAL": "Closed manually (simulated)"}.get(reason, reason)
     kind = "PROFIT" if pnl >= 0 else "LOSS"
     detail = (f"{reason_txt} · entry ${p.entry_price:.8g} → exit ${fill['exec_price']:.8g} "

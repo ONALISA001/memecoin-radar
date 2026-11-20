@@ -146,6 +146,7 @@ VERDICT_MIN_GAP_MIN = float(os.getenv("VERDICT_MIN_GAP_MIN", "30"))       # re-j
 VERDICT_TELEGRAM = os.getenv("VERDICT_TELEGRAM", "1") == "1"   # follow-up for launch-alerted coins
 # Outcome tracker: score every verdict at 1h / 6h / 24h and keep a scorecard
 OUTCOMES_ENABLED = os.getenv("OUTCOMES_ENABLED", "1") == "1"
+OUTCOME_JUDGE_HOURS = int(os.getenv("OUTCOME_JUDGE_HOURS", "12"))     # calls judged this long after
 VERDICT_TRACK_RECORD = os.getenv("VERDICT_TRACK_RECORD", "1") == "1"   # show the judge its record
 SCORECARD_TELEGRAM = os.getenv("SCORECARD_TELEGRAM", "1") == "1"       # daily summary
 SCORECARD_HOUR_UTC = int(os.getenv("SCORECARD_HOUR_UTC", "6"))         # 06 UTC = 09:00 Nairobi
