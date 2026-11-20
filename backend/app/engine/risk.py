@@ -157,16 +157,24 @@ def calculate_risk(ctx: TokenContext, facts: dict) -> dict:
 
     # ---- launch & deployer risk /10 (launch forensics; unknown → scored 0) ----
     p_deployer = 0.0
+    cr = facts.get("creator") or {}
+    cr_flags = (cr.get("flags") or []) if cr.get("status") == "ok" else []
     if facts.get("deployer_suspicious"):
         p_deployer += 6
-        flags.append(f"Deployer shows suspicious launch patterns{tag}")
-        events.append({"category": "deployer", "severity": "warn",
-                       "message": f"Deployer wallet matches patterns of repeated short-lived launches{tag}."})
+        if cr_flags:          # REAL creator track record (providers/creator_history.py)
+            for f in cr_flags:
+                flags.append(f["message"].rstrip("."))
+                events.append({"category": "deployer", "severity": "warn", "message": f["message"]})
+        else:
+            flags.append(f"Deployer shows suspicious launch patterns{tag}")
+            events.append({"category": "deployer", "severity": "warn",
+                           "message": f"Deployer wallet matches patterns of repeated short-lived launches{tag}."})
     prev = facts.get("deployer_prev_launches")
-    if prev is not None:
+    # many launches are only a risk when they did not work out (PROVEN = graduated + alive)
+    if prev is not None and facts.get("deployer_label") != "PROVEN":
         p_deployer += 4 if prev >= 5 else 2 if prev >= 3 else 0
-        if prev >= 3:
-            flags.append(f"Deployer linked to ~{prev} previous launches")
+        if prev >= 3 and not cr_flags:
+            flags.append(f"Deployer linked to {'at least ' if cr.get('at_least') else '~'}{prev} previous launches")
     # Launch forensics (wallet-level, Helius): bundles, snipers, shared/creator funders.
     lf = facts.get("launch") or {}
     lf_ok = lf.get("status") == "ok"

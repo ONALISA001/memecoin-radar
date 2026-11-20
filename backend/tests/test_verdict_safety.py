@@ -13,6 +13,7 @@ CLEAN = {
                "price_change_1h_pct": 8.0, "holder_growth_pct": 4.0},
     "launch": {"status": "ok", "early_buyers_funded_by_creator": 0, "bundle_pct": 2,
                "sniper_pct": 5, "largest_shared_funder_group": 1},
+    "creator": {"status": "ok", "label": "FIRST_LAUNCH"},
 }
 
 

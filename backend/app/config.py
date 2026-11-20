@@ -129,6 +129,15 @@ LAUNCH_USE_GTFA = os.getenv("LAUNCH_USE_GTFA", "1") == "1"           # try the D
 # Fresh-launch alert thresholds from launch forensics
 LAUNCH_MAX_BUNDLE_PCT = float(os.getenv("LAUNCH_MAX_BUNDLE_PCT", "15"))
 LAUNCH_MAX_SNIPER_PCT = float(os.getenv("LAUNCH_MAX_SNIPER_PCT", "25"))
+# Creator (dev) track record: every token the creator wallet launched and what each looks
+# like now. One profile per creator wallet, shared by all its tokens, refreshed every
+# CREATOR_REFRESH_HOURS. Cost per profile: Developer plan ~1-2 gTFA calls; free plan
+# 1 + CREATOR_TX_LIMIT getTransaction calls. DexScreener (free) gives the market side.
+CREATOR_PROFILES_ENABLED = os.getenv("CREATOR_PROFILES_ENABLED", "1") == "1"
+CREATOR_PROFILES_PER_TICK = int(os.getenv("CREATOR_PROFILES_PER_TICK", "2"))
+CREATOR_REFRESH_HOURS = float(os.getenv("CREATOR_REFRESH_HOURS", "12"))
+CREATOR_TX_LIMIT = int(os.getenv("CREATOR_TX_LIMIT", "200"))       # newest creator transactions read
+CREATOR_USE_GTFA = os.getenv("CREATOR_USE_GTFA", "1") == "1"
 # AI verdict (bull / bear / judge). Without LLM_API_KEY a rule-based verdict is used.
 # LLM_PROVIDER=anthropic (default) or openai (any OpenAI-compatible endpoint via LLM_BASE_URL).
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic").strip().lower()

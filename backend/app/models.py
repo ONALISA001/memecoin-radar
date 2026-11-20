@@ -380,6 +380,22 @@ class TokenLaunchForensics(Base):
     wallets_json = Column(JSON)              # evidence: [{wallet, role, slot_offset, pct, funder?, fresh?}]
 
 
+class CreatorProfile(Base):
+    """Creator (dev) wallet track record: every token it launched (from its recent
+    transactions) and what each looks like now. One row per creator wallet, shared by
+    all of its tokens; counts are computed per token so the token itself is excluded."""
+    __tablename__ = "creator_profiles"
+    id = Column(Integer, primary_key=True)
+    creator = Column(String(64), unique=True, index=True, nullable=False)
+    checked_at = Column(DateTime(timezone=True), server_default=func.now())
+    status = Column(String(16))              # ok | error | no_data
+    error = Column(String(200))
+    method = Column(String(8))               # gtfa | rpc
+    txs_scanned = Column(Integer)
+    history_truncated = Column(Boolean, default=False)   # counts are "at least"
+    launches_json = Column(JSON)             # [{mint, time, symbol, state, graduated, liquidity_usd, mcap_usd, dexes}]
+
+
 class TokenVerdict(Base):
     """AI verdict history (bull / bear / judge, or gate / rules). Market values at the
     time are kept so outcomes can be scored later (did the call age well?)."""

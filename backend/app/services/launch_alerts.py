@@ -8,7 +8,9 @@ When a token discovered as a FRESH POOL gets its first complete Helius check
   * no data → wait for the next check (stays undecided)
 
 Passing means only that the obvious rug levers are absent. It is NOT a buy
-signal, and the message says so: LP lock and deployer history are unchecked.
+signal, and the message says so: LP lock is unchecked. The creator's track record
+(earlier launches) blocks the alert when it shows a serial launcher; when it has not
+been checked yet the alert still goes, marked as such.
 A Jupiter round-trip quote (Exit analyst) failing also skips the alert; the
 exit check being unavailable does not.
 Decisions are stored on Token.launch_alert so nothing is ever sent twice.
@@ -79,6 +81,10 @@ def launch_verdict(facts: dict) -> tuple[str | None, list[str]]:
                 bad.append(f"snipers {lf['sniper_pct']:.0f}%")
             if (lf.get("shared_funder_wallets") or 0) >= 3:
                 bad.append(f"{lf['shared_funder_wallets']} early buyers share a funder")
+    cr = facts.get("creator") or {}
+    if cr.get("status") == "ok" and cr.get("label") == "SERIAL_RUGGER":
+        bad.append(f"creator: {cr['dead']} of {cr['matured']} earlier coins dead"
+                   if cr.get("matured") else f"creator launched {cr['launches_24h']} tokens in 24h")
     return ("fail" if bad else "pass"), bad
 
 
@@ -108,6 +114,19 @@ def _launch_line(facts: dict) -> str:
     return "✓ Launch wallets: " + " · ".join(parts)
 
 
+def _creator_line(facts: dict) -> str:
+    cr = facts.get("creator") or {}
+    if cr.get("status") != "ok":
+        return "⚠️ Dev history NOT checked yet"
+    if cr["label"] == "FIRST_LAUNCH":
+        return "• Dev: first launch from this wallet"
+    more = "≥" if cr.get("at_least") else ""
+    parts = [f"{more}{cr['prior_launches']} earlier launches", f"{cr['graduated']} graduated",
+             f"{cr['alive']} alive", f"{cr['dead']} dead"]
+    icon = "✓" if cr["label"] == "PROVEN" else "⚠️" if cr["label"] == "RISKY" else "•"
+    return f"{icon} Dev: " + " · ".join(parts)
+
+
 def format_launch(token: Token, facts: dict, s: dict) -> str:
     e = lambda v: html.escape(str(v), quote=False)  # noqa: E731
     age_min = None
@@ -126,6 +145,7 @@ def format_launch(token: Token, facts: dict, s: dict) -> str:
         + ("✓ Token-2022, no risky extensions" if facts.get("token_2022") else "✓ Standard SPL token"),
         _exit_line(facts),
         _launch_line(facts),
+        _creator_line(facts),
         f"✓ Top-10 wallets {facts['top10_wallet_pct']:.0f}% · largest {facts['top1_wallet_pct']:.0f}% "
         f"(pools & burn excluded)",
         "⚠️ Not a buy signal. LP lock is NOT checked; fresh launches are "

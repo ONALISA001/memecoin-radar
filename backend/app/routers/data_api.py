@@ -730,11 +730,18 @@ def token_launch_forensics(address: str, db: Session = Depends(get_db)):
         TokenLaunchForensics.token_id == token.id)).scalar_one_or_none()
     if row is None:
         return {"available": False, "mock": False, "reason": "not analysed yet"}
+    from ..services.creator_profiles import creator_facts, profiles_for
     from ..services.launch_forensics import FIELDS
+    prof = profiles_for(db, [row.creator]).get(row.creator) if row.creator else None
+    history = creator_facts(prof, token.address)
+    if history and history.get("status") == "ok":
+        history["launches"] = [l for l in (prof.launches_json or []) if l["mint"] != token.address][:30]
+        history["txs_scanned"] = prof.txs_scanned
     return {"available": row.status == "ok", "mock": False, "source": "helius",
             "analysed_at": row.analysed_at.isoformat() if row.analysed_at else None,
             **{f: getattr(row, f) for f in FIELDS},
             "flags": forensic_flags(row), "wallets": row.wallets_json or [],
+            "creator_history": history,
             "caveat": ("Heuristics from the token's first transactions. Bundles = bought in the launch "
                        "block; snipers = within a few slots. Holdings are as of the analysis time.")}
 

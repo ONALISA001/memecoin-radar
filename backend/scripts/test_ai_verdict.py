@@ -36,6 +36,7 @@ def ev(**over):
                     "snipers_hold_pct_at_check": 2, "early_buyers_funded_by_creator": 0,
                     "largest_shared_funder_group": 1, "fresh_wallets_among_checked": 1, "wallets_checked": 5,
                     "source": "h"},
+         "creator": {"status": "ok", "label": "FIRST_LAUNCH", "prior_launches": 0},
          "risk_engine": {"score": 18, "band": "LOW", "flags": [], "hard_fails": []}}
     for path, val in over.items():
         sec, key = path.split("__")

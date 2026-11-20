@@ -6,6 +6,27 @@ social / market / on-chain / news data into *explainable* signals so you can do 
 
 ---
 
+## Creator track record (the dev's earlier launches)
+
+GMGN-style dev check, built on our own data (`providers/creator_history.py`,
+`services/creator_profiles.py`). For every creator wallet found by launch forensics:
+
+- reads the wallet's newest `CREATOR_TX_LIMIT` transactions (Helius `getTransactionsForAddress`,
+  free-plan fallback via `getSignaturesForAddress` + `getTransaction`) and finds every token it
+  created (`initializeMint`/`initializeMint2`, SPL or Token-2022, so pump.fun and plain mints alike);
+- checks each one on DexScreener: **graduated** (PumpSwap/Raydium/Meteora/Orca pool), **alive**
+  ($10k+ liquidity or $50k+ mcap), **dead** (over a day old, under $1k liquidity), **faded**, or
+  **young** (under a day: not counted);
+- labels the creator `SERIAL_RUGGER` (5+ launches in 24h, or 3+ judged launches, 80%+ dead, none
+  graduated), `RISKY` (60%+ dead), `PROVEN` (a graduated coin still alive), `MIXED`, `UNPROVEN`
+  or `FIRST_LAUNCH`. The token being judged is always excluded from its own record.
+
+Effects: fills the risk engine's deployer inputs with real values; a serial launcher blocks the
+Telegram launch alert and caps the AI verdict at Avoid (Risky caps at Neutral; an unchecked creator
+caps at Watch); launch alerts get a "Dev:" line; the token page shows the record and the earlier
+coins. One profile per wallet, refreshed every `CREATOR_REFRESH_HOURS`. A DexScreener outage is an
+error, never "everything died". Tests: `backend/tests/test_creator_history.py`.
+
 ## Time Machine (replay a trade before you take it)
 
 Ported from the Day Trader skill's `trader-timemachine` and adapted to 24/7 memecoins.

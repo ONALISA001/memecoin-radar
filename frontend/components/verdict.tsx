@@ -130,6 +130,103 @@ function Stat({ label, value, bad, warn }: { label: string; value: React.ReactNo
   );
 }
 
+/* ------------------------------------------------------------ creator track record */
+const CREATOR_LABEL: Record<string, { text: string; badge: string }> = {
+  SERIAL_RUGGER: { text: "Serial launcher", badge: "badge-red" },
+  RISKY: { text: "Mostly dead coins", badge: "badge-amber" },
+  MIXED: { text: "Mixed record", badge: "badge-gray" },
+  PROVEN: { text: "Proven", badge: "badge-green" },
+  UNPROVEN: { text: "Too early to judge", badge: "badge-gray" },
+  FIRST_LAUNCH: { text: "First launch", badge: "badge-gray" },
+};
+const STATE_CLS: Record<string, string> = { alive: "text-greenx", dead: "text-redx", faded: "text-amberx", young: "text-dim" };
+
+function CreatorHistory({ h, creator }: { h: any; creator?: string | null }) {
+  const [all, setAll] = useState(false);
+  if (!creator) return null;
+  const head = (
+    <div className="text-xs font-semibold flex items-center gap-2">
+      Creator track record
+      <a className="font-mono font-normal text-cyanx hover:underline" href={`https://solscan.io/account/${creator}`}
+        target="_blank" rel="noreferrer">{short(creator)}</a>
+      {h?.status === "ok" && (
+        <span className={`badge ${CREATOR_LABEL[h.label]?.badge || "badge-gray"} !text-2xs`}>
+          {CREATOR_LABEL[h.label]?.text || h.label}
+        </span>
+      )}
+    </div>
+  );
+  if (!h || h.status !== "ok") {
+    return (
+      <div className="border-t border-line/60 px-3.5 py-2">
+        {head}
+        <div className="text-2xs text-dim mt-1">
+          {h?.status === "error" ? "Creator history check failed; it will retry." : "Creator history not checked yet."}
+        </div>
+      </div>
+    );
+  }
+  const more = h.at_least ? "≥" : "";
+  const launches = h.launches || [];
+  return (
+    <div className="border-t border-line/60">
+      <div className="px-3.5 pt-2">{head}</div>
+      <div className="grid grid-cols-3 sm:grid-cols-5 divide-x divide-line/60">
+        <Stat label="Earlier launches" value={`${more}${h.prior_launches}`} warn={h.launches_24h >= 3} />
+        <Stat label="Graduated" value={h.graduated} />
+        <Stat label="Still alive" value={h.alive} />
+        <Stat label="Dead" value={h.dead} bad={h.dead_rate != null && h.dead_rate >= 0.8 && h.matured >= 3}
+          warn={h.dead_rate != null && h.dead_rate >= 0.6} />
+        <Stat label="Launched last 24h" value={h.launches_24h} bad={h.launches_24h >= 5} />
+      </div>
+      <div className="px-3.5 py-1 space-y-1">
+        {(h.flags || []).map((f: any) => (
+          <div key={f.id} className={`text-xs ${f.severity === "high" ? "text-redx" : "text-amberx"}`}>⚠ {f.message}</div>
+        ))}
+        {h.young > 0 && <div className="text-2xs text-dim">{h.young} earlier coin(s) are under a day old and not counted as dead or alive.</div>}
+      </div>
+      {launches.length > 0 && (
+        <>
+          <table className="w-full text-xs">
+            <thead><tr className="text-dim text-2xs">
+              <th className="text-left px-3.5 py-1 font-normal">Token</th>
+              <th className="text-left font-normal">State</th>
+              <th className="text-right font-normal">Liquidity</th>
+              <th className="text-right font-normal">MCap</th>
+              <th className="text-right px-3.5 font-normal">Launched</th>
+            </tr></thead>
+            <tbody>
+              {(all ? launches : launches.slice(0, 6)).map((l: any) => (
+                <tr key={l.mint} className="border-t border-line/40">
+                  <td className="px-3.5 py-1">
+                    <a className="text-cyanx hover:underline" href={`https://dexscreener.com/solana/${l.mint}`} target="_blank" rel="noreferrer">
+                      {l.symbol ? `$${l.symbol}` : short(l.mint)}
+                    </a>
+                    {l.graduated && <span className="badge badge-green !text-2xs ml-1">graduated</span>}
+                  </td>
+                  <td className={STATE_CLS[l.state] || ""}>{l.state}</td>
+                  <td className="text-right num">{l.liquidity_usd ? `$${Math.round(l.liquidity_usd).toLocaleString()}` : "—"}</td>
+                  <td className="text-right num">{l.mcap_usd ? `$${Math.round(l.mcap_usd).toLocaleString()}` : "—"}</td>
+                  <td className="text-right px-3.5 text-dim">{l.time ? timeAgo(l.time) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {launches.length > 6 && (
+            <button className="btn !py-0.5 !px-2 !text-2xs m-2" onClick={() => setAll(!all)}>
+              {all ? "Show fewer" : `Show all ${launches.length}`}
+            </button>
+          )}
+        </>
+      )}
+      <div className="text-2xs text-dim px-3.5 pb-2">
+        From the creator wallet's newest {h.txs_scanned} transactions{h.at_least ? " (older history not read, so counts are a minimum)" : ""}.
+        Graduated = has a PumpSwap/Raydium/Meteora/Orca pool. Dead = over a day old with under $1k liquidity.
+      </div>
+    </div>
+  );
+}
+
 export function LaunchWalletsPanel({ address }: { address: string }) {
   const { data } = useApi(`/tokens/${address}/launch-forensics`, 120000);
   const [all, setAll] = useState(false);
@@ -212,6 +309,7 @@ export function LaunchWalletsPanel({ address }: { address: string }) {
               )}
             </div>
           )}
+          <CreatorHistory h={d.creator_history} creator={d.creator} />
           <div className="text-2xs text-dim px-3.5 py-2 border-t border-line/60">
             {d.caveat} {when ? `Analysed ${timeAgo(when)}.` : ""}
           </div>
