@@ -1,0 +1,4 @@
+# Test-only dependencies (CI and local test runs). Not installed in production.
+-r requirements.txt
+pytest
+cryptography>=42   # scripts/test_telegram.py, test_wallet_concentration.py: generate test keypairs
