@@ -739,6 +739,46 @@ def token_launch_forensics(address: str, db: Session = Depends(get_db)):
                        "block; snipers = within a few slots. Holdings are as of the analysis time.")}
 
 
+def _verdict_json(v, full: bool = False) -> dict:
+    from ..engine.verdict import LABEL
+    out = {"rating": v.rating, "label": LABEL.get(v.rating, v.rating), "confidence": v.confidence,
+           "source": v.source, "reason": v.reason, "positives": v.positives_json or [],
+           "risks": v.risks_json or [], "created_at": v.created_at.isoformat() if v.created_at else None,
+           "price_at": v.price_at, "mcap_at": v.mcap_at, "liquidity_at": v.liquidity_at}
+    if full:
+        out.update({"bull": v.bull, "bear": v.bear, "judge_raw_rating": v.llm_rating,
+                    "model": v.model, "evidence": v.evidence_json})
+    return out
+
+
+@router.get("/tokens/{address}/verdict")
+def token_verdict(address: str, db: Session = Depends(get_db)):
+    """Latest AI verdict (bull / bear / judge, or rules / safety gate) and recent history."""
+    from ..models import TokenVerdict
+    token = get_token_or_404(db, address)
+    rows = db.execute(select(TokenVerdict).where(TokenVerdict.token_id == token.id)
+                      .order_by(TokenVerdict.id.desc()).limit(10)).scalars().all()
+    if not rows:
+        return {"available": False, "reason": "no verdict yet"}
+    return {"available": True, "latest": _verdict_json(rows[0], full=True),
+            "history": [_verdict_json(r) for r in rows[1:]],
+            "disclaimer": "Research label from real on-chain and market evidence. Not a buy or sell signal."}
+
+
+@router.get("/verdicts")
+def verdicts(rating: Optional[str] = None, limit: int = 50, db: Session = Depends(get_db)):
+    """Latest verdict per token, newest first. Optional ?rating=WATCH filter."""
+    from ..models import Token, TokenVerdict
+    from sqlalchemy import func as _f
+    sub = select(TokenVerdict.token_id, _f.max(TokenVerdict.id).label("mid")).group_by(TokenVerdict.token_id).subquery()
+    q = (select(TokenVerdict, Token).join(sub, TokenVerdict.id == sub.c.mid)
+         .join(Token, Token.id == TokenVerdict.token_id).order_by(TokenVerdict.id.desc()))
+    if rating:
+        q = q.where(TokenVerdict.rating == rating.upper())
+    rows = db.execute(q.limit(max(1, min(limit, 200)))).all()
+    return {"items": [{"address": t.address, "symbol": t.symbol, **_verdict_json(v)} for v, t in rows]}
+
+
 _TM_CACHE: dict[tuple, tuple[float, dict]] = {}
 _TM_TTL = 300  # seconds; the pool only changes every 5-min bucket
 

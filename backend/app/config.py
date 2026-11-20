@@ -129,6 +129,21 @@ LAUNCH_USE_GTFA = os.getenv("LAUNCH_USE_GTFA", "1") == "1"           # try the D
 # Fresh-launch alert thresholds from launch forensics
 LAUNCH_MAX_BUNDLE_PCT = float(os.getenv("LAUNCH_MAX_BUNDLE_PCT", "15"))
 LAUNCH_MAX_SNIPER_PCT = float(os.getenv("LAUNCH_MAX_SNIPER_PCT", "25"))
+# AI verdict (bull / bear / judge). Without LLM_API_KEY a rule-based verdict is used.
+# LLM_PROVIDER=anthropic (default) or openai (any OpenAI-compatible endpoint via LLM_BASE_URL).
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "anthropic").strip().lower()
+LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").strip()
+_default_model = "claude-haiku-5-5" if LLM_PROVIDER == "anthropic" else ""
+LLM_QUICK_MODEL = os.getenv("LLM_QUICK_MODEL", _default_model).strip()   # bull + bear
+LLM_JUDGE_MODEL = os.getenv("LLM_JUDGE_MODEL", _default_model).strip()   # judge
+VERDICT_ENABLED = os.getenv("VERDICT_ENABLED", "1") == "1"
+VERDICT_LLM_PER_TICK = int(os.getenv("VERDICT_LLM_PER_TICK", "1"))       # 3 LLM calls each
+VERDICT_RULES_PER_TICK = int(os.getenv("VERDICT_RULES_PER_TICK", "10"))   # free (no LLM)
+VERDICT_DAILY_LLM_MAX = int(os.getenv("VERDICT_DAILY_LLM_MAX", "40"))     # AI verdicts per 24h
+VERDICT_REFRESH_HOURS = float(os.getenv("VERDICT_REFRESH_HOURS", "6"))
+VERDICT_MIN_GAP_MIN = float(os.getenv("VERDICT_MIN_GAP_MIN", "30"))       # re-judge on change, not sooner
+VERDICT_TELEGRAM = os.getenv("VERDICT_TELEGRAM", "1") == "1"   # follow-up for launch-alerted coins
 # Fresh-launch alerts: allow Token-2022 tokens whose extensions were read and are all harmless
 LAUNCH_ALLOW_CLEAN_TOKEN_2022 = os.getenv("LAUNCH_ALLOW_CLEAN_TOKEN_2022", "1") == "1"
 

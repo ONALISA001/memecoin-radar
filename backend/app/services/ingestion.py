@@ -50,6 +50,7 @@ from .holders import real_holder_stats
 from .contract_facts import is_mock, latest_contract_facts, unverified_facts
 from .launch_alerts import evaluate_launches, send_launch_alerts
 from . import launch_forensics as lf_svc
+from . import ai_verdict as verdict_svc
 from . import onchain_real
 from . import telegram_feed as tg_feed
 from ..providers import telegram_public as tg_public
@@ -523,6 +524,7 @@ def _score_all(db, now_b: int, live: dict | None = None) -> dict:
             "risk": risk_payload["components"],
             "fomo_warning": fomo_payload.get("warning"),
             "risk_flags": risk_payload["flags"],
+            "risk_hard_fails": risk_payload.get("hard_fails", []),
             "signals": signals, "conflicts": conflicts,
             "forensics": forensics,
             "market_intel": mi,
@@ -890,6 +892,10 @@ async def tick() -> dict:
         stats.update(await onchain_checks())
     except Exception as exc:                      # on-chain checks must never break a tick
         log.error("onchain_checks failed: %s", exc)
+    try:
+        stats["verdicts"] = await verdict_svc.run_verdicts(SessionLocal)
+    except Exception as exc:                      # the AI verdict must never break a tick
+        log.error("verdicts failed: %s", exc)
     stats["seconds"] = round(time.time() - t0, 2)
     return stats
 
