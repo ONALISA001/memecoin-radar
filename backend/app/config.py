@@ -191,3 +191,9 @@ ALERT_COOLDOWN_SECONDS = 1800
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 TELEGRAM_MAX_PER_TICK = int(os.getenv("TELEGRAM_MAX_PER_TICK", "8"))   # flood guard
+# High-severity risk events → Telegram, each with a short AI read (services/risk_alerts.py)
+RISK_ALERT_TELEGRAM = os.getenv("RISK_ALERT_TELEGRAM", "1") == "1"
+RISK_ALERT_AI = os.getenv("RISK_ALERT_AI", "1") == "1"                       # needs LLM_API_KEY
+RISK_ALERT_AI_PER_TICK = int(os.getenv("RISK_ALERT_AI_PER_TICK", "3"))
+RISK_ALERT_AI_DAILY_MAX = int(os.getenv("RISK_ALERT_AI_DAILY_MAX", "40"))
+RISK_ALERT_MAX_AGE_MIN = float(os.getenv("RISK_ALERT_MAX_AGE_MIN", "30"))   # never send stale events

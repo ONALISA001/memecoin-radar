@@ -381,9 +381,11 @@ function RiskEventsPanel({ address }: { address: string }) {
           <div className="flex items-center gap-2">
             <span className={`badge ${sev[e.severity] || "badge-gray"}`}>{e.severity}</span>
             <span className="text-xs uppercase tracking-wider text-dim">{e.category}</span>
+            {e.telegram_sent && <span className="text-xs text-dim" title="Sent to Telegram">✈</span>}
             <span className="ml-auto text-xs text-dim">{timeAgo(e.ts)}</span>
           </div>
           <div className="text-sm text-ink/80 mt-0.5">{e.message}</div>
+          {e.ai_note && <div className="text-xs text-dim mt-1">🤖 AI read: {e.ai_note}</div>}
         </div>
       ))}
     </Panel>

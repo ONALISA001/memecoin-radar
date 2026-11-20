@@ -305,9 +305,11 @@ export function RiskFeed({ limit = 8 }: { limit?: number }) {
                 <Badge kind={sev[e.severity] || "gray"}>{e.severity}</Badge>
                 <span className="text-sm font-semibold">{e.symbol}</span>
                 <span className="text-xs text-dim capitalize">{e.category}</span>
+                {e.telegram_sent && <span className="text-xs text-dim" title="Sent to Telegram">✈</span>}
                 <span className="ml-auto text-xs text-dim">{timeAgo(e.ts)}</span>
               </div>
               <div className="text-sm text-dim mt-1 leading-snug">{e.message}</div>
+              {e.ai_note && <div className="text-xs text-ink/80 mt-1 leading-snug">🤖 AI read: {e.ai_note}</div>}
             </Link>
           ))}
         </div>

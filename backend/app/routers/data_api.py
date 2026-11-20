@@ -896,7 +896,8 @@ def token_risk_events(address: str, db: Session = Depends(get_db)):
     events = db.execute(select(RiskEvent).where(RiskEvent.token_id == token.id)
                         .order_by(RiskEvent.ts.desc()).limit(30)).scalars().all()
     return {"events": [{"ts": e.ts, "category": e.category, "severity": e.severity,
-                        "message": e.message} for e in events]}
+                        "message": e.message, "ai_note": e.ai_note,
+                        "telegram_sent": bool(e.telegram_sent)} for e in events]}
 
 
 def _fresh_payloads(db: Session, token: Token):
@@ -1026,7 +1027,8 @@ def risk_events_feed(db: Session = Depends(get_db), limit: int = Query(30, le=10
                       .order_by(RiskEvent.ts.desc()).limit(limit)).all()
     return {"items": [{"ts": e.ts, "category": e.category, "severity": e.severity,
                        "message": e.message, "symbol": t.symbol, "name": t.name,
-                       "address": t.address} for e, t in rows]}
+                       "address": t.address, "ai_note": e.ai_note,
+                       "telegram_sent": bool(e.telegram_sent)} for e, t in rows]}
 
 
 @router.get("/search")

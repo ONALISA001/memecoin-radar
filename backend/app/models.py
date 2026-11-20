@@ -195,6 +195,8 @@ class RiskEvent(Base):
     category = Column(String(48))
     severity = Column(String(12))            # info | warn | high
     message = Column(String(400))
+    telegram_sent = Column(Boolean)          # high-severity events pushed to Telegram
+    ai_note = Column(String(600))            # AI read attached to the Telegram alert
 
 
 class TrendScore(Base):
