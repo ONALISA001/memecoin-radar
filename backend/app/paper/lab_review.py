@@ -84,15 +84,19 @@ def review(lab: dict) -> dict:
         s["rank"] = i
     judged = [s for s in ranked if s["status"] != "too_early"]
     insights: list[str] = []
-    if judged:
-        best, worst = judged[0], judged[-1]
+    profitable = [s for s in judged if (s["return_pct"] or 0) > 0]
+    if not judged:
+        insights.append("No strategy has 10 closed trades yet; every number below is mostly noise.")
+    elif not profitable:
+        insights.append("No strategy with 10+ trades is profitable yet.")
+    else:
+        best = profitable[0]
         insights.append(f"Best risk-adjusted so far: {best['name']} "
                         f"({(best['return_pct'] or 0):+.1f}%, max drawdown {best['max_drawdown_pct'] or 0:.1f}%, "
                         f"{best['trades']} trades).")
-        if worst is not best:
-            insights.append(f"Weakest: {worst['name']} ({(worst['return_pct'] or 0):+.1f}%) — {worst['why']}.")
-    else:
-        insights.append("No strategy has 10 closed trades yet; every number below is mostly noise.")
+    if judged and judged[-1] not in profitable[:1]:
+        worst = judged[-1]
+        insights.append(f"Weakest: {worst['name']} ({(worst['return_pct'] or 0):+.1f}%) — {worst['why']}.")
     by_key = {s["key"]: s for s in strategies}
     ai, base = by_key.get("ai_verdict"), by_key.get("baseline")
     head_to_head = None
@@ -114,7 +118,8 @@ def review(lab: dict) -> dict:
             insights.append(f"{s['name']}: {s['exit_note']}.")
     leader = next((s for s in ranked if s["status"] == "proven_edge"), None)
     verdict = (f"{leader['name']} has a proven edge over {leader['trades']} trades." if leader else
-               f"{judged[0]['name']} leads, but no strategy has a proven edge yet." if judged else
+               f"{profitable[0]['name']} leads, but no strategy has a proven edge yet." if profitable else
+               "No strategy with enough trades is profitable yet; keep collecting trades." if judged else
                "Too early: keep the lab running until each strategy has at least 30 closed trades.")
     return {"available": True, "verdict": verdict, "insights": insights[:6], "strategies": ranked,
             "head_to_head": head_to_head, "min_trades": MIN_TRADES, "source": "rules",

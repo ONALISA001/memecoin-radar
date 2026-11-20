@@ -70,6 +70,12 @@ DEFAULT_SETTINGS: dict = {
     "time_stop_hours": 0.0,           # close a trade that hasn't worked after N hours…
     "time_stop_min_gain_pct": 2.0,    # …i.e. isn't up at least this much
     "reentry_cooldown_h": 0.0,        # at most one entry per coin per N hours
+    # priority-coin entries: buy coins on the Priority list (every gate passed) when the
+    # account's own entry rules also pass. OFF by default.
+    "priority_entries": False,
+    "priority_window_h": 4,            # look-back for the list's event flow: 1, 2, 4, 6, 12, 24
+    "priority_min_score": 55.0,        # priority score needed (0–100)
+    "priority_signal_cooldown_h": 2.0,  # at most one priority signal per coin per N hours
     # pullback entries: generated from market data, not from intel events
     "pullback_entries": False,
     "pullback_min_chg_24h": 40.0,     # established uptrend
@@ -225,6 +231,15 @@ PRESETS: dict[str, dict] = {
                    "money weighted to the best setups.",
         "settings": {**_MOMENTUM_EXITS, **_NO_CHASE, "confluence_sizing": True, "confluence_min_factors": 3},
     },
+}
+
+PRESETS["priority"] = {
+    "name": "G · Priority Coins",
+    "summary": "Trades only coins on the Priority list (risk <50, liquidity ≥$15K, no distribution, no "
+               "Avoid/Rug verdict, momentum or constructive events) with a priority score ≥55, when momentum "
+               "is ≥60 and rising. Momentum exits, no chasing, one entry per coin per 4h.",
+    "settings": {**_MOMENTUM_EXITS, **_NO_CHASE, "allowed_kinds": ["__none__"], "priority_entries": True,
+                 "min_momentum": 60.0, "momentum_rising": True, "min_confidence": 55.0},
 }
 
 # the Strategy Lab's momentum family, compared side by side in the backtester

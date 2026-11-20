@@ -4,6 +4,7 @@ import { useState } from "react";
 import { apiPost, useApi } from "@/lib/api";
 import { Empty, Panel } from "@/components/ui";
 import { SimStrip, usd, pnlCls } from "@/components/paper";
+import { SupervisorPanel } from "@/components/supervisor";
 
 const pct = (v?: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
 const EXIT_LABEL: Record<string, string> = {
@@ -18,7 +19,8 @@ function Row({ r, best, onApply }: { r: any; best: boolean; onApply?: () => void
     <tr className={best ? "bg-greenx/5" : ""}>
       <td className="!py-2.5">
         <div className="font-semibold text-sm">{r.name} {best && <span className="badge badge-green !text-2xs ml-1">leading</span>}
-          {r.halt?.active && <span className="badge badge-amber !text-2xs ml-1">paused</span>}</div>
+          {r.halt?.active && <span className="badge badge-amber !text-2xs ml-1">paused</span>}
+          {r.retired && <span className="badge badge-gray !text-2xs ml-1" title="Retired by an approved supervisor proposal">retired</span>}</div>
         <div className="text-xs text-dim max-w-[420px] min-w-[260px] leading-snug whitespace-normal">{r.summary}</div>
       </td>
       <td className={`num ${pnlCls(r.return_pct)}`}>{r.running === false ? "—" : pct(r.return_pct)}</td>
@@ -93,7 +95,7 @@ export default function StrategyLabPage() {
   const rows: any[] = data?.presets || [];
   const ranked = rows.filter((r) => r.running && r.proven_edge).sort((a, b) => b.return_pct - a.return_pct);
   const leader = ranked[0]?.key;
-  const notRunning = rows.filter((r) => !r.running);
+  const notRunning = rows.filter((r) => !r.running && !r.retired);
 
   return (
     <div className="space-y-3">
@@ -119,7 +121,7 @@ export default function StrategyLabPage() {
               <th>Profit factor</th><th>Avg trade (95% range)</th><th>Avg win / loss</th><th>Max DD</th><th>Exits</th><th></th>
             </tr></thead>
             <tbody>
-              {(["core", "momentum"] as const).map((fam) => {
+              {(["core", "momentum", "challenger"] as const).map((fam) => {
                 const group = rows.filter((r) => (r.family || "core") === fam);
                 if (!group.length) return null;
                 return [
@@ -128,6 +130,11 @@ export default function StrategyLabPage() {
                       <span className="text-xs font-bold text-cyanx">⚡ Momentum family (A–F)</span>
                       <span className="text-2xs text-dim ml-2">built on strong momentum, volume and bullish regime ·</span>
                       <Link href="/paper/backtest" className="text-2xs text-cyanx hover:underline ml-1">compare them on past data →</Link>
+                    </td></tr>),
+                  fam === "challenger" && (
+                    <tr key="hdr-challenger"><td colSpan={11} className="!text-left !py-2 bg-violetx/5">
+                      <span className="text-xs font-bold text-violetx">🧪 Challengers</span>
+                      <span className="text-2xs text-dim ml-2">copies of a strategy with one fix learned from its losing trades — started by your approval</span>
                     </td></tr>),
                   ...group.map((r) => (
                     <Row key={r.key} r={r} best={r.key === leader}
@@ -145,6 +152,7 @@ export default function StrategyLabPage() {
           Profit factor = gross wins ÷ gross losses (above 1 = profitable).
         </div>
       </Panel>
+      {data?.running && <SupervisorPanel onChanged={() => setK(k + 1)} />}
       {data?.running && <LabVerdict k={k} />}
     </div>
   );

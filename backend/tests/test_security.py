@@ -54,6 +54,8 @@ WRITE_ROUTES = [
     ("post", "/api/paper/trades/1/close", None),
     ("post", "/api/paper/backtest", {}),
     ("post", "/api/paper/backtest/compare", {"hours": 24}),
+    ("post", "/api/paper/supervisor/review", None),
+    ("post", "/api/paper/supervisor/proposals/1/approve", None),
 ]
 
 

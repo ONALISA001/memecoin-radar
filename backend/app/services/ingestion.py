@@ -913,6 +913,18 @@ async def tick() -> dict:
     except Exception as exc:                      # the AI verdict must never break a tick
         log.error("verdicts failed: %s", exc)
     try:
+        from .. import config
+        if config.SUPERVISOR_ENABLED:
+            from ..paper import supervisor as supervisor_svc
+            from ..providers import llm as _llm
+            with SessionLocal() as _db:
+                _mkt = latest_market_map(_db)
+            stats["supervisor"] = await supervisor_svc.run_scheduled(
+                SessionLocal, _mkt, config.SUPERVISOR_INTERVAL_H,
+                llm=_llm.LLMClient() if _llm.enabled() else None, model=config.LLM_JUDGE_MODEL)
+    except Exception as exc:                      # the supervisor must never break a tick
+        log.error("strategy supervisor failed: %s", exc)
+    try:
         stats["risk_alerts"] = await risk_alerts_svc.run_risk_alerts(SessionLocal)
     except Exception as exc:                      # risk alerts must never break a tick
         log.error("risk alerts failed: %s", exc)
