@@ -6,6 +6,7 @@ import { api, apiPost, useApi } from "@/lib/api";
 import { Badge, LivePulse } from "./ui";
 import { timeAgo } from "@/lib/format";
 import {
+  Gavel,
   Bell, BellRing, GitCompareArrows, History, Layers, LayoutDashboard, Menu, Radar, Radio, Search,
   SlidersHorizontal, Sparkles, Star, Wallet, X, PauseCircle,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
     { href: "/narratives", label: "Narratives", icon: Layers },
   ] },
   { title: "Analyze", items: [
+    { href: "/verdicts", label: "Verdicts", icon: Gavel },
     { href: "/feed", label: "Intelligence", icon: Radio },
     { href: "/compare", label: "Compare", icon: GitCompareArrows },
     { href: "/backtesting", label: "Backtesting", icon: History },

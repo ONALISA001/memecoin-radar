@@ -793,7 +793,15 @@ def verdicts(rating: Optional[str] = None, limit: int = 50, db: Session = Depend
     if rating:
         q = q.where(TokenVerdict.rating == rating.upper())
     rows = db.execute(q.limit(max(1, min(limit, 200)))).all()
-    return {"items": [{"address": t.address, "symbol": t.symbol, **_verdict_json(v)} for v, t in rows]}
+    from ..models import VerdictOutcome
+    outs = {o.verdict_id: o for o in db.execute(select(VerdictOutcome).where(
+        VerdictOutcome.verdict_id.in_([v.id for v, _ in rows]))).scalars().all()} if rows else {}
+    def outcome(v):
+        o = outs.get(v.id)
+        return None if o is None else {"status": o.status, "result": o.result, "ret_1h": o.ret_1h,
+                                       "ret_6h": o.ret_6h, "ret_24h": o.ret_24h, "rugged": o.rugged}
+    return {"items": [{"address": t.address, "symbol": t.symbol, "name": t.name, "image_url": t.image_url,
+                       **_verdict_json(v), "outcome": outcome(v)} for v, t in rows]}
 
 
 _TM_CACHE: dict[tuple, tuple[float, dict]] = {}
