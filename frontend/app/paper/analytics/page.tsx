@@ -2,6 +2,7 @@
 import { useApi } from "@/lib/api";
 import { Panel } from "@/components/ui";
 import { Bar, fmtUtc, holdStr, pnlCls, SimStrip, StatTile, usd } from "@/components/paper";
+import { WhyWeLost } from "@/components/postmortem";
 
 function DailyChart({ daily }: { daily: { day: string; pnl: number }[] }) {
   if (!daily?.length) return <div className="p-4 text-dim text-xs">No daily data yet.</div>;
@@ -134,6 +135,8 @@ export default function AnalyticsPage() {
               </table>
             </div>
           </Panel>
+
+          <WhyWeLost />
 
           {/* §25 rejection analytics */}
           <Panel title="Risk Engine Audit (§25) — AI wanted vs risk allowed">

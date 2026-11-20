@@ -40,6 +40,7 @@ _ADDED_COLUMNS = {
                           ("exit_round_trip_loss_pct", "DOUBLE PRECISION", "FLOAT"),
                           ("exit_route", "VARCHAR(120)", "VARCHAR(120)"),
                           ("exit_error", "VARCHAR(200)", "VARCHAR(200)")],
+    "paper_positions": [("trough_price", "DOUBLE PRECISION", "FLOAT")],
     "demo_accounts": [("halt_until", "INTEGER", "INTEGER"),
                       ("halt_reason", "VARCHAR(16)", "VARCHAR(16)"),
                       ("strategy_key", "VARCHAR(32)", "VARCHAR(32)")],

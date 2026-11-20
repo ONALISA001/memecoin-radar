@@ -22,6 +22,7 @@ from . import config as PC
 from . import execution as X
 from . import risk as R
 from . import filters as F
+from . import postmortem as PM
 from types import SimpleNamespace
 
 _feed_on = True     # Strategy Lab accounts don't post into the public intel feed
@@ -167,6 +168,11 @@ def run_tick(db, now: int, market: dict) -> dict:
             _run_account(db, acct, now, market, stats)
         except Exception as exc:  # one account must never break the tick
             log.exception("paper tick failed for account %s: %s", acct.id, exc)
+    try:
+        with db.begin_nested():
+            stats["reviewed"] = PM.review_due(db, now)
+    except Exception as exc:      # noqa: BLE001
+        log.warning("post-mortem review pass failed: %s", exc)
     return stats
 
 
@@ -425,6 +431,10 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
         db.flush()
         return
     mkt = market.get(sig.token_id) or {}
+    # what the market looked like at entry (post-mortems judge "chased the pump" etc. from this)
+    sig_metrics["signal_kind"] = sig.kind
+    sig_metrics["entry_market"] = {k: mkt.get(k) for k in ("price_chg_1h", "price_chg_15m", "price_chg_24h",
+                                                           "liq", "buy_share_pct", "vol_liq_ratio", "sellp")}
     fill = X.buy_fill(price, size, mkt.get("liq") or 0, mkt.get("price_chg_1h") or 0,
                       settings["execution"])
     acct.cash = round(acct.cash - size, 6)
@@ -474,6 +484,7 @@ def _manage_exit(db, acct, settings, p: PaperPosition, now: int, market: dict,
     if px <= 0:
         return False
     p.peak_price = max(p.peak_price or p.entry_price, px)
+    p.trough_price = min(p.trough_price or p.entry_price, px)
     be = float(settings.get("breakeven_at_pct") or 0)
     if be > 0 and p.peak_price >= p.entry_price * (1 + be / 100.0):
         ex = settings["execution"]
@@ -541,6 +552,12 @@ def _close_position(db, acct, settings, p: PaperPosition, px: float, mkt: dict,
         acct.consec_losses = (acct.consec_losses or 0) + 1
         acct.consec_wins = 0
     stats["sold"] += 1
+    try:
+        with db.begin_nested():          # a post-mortem must never break a close
+            db.flush()
+            PM.review_position(db, p, now)
+    except Exception as exc:             # noqa: BLE001
+        log.warning("post-mortem at close failed for position %s: %s", p.id, exc)
     sym = _symbol(db, p.token_id)
     reason_txt = {"STOP_LOSS": "Stop loss reached", "TAKE_PROFIT": "Take-profit reached",
                   "BREAKEVEN_STOP": "Break-even stop (trade had moved into profit)",
@@ -595,9 +612,9 @@ def manual_close(db, acct, position_id: int, now: int, market: dict) -> PaperPos
 
 def reset_account(db, acct: DemoAccount, start_cash: float = 10000.0) -> None:
     """§23: hard reset — clear positions, signals, events, equity history."""
-    from ..models import EquitySnapshot as Eq, PaperTradeEvent as PTE
-    # children first: timeline events reference positions/signals, positions reference signals
-    for model, col in ((PaperTradeEvent, PTE.account_id),
+    from ..models import EquitySnapshot as Eq, PaperTradeEvent as PTE, PaperTradeReview as PTR
+    # children first: timeline events + reviews reference positions, positions reference signals
+    for model, col in ((PaperTradeEvent, PTE.account_id), (PTR, PTR.account_id),
                        (EquitySnapshot, Eq.account_id),
                        (PaperPosition, PaperPosition.account_id),
                        (PaperSignal, PaperSignal.account_id)):

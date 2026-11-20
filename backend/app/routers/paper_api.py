@@ -169,7 +169,11 @@ def paper_trade_detail(position_id: int, db: Session = Depends(get_db),
         PaperTradeEvent.position_id == p.id).order_by(PaperTradeEvent.ts.asc())).scalars().all()
     from ..models import StrategyVersion
     ver = db.get(StrategyVersion, p.strategy_version_id) if p.strategy_version_id else None
-    return {"trade": _pos_dict(p),
+    from ..models import PaperTradeReview
+    from ..paper import postmortem as PM
+    review = db.execute(select(PaperTradeReview).where(
+        PaperTradeReview.position_id == p.id)).scalar_one_or_none()
+    return {"trade": _pos_dict(p), "review": PM.review_dict(review),
             "symbol": tok.symbol if tok else None, "address": tok.address if tok else None,
             "strategy": {"name": f"{ver.name} v{ver.version}", "id": ver.id} if ver else None,
             "signal": {"id": sig.id, "ts": sig.ts, "kind": sig.kind, "action": sig.action,
@@ -182,6 +186,26 @@ def paper_trade_detail(position_id: int, db: Session = Depends(get_db),
             "events": [{"id": e.id, "ts": e.ts, "kind": e.kind, "title": e.title,
                         "detail": e.detail} for e in events],
             "timeline_note": "All timestamps UTC epoch seconds (§32)"}
+
+
+# ------------------------------------------------------------------ post-mortems
+@router.get("/paper/postmortems")
+def paper_postmortems(account: str = Query("main", pattern="^[a-z_]{1,32}$"),
+                      days: int = Query(30, ge=1, le=365),
+                      db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Why trades won or lost: one cause per closed trade, rolled up, with opt-in
+    setting suggestions. `account` is "main" or a Strategy Lab preset key."""
+    from ..paper import lab as LAB, postmortem as PM
+    if account == "main":
+        acct = _acct(db, user)
+    else:
+        acct = LAB.lab_accounts(db, user.id).get(account)
+        if acct is None:
+            raise HTTPException(404, "that Strategy Lab account is not running")
+    out = PM.summary(db, acct.id, PE.settings_for(acct), days)
+    out["account"] = {"key": account, "label": acct.label or "Main account"}
+    db.commit()
+    return out
 
 
 # ------------------------------------------------------------------ signals (§4/§25)
