@@ -5,7 +5,7 @@
    signals only (§38), with inferred signals labeled. */
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { apiPost, useApi } from "@/lib/api";
+import { apiPost, reportError, useApi } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { Panel } from "@/components/ui";
 import { PriorityCoins, WindowPills } from "@/components/priority";
@@ -131,7 +131,7 @@ export function EventCard({ e, focus }: { e: any; focus?: boolean }) {
           )}
           <Link href={`/token/${e.address}`} className="text-dim hover:text-ink hover:underline">View token</Link>
           <button className={`hover:underline ${watched ? "text-greenx" : "text-dim hover:text-ink"}`}
-                  onClick={async () => { try { await apiPost("/watchlist", { address: e.address }); setWatched(true); } catch {} }}>
+                  onClick={async () => { try { await apiPost("/watchlist", { address: e.address }); setWatched(true); } catch (err) { reportError(err); } }}>
             {watched ? "✓ Watched" : "+ Watch"}
           </button>
           <Link href={alertPrefill

@@ -3,7 +3,7 @@
    PAPER/SIMULATION — execution is virtual accounting over live market data. */
 import Link from "next/link";
 import { useState } from "react";
-import { apiPost, useApi } from "@/lib/api";
+import { reportError, apiPost, useApi } from "@/lib/api";
 import { Badge, Panel } from "@/components/ui";
 
 /* ------------------------------------------------------------- helpers */
@@ -87,7 +87,7 @@ export function PositionsTable({ items, onClosed }: { items: any[]; onClosed?: (
     return <div className="p-4 text-dim text-xs">No open positions — the AI opens one when a signal passes the risk engine.</div>;
   const close = async (id: number) => {
     setBusy(id);
-    try { await apiPost(`/paper/trades/${id}/close`); onClosed?.(); } finally { setBusy(null); }
+    try { await apiPost(`/paper/trades/${id}/close`); onClosed?.(); } catch (e) { reportError(e); } finally { setBusy(null); }
   };
   return (
     <div className="overflow-x-auto">

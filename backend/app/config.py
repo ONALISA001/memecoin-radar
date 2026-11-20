@@ -184,7 +184,7 @@ LOGIN_ATTEMPTS_PER_MIN = int(os.getenv("LOGIN_ATTEMPTS_PER_MIN", "5"))
 # Browsers reach the API through the Netlify /api proxy (same origin), so no
 # cross-origin access is needed. List extra origins comma-separated if ever required.
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
-JWT_TTL_HOURS = 24
+JWT_TTL_HOURS = max(1, int(os.getenv("JWT_TTL_HOURS", "24")))   # login lifetime; raise (e.g. 168) to log in weekly
 RATE_LIMIT_PER_MIN = int(os.getenv("RATE_LIMIT_PER_MIN", "240"))
 
 # Engine thresholds (centralised so they can be tuned/backtested — §34)

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import bisect
 import datetime as dt
+import logging
 
 from sqlalchemy import select
 
@@ -27,6 +28,7 @@ from . import execution as X
 from . import filters as F
 from . import risk as R
 
+log = logging.getLogger("paper.backtest")
 SNAP_MAX_AGE = 900          # a score snapshot older than 15 min at time t is "no data"
 _UNMODELLED = ("require_verified_contract", "max_top10_wallet_pct", "fresh_pool_only",
                "min_token_age_h", "max_token_age_h", "priority_entries")
@@ -52,13 +54,37 @@ def _load(db, start: int, end: int):
 class History:
     """Point-in-time score snapshots (per coin) + market breadth, for the confluence rules."""
 
-    def __init__(self, db, start: int, end: int):
+    # Only these summary fields are read. Each score snapshot is ~10 KB of JSON, so loading
+    # whole snapshots for a 7–30 day window meant hundreds of MB and a request timeout;
+    # the database extracts just these values instead (SQLite json_extract / Postgres #>>).
+    NUM_FIELDS = ("momentum", "sellp", "volume_g_1h", "vol_accel_h1", "price_change_h1", "price_change_h24",
+                  "buy_share", "liquidity", "volume_24h", "mcap")
+
+    def __init__(self, db, start: int, end: int, token_ids: set[int] | None = None):
+        """token_ids: only coins that can be traded in the window (had a buy signal); None = all."""
+        self.db, self.start, self.end = db, start, end
         self.by_tok: dict[int, list[tuple[int, dict]]] = {}
-        up: dict[int, list[int]] = {}
-        for tid, ts, comp in db.execute(select(TrendScore.token_id, TrendScore.ts, TrendScore.components_json)
-                                        .where(TrendScore.ts >= start - 4 * 3600, TrendScore.ts <= end)
-                                        .order_by(TrendScore.ts.asc())).all():
-            s = (comp or {}).get("summary") or {}
+        self.breadth_ts: list[int] | None = None
+        self.breadth_v: list[float] = []
+        cj = TrendScore.components_json
+        cols = [cj[("summary", f)].as_float() for f in self.NUM_FIELDS] + [cj[("summary", "confluence")].as_string()]
+        window = (TrendScore.ts >= start - 4 * 3600, TrendScore.ts <= end)
+        if token_ids is not None:
+            if not token_ids:
+                self._ts = {}
+                return
+            window = window + (TrendScore.token_id.in_(sorted(token_ids)),)
+        try:
+            with db.begin_nested():     # a failed query only rolls back this savepoint
+                rows = [(r[0], r[1], dict(zip(self.NUM_FIELDS + ("confluence",), r[2:]))) for r in db.execute(
+                    select(TrendScore.token_id, TrendScore.ts, *cols).where(*window)
+                    .order_by(TrendScore.ts.asc())).all()]
+        except Exception as exc:        # noqa: BLE001  unexpected JSON in a row: slow but safe path
+            log.warning("backtest history: JSON extraction failed (%s); loading full snapshots", exc)
+            rows = [(tid, ts, (comp or {}).get("summary") or {}) for tid, ts, comp in db.execute(
+                select(TrendScore.token_id, TrendScore.ts, TrendScore.components_json).where(*window)
+                .order_by(TrendScore.ts.asc())).all()]
+        for tid, ts, s in rows:
             vol = s.get("volume_g_1h")
             snap = {"momentum": s.get("momentum"), "sellp": s.get("sellp"),
                     "regime": {"emerging_momentum": "BULLISH", "potential_distribution": "DISTRIBUTION"}
@@ -68,13 +94,32 @@ class History:
                     "buy_share_pct": None if s.get("buy_share") is None else 100.0 * s["buy_share"],
                     "liq": s.get("liquidity"), "volume_24h": s.get("volume_24h"), "mcap": s.get("mcap")}
             self.by_tok.setdefault(tid, []).append((ts, snap))
-            if snap["price_chg_24h"] is not None:
-                b = up.setdefault(ts - ts % 300, [0, 0])
-                b[0] += int(snap["price_chg_24h"] > 0)
-                b[1] += 1
+        self._ts = {tid: [t for t, _ in rows] for tid, rows in self.by_tok.items()}
+
+    def ensure_breadth(self) -> None:
+        """Market breadth (share of ALL tracked coins up 24h) per 5-min bucket. Only strategies
+        with a breadth filter need it, so it is loaded on demand: one JSON field per snapshot."""
+        if self.breadth_ts is not None:
+            return
+        up: dict[int, list[int]] = {}
+        h24 = TrendScore.components_json[("summary", "price_change_h24")].as_float()
+        try:
+            with self.db.begin_nested():
+                rows = self.db.execute(select(TrendScore.ts, h24).where(
+                    TrendScore.ts >= self.start - 4 * 3600, TrendScore.ts <= self.end)).all()
+        except Exception as exc:        # noqa: BLE001
+            log.warning("backtest breadth: JSON extraction failed (%s)", exc)
+            rows = [(ts, ((c or {}).get("summary") or {}).get("price_change_h24")) for ts, c in self.db.execute(
+                select(TrendScore.ts, TrendScore.components_json).where(
+                    TrendScore.ts >= self.start - 4 * 3600, TrendScore.ts <= self.end)).all()]
+        for ts, v in rows:
+            if v is None:
+                continue
+            b = up.setdefault(ts - ts % 300, [0, 0])
+            b[0] += int(v > 0)
+            b[1] += 1
         self.breadth_ts = sorted(up)
         self.breadth_v = [up[t][0] / up[t][1] for t in self.breadth_ts]
-        self._ts = {tid: [t for t, _ in rows] for tid, rows in self.by_tok.items()}
 
     def at(self, tid: int, t: int) -> dict | None:
         ts = self._ts.get(tid)
@@ -86,8 +131,9 @@ class History:
         rows = self.by_tok[tid]
         snap = dict(rows[i][1])
         snap["momentum_hist"] = [r[1]["momentum"] for r in rows[max(0, i - 2):i + 1] if r[1]["momentum"] is not None]
-        j = bisect.bisect_right(self.breadth_ts, t) - 1
-        snap["breadth"] = self.breadth_v[j] if j >= 0 and t - self.breadth_ts[j] <= SNAP_MAX_AGE else None
+        bts = self.breadth_ts or []
+        j = bisect.bisect_right(bts, t) - 1
+        snap["breadth"] = self.breadth_v[j] if j >= 0 and t - bts[j] <= SNAP_MAX_AGE else None
         return snap
 
 
@@ -168,8 +214,11 @@ def run(db, start: int, end: int, capital: float, overrides: dict, mode: str = "
                                        "confluence_sizing", "momentum_exit_below", "regime_exit",
                                        "max_chase_pct_1h", "min_buy_share_pct", "max_vol_liq_ratio"))
     if need_hist and "hist" not in cache:
-        cache["hist"] = History(db, start, end)
+        buy_tokens = {e.token_id for e in events if e.kind in PC.BUY_KINDS}
+        cache["hist"] = History(db, start, end, token_ids=buy_tokens)
     hist: History | None = cache.get("hist") if need_hist else None
+    if hist is not None and S.get("min_market_breadth_pct"):
+        hist.ensure_breadth()
     need_v = bool(S.get("verdict_filter") or S.get("block_bad_verdicts") or S.get("verdict_exit"))
     if need_v and "verdicts" not in cache:
         cache["verdicts"] = Verdicts(db, end)

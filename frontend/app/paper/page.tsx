@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useState } from "react";
-import { apiPost, useApi } from "@/lib/api";
+import { apiPost, reportError, useApi } from "@/lib/api";
 import { Panel } from "@/components/ui";
 import { EquityCurve, ErrStrip, PositionsTable, SignalsPanel, SimStrip, StatTile,
          TradeTimeline, usd, pnlCls, pnlSign } from "@/components/paper";
@@ -22,7 +22,7 @@ function HaltBanner({ halt }: { halt: { reason: string; until: number; seconds_l
       <span className="text-dim">Resumes automatically in {left} (at {at}). Open positions are still managed.</span>
       <div className="flex-1" />
       <button className="btn !py-1" disabled={busy}
-              onClick={async () => { setBusy(true); try { await apiPost("/paper/resume"); setDone(true); } finally { setBusy(false); } }}>
+              onClick={async () => { setBusy(true); try { await apiPost("/paper/resume"); setDone(true); } catch (e) { reportError(e); } finally { setBusy(false); } }}>
         {busy ? "Resuming…" : "▶ Resume now"}
       </button>
     </div>

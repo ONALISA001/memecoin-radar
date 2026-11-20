@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { apiDelete, apiPatch, apiPost, useApi } from "@/lib/api";
+import { apiDelete, apiPatch, apiPost, reportError, useApi } from "@/lib/api";
 import { Badge, Empty, Panel } from "@/components/ui";
 import { timeAgo } from "@/lib/format";
 
@@ -123,8 +123,12 @@ function CreateAlert({ onCreated }: { onCreated: () => void }) {
 export default function AlertsPage() {
   const { data, loading } = useApi("/alerts", 30000);
   const items = data?.items || [];
-  async function toggle(a: any) { await apiPatch(`/alerts/${a.id}`, { enabled: !a.enabled }); location.reload(); }
-  async function remove(a: any) { await apiDelete(`/alerts/${a.id}`); location.reload(); }
+  async function toggle(a: any) {
+    try { await apiPatch(`/alerts/${a.id}`, { enabled: !a.enabled }); location.reload(); } catch (e) { reportError(e); }
+  }
+  async function remove(a: any) {
+    try { await apiDelete(`/alerts/${a.id}`); location.reload(); } catch (e) { reportError(e); }
+  }
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
       <Panel title={`Configured alerts (${items.length})`} className="lg:col-span-2">

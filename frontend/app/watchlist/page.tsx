@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { apiDelete, useApi } from "@/lib/api";
+import { apiDelete, reportError, useApi } from "@/lib/api";
 import { WatchlistIntel } from "@/components/intelfeed";
 import { BAND_COLORS, bandLabel } from "@/components/marketintel";
 import { RatingBadge, utcSeconds } from "@/components/verdict";
@@ -68,7 +68,7 @@ export default function WatchlistPage() {
   const passing = raw.filter((t) => t.priority?.passed).length;
   async function remove(address: string) {
     setBusy(address);
-    try { await apiDelete(`/watchlist/${address}`); location.reload(); } finally { setBusy(null); }
+    try { await apiDelete(`/watchlist/${address}`); location.reload(); } catch (e) { reportError(e); } finally { setBusy(null); }
   }
   return (
     <div className="space-y-4">

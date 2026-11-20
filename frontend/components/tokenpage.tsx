@@ -3,7 +3,7 @@ import { NewsRow } from "@/components/news";
 import Link from "next/link";
 import React, { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { api, apiDelete, apiPost, useApi } from "@/lib/api";
+import { api, apiDelete, apiPost, reportError, useApi } from "@/lib/api";
 import { ageLabel, fomoBandClass, fmtNum, fmtPct, fmtPrice, fmtUsd, pctColor,
          riskTextClass, timeAgo } from "@/lib/format";
 import { Badge, ConfChip, Empty, Gauge, Panel, RiskPill, RowBadges, Sparkline, TokenAvatar } from "./ui";
@@ -82,7 +82,7 @@ function WatchButton({ address }: { address: string }) {
     try {
       if (member) { await apiDelete(`/watchlist/${address}`); setInList(false); }
       else { await apiPost("/watchlist", { address }); setInList(true); }
-    } finally { setBusy(false); }
+    } catch (e) { reportError(e); } finally { setBusy(false); }
   }
   return (
     <button className={`btn ${member ? "" : "btn-primary"}`} onClick={toggle} disabled={busy || loading}>
