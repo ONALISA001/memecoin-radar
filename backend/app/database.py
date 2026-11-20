@@ -43,6 +43,8 @@ _ADDED_COLUMNS = {
     "demo_accounts": [("halt_until", "INTEGER", "INTEGER"),
                       ("halt_reason", "VARCHAR(16)", "VARCHAR(16)"),
                       ("strategy_key", "VARCHAR(32)", "VARCHAR(32)")],
+    "risk_events": [("telegram_sent", "BOOLEAN", "BOOLEAN"),
+                    ("ai_note", "VARCHAR(600)", "VARCHAR(600)")],
     "tokens": [("discovery_source", "VARCHAR(16)", "VARCHAR(16)"),
                ("launch_alert", "VARCHAR(8)", "VARCHAR(8)")],
 }

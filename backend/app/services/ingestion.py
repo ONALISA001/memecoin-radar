@@ -50,6 +50,7 @@ from .holders import real_holder_stats
 from .contract_facts import is_mock, latest_contract_facts, unverified_facts
 from .launch_alerts import evaluate_launches, send_launch_alerts
 from . import launch_forensics as lf_svc
+from . import risk_alerts as risk_alerts_svc
 from . import ai_verdict as verdict_svc
 from . import outcomes as outcomes_svc
 from . import onchain_real
@@ -897,6 +898,10 @@ async def tick() -> dict:
         stats["verdicts"] = await verdict_svc.run_verdicts(SessionLocal)
     except Exception as exc:                      # the AI verdict must never break a tick
         log.error("verdicts failed: %s", exc)
+    try:
+        stats["risk_alerts"] = await risk_alerts_svc.run_risk_alerts(SessionLocal)
+    except Exception as exc:                      # risk alerts must never break a tick
+        log.error("risk alerts failed: %s", exc)
     try:
         stats["outcomes"] = await outcomes_svc.update_outcomes(SessionLocal)
         stats["scorecard"] = await asyncio.to_thread(outcomes_svc.maybe_send_daily, SessionLocal)
