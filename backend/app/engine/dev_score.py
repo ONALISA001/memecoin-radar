@@ -266,3 +266,22 @@ def _money(v: float) -> str:
         if v >= div:
             return f"{v / div:.1f}{suf}"
     return f"{v:.0f}"
+
+
+def creator_concerns(cr: dict | None) -> list[str]:
+    """Why this creator's record is disqualifying, in plain words ([] = not disqualifying,
+    or not scored). Same line as the AI verdict caps that rate a coin Neutral or worse:
+    dumping at open often / systematically, or an overall band of avoid / stay away."""
+    if not cr:
+        return []
+    out = []
+    tier = cr.get("dump_tier")
+    if tier in ("systematic", "often"):
+        d, n = cr.get("dumps"), cr.get("traded")
+        out.append(f"creator dumped at open in {d} of {n} earlier launches" if d is not None and n
+                   else f"creator dumps at open ({tier})")
+    if cr.get("band") in ("stay_away", "avoid"):
+        tot = cr.get("total")
+        out.append(f"creator record {tot:.0f}/100 ({cr['band'].replace('_', ' ')})" if tot is not None
+                   else f"creator record: {cr['band'].replace('_', ' ')}")
+    return out

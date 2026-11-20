@@ -8,7 +8,10 @@ When a token discovered as a FRESH POOL gets its first complete Helius check
   * no data → wait for the next check (stays undecided)
 
 Passing means only that the obvious rug levers are absent. It is NOT a buy
-signal, and the message says so: LP lock and deployer history are unchecked.
+signal, and the message says so: LP lock is unchecked. A creator whose track record is
+disqualifying (dumps at open often, or a poor/stay-away band; engine/dev_score.py) also
+skips the alert. A creator not scored yet does not hold the alert back: the message says
+so. (Creator scoring runs in the same tick, before this, creators of pending launches first.)
 A Jupiter round-trip quote (Exit analyst) failing also skips the alert; the
 exit check being unavailable does not.
 Decisions are stored on Token.launch_alert so nothing is ever sent twice.
@@ -24,6 +27,7 @@ from sqlalchemy import select
 from .. import config
 from ..engine import telegram
 from ..models import SystemLog, Token, TrendScore
+from ..engine.dev_score import BAND_LABEL, creator_concerns
 from ..providers.jupiter import exit_verdict
 from .contract_facts import latest_contract_facts
 
@@ -79,6 +83,8 @@ def launch_verdict(facts: dict) -> tuple[str | None, list[str]]:
                 bad.append(f"snipers {lf['sniper_pct']:.0f}%")
             if (lf.get("shared_funder_wallets") or 0) >= 3:
                 bad.append(f"{lf['shared_funder_wallets']} early buyers share a funder")
+    # Creator track record: a disqualifying record blocks; not scored yet never blocks
+    bad.extend(creator_concerns(facts.get("creator")))
     return ("fail" if bad else "pass"), bad
 
 
@@ -108,6 +114,18 @@ def _launch_line(facts: dict) -> str:
     return "✓ Launch wallets: " + " · ".join(parts)
 
 
+def _creator_line(facts: dict) -> str:
+    cr = facts.get("creator")
+    if not cr:
+        return "⚠️ Dev track record NOT checked yet"
+    if cr.get("band") == "new":
+        return "• Dev: no earlier launches seen from this wallet"
+    tot = cr.get("total")
+    head = BAND_LABEL.get(cr.get("band"), cr.get("band") or "?") + (f" {tot:.0f}/100" if tot is not None else "")
+    icon = "✓" if cr.get("band") == "clean" else "⚠️" if cr.get("band") == "mixed" else "•"
+    return html.escape(f"{icon} Dev: {head} · {cr.get('summary') or ''}".rstrip(" ·"), quote=False)
+
+
 def format_launch(token: Token, facts: dict, s: dict) -> str:
     e = lambda v: html.escape(str(v), quote=False)  # noqa: E731
     age_min = None
@@ -126,6 +144,7 @@ def format_launch(token: Token, facts: dict, s: dict) -> str:
         + ("✓ Token-2022, no risky extensions" if facts.get("token_2022") else "✓ Standard SPL token"),
         _exit_line(facts),
         _launch_line(facts),
+        _creator_line(facts),
         f"✓ Top-10 wallets {facts['top10_wallet_pct']:.0f}% · largest {facts['top1_wallet_pct']:.0f}% "
         f"(pools & burn excluded)",
         "⚠️ Not a buy signal. LP lock is NOT checked; fresh launches are "
