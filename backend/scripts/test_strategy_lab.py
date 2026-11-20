@@ -54,11 +54,11 @@ check("wash-volume / chasing / weak buying caught", not res["volume vs liquidity
 # --- lab accounts --------------------------------------------------------------
 main = PE.get_or_create_account(db, usr.id); db.commit()
 accts = LAB.start_lab(db, usr.id); db.commit()
-check("4 preset accounts created", sorted(accts) == sorted(PC.PRESETS))
-check("start is idempotent", len(LAB.start_lab(db, usr.id)) == 4 and
-      db.query(DemoAccount).filter(DemoAccount.strategy_key.isnot(None)).count() == 4)
+check("one account per preset created", sorted(accts) == sorted(PC.PRESETS))
+check("start is idempotent", len(LAB.start_lab(db, usr.id)) == len(PC.PRESETS) and
+      db.query(DemoAccount).filter(DemoAccount.strategy_key.isnot(None)).count() == len(PC.PRESETS))
 check("main account stays the main account", PE.get_or_create_account(db, usr.id).id == main.id)
-check("presets get their own strategy versions", len({a.strategy_version_id for a in accts.values()}) == 4)
+check("presets get their own strategy versions", len({a.strategy_version_id for a in accts.values()}) == len(PC.PRESETS))
 
 # --- first tick: momentum events on a young and a 3h-old fresh-pool coin -------------
 event(young, NOW); event(old, NOW)

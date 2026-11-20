@@ -63,17 +63,25 @@ def collect(db, now: dt.datetime | None = None) -> list[dict]:
               if not is_mock(t)]
     facts = latest_contract_facts(db, tokens)
     last = latest_verdicts(db, [t.id for t in tokens])
+    llm_on = llm_mod.enabled()
     due = []
     for t in tokens:
         ev = V.build_evidence(t, facts[t.id], by_tok[t.id])
         h = V.evidence_hash(ev)
         prev = last.get(t.id)
+        llm_only = False
         if prev is not None:
             age_min = (now - _naive(prev.created_at)).total_seconds() / 60 if prev.created_at else 1e9
-            if age_min < config.VERDICT_REFRESH_HOURS * 60 and (prev.evidence_hash == h or age_min < config.VERDICT_MIN_GAP_MIN):
-                continue
-        prio = (0 if t.launch_alert == "sent" else 1, 0 if prev is None else 1, -(by_tok[t.id].trend or 0))
-        due.append({"prio": prio, "token": t, "evidence": ev, "hash": h,
+            fresh = age_min < config.VERDICT_REFRESH_HOURS * 60 and (prev.evidence_hash == h or age_min < config.VERDICT_MIN_GAP_MIN)
+            if fresh:
+                # A rules verdict given while the AI queue was busy gets its AI review later,
+                # on the same evidence. Gate verdicts (rug / review) never need one.
+                if not (llm_on and prev.source == "rules" and prev.evidence_hash == h):
+                    continue
+                llm_only = True
+        prio = (1 if llm_only else 0, 0 if t.launch_alert == "sent" else 1, 0 if prev is None else 1,
+                -(by_tok[t.id].trend or 0))
+        due.append({"prio": prio, "token": t, "evidence": ev, "hash": h, "llm_only": llm_only,
                     "launch_expected": _launch_expected(t, facts[t.id]), "score": by_tok[t.id]})
     due.sort(key=lambda d: d["prio"])
     return due
@@ -117,6 +125,7 @@ async def run_verdicts(session_factory, llm=None) -> dict:
     llm_budget = min(config.VERDICT_LLM_PER_TICK, llm_left) if use_llm else 0
     free_budget = config.VERDICT_RULES_PER_TICK
     for item in due:
+        missing = V.missing_checks(item["evidence"], item["launch_expected"])
         out, model = V.gate(item["evidence"], item["launch_expected"]), None
         if out is None:
             if llm_budget > 0:
@@ -126,17 +135,26 @@ async def run_verdicts(session_factory, llm=None) -> dict:
                                          track_record=record)
                     model = config.LLM_JUDGE_MODEL
                     res["llm"] += 1
+                    if missing:
+                        out["reason"] += " Provisional: waiting for " + ", ".join(missing) + "."
                 except llm_mod.LLMError as exc:
                     res["llm_errors"] += 1
-                    out = V.rules_verdict(item["evidence"])
+                    if item["llm_only"]:
+                        continue    # keep the existing rules verdict
+                    out = V.rules_verdict(item["evidence"], missing)
                     out["reason"] += f" (AI unavailable: {str(exc)[:80]})"
+            elif item["llm_only"]:
+                continue            # already has a rules verdict; wait for an AI slot
             elif use_llm and llm_left <= 0:
-                out = V.rules_verdict(item["evidence"])
+                out = V.rules_verdict(item["evidence"], missing)
                 out["reason"] += " (daily AI budget used; rule-based verdict)"
             elif use_llm:
-                continue        # wait for an AI slot next tick rather than flip-flop sources
+                # No AI slot this tick: give a rules verdict now so the coin is never left
+                # without a call; the AI reviews it on a later tick (llm_only above).
+                out = V.rules_verdict(item["evidence"], missing)
+                out["reason"] += " (AI review queued)"
             else:
-                out = V.rules_verdict(item["evidence"])
+                out = V.rules_verdict(item["evidence"], missing)
         if out["source"] != "llm":
             if free_budget <= 0:
                 continue
@@ -170,6 +188,13 @@ def format_verdict(token: Token, v: TokenVerdict) -> str:
     return "\n".join(lines)[:telegram.MAX_LEN]
 
 
+def is_preliminary(v: TokenVerdict) -> bool:
+    """Provisional (on-chain checks pending) or waiting for its AI review: shown in the app,
+    but not worth a Telegram message; the follow-up waits for the complete call."""
+    reason = v.reason or ""
+    return "Provisional:" in reason or "AI review queued" in reason
+
+
 def send_followups(session_factory) -> dict:
     """One verdict follow-up per launch-alerted coin (first non-REVIEW verdict)."""
     out = {"sent": 0, "failed": 0}
@@ -183,7 +208,7 @@ def send_followups(session_factory) -> dict:
         last = latest_verdicts(db, [t.id for t in todo])
         for t in todo[:config.TELEGRAM_MAX_PER_TICK]:
             v = last.get(t.id)
-            if v is None or v.rating == "REVIEW":
+            if v is None or v.rating == "REVIEW" or is_preliminary(v):
                 continue
             r = telegram.send_text(format_verdict(t, v))
             if r.get("ok"):

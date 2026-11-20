@@ -58,6 +58,12 @@ def watchlist(db: Session = Depends(get_db), user: User = Depends(get_current_us
     ).all()
     sub = (select(TrendScore.token_id, func.max(TrendScore.ts).label("mts"))
            .group_by(TrendScore.token_id).subquery())
+    # intelligence context: latest verdict, 24h event flow, priority gates (same as /signals/priority)
+    from ..services import market_views as MV
+    from ..services.ai_verdict import latest_verdicts
+    from .data_api import _event_flow, card
+    verdicts = latest_verdicts(db, [t.id for _, t in rows])
+    flow = _event_flow(db, [t.id for _, t in rows], 86400)
     items = []
     for w, t in rows:
         sc = db.execute(
@@ -69,9 +75,24 @@ def watchlist(db: Session = Depends(get_db), user: User = Depends(get_current_us
             select(TrendScore.ts, TrendScore.trend, TrendScore.fomo, TrendScore.risk)
             .where(TrendScore.token_id == t.id).order_by(TrendScore.ts.desc()).limit(12)
         ).all()
+        c = card(t, sc) if sc else {}
+        v = verdicts.get(t.id)
+        ev = flow.get(t.id, {"positive": 0, "danger": 0, "positive_importance": 0.0})
+        checks = MV.priority_checks(c, v.rating if v else None, ev) if sc else []
         items.append({
             "address": t.address, "symbol": t.symbol, "name": t.name, "chain": t.chain,
             "image_url": t.image_url, "added_at": w.created_at,
+            "intel": {k: c.get(k) for k in (
+                "price", "price_change_h1", "price_change_h24", "liquidity", "volume_1h", "momentum",
+                "momentum_band", "sellp", "sellp_band", "liq_health", "liq_band", "whale_class",
+                "ath_status", "holder_growth", "buy_share", "confluence")} if sc else {},
+            "verdict": None if v is None else {"rating": v.rating, "confidence": v.confidence,
+                                               "source": v.source, "reason": v.reason,
+                                               "created_at": v.created_at.isoformat() if v.created_at else None},
+            "events_24h": {"up": ev["positive"], "down": ev["danger"]},
+            "priority": {"passed": bool(checks) and all(k["passed"] for k in checks),
+                         "score": MV.priority_score(c, v.rating if v else None, ev) if sc else None,
+                         "failed": [k["label"] for k in checks if not k["passed"]]},
             "trend": sc.trend if sc else None, "fomo": sc.fomo if sc else None,
             "risk": sc.risk if sc else None,
             "fomo_class": sc.fomo_class if sc else None,

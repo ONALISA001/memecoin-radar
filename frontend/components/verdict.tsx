@@ -57,13 +57,18 @@ export function VerdictPanel({ address }: { address: string }) {
     <Panel title={<span>FOMO verdict <span className="panel-sub">safety gate → bull vs bear → judge</span></span>}
       right={v && <span className="badge badge-gray !text-2xs">{SOURCE[v.source] || v.source}</span>}>
       {!data && <Empty text="Loading…" />}
-      {data && !data.available && <Empty text="No verdict yet: it appears once the on-chain checks for this coin are done." />}
+      {data && !data.available && <Empty text="No verdict yet: a first (provisional) call appears within a few minutes of the coin being tracked." />}
       {v && (
         <div className="p-4 space-y-3">
           <div className="flex items-baseline gap-3 flex-wrap">
             <span className={`text-2xl font-extrabold ${r.cls}`}>{r.emoji} {r.label}</span>
             {v.confidence && <span className="text-xs text-dim">{v.confidence} confidence</span>}
             {when && <span className="text-xs text-dim">· {timeAgo(when)}</span>}
+            {/Provisional:/.test(v.reason || "") && (
+              <span className="badge badge-gray !text-2xs" title="Some on-chain checks are still pending; the call can't go above Watch until they finish">
+                provisional
+              </span>
+            )}
           </div>
           <p className="text-sm leading-relaxed">{v.reason}</p>
           {v.judge_raw_rating && v.judge_raw_rating !== v.rating && (

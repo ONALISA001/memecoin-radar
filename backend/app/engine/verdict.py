@@ -98,12 +98,8 @@ def evidence_hash(ev: dict) -> str:
     return hashlib.sha1(json.dumps(key, default=str).encode()).hexdigest()[:16]
 
 
-def gate(ev: dict, launch_expected: bool) -> dict | None:
-    """Deterministic verdict that needs no LLM, or None to continue to the debate."""
-    hard = ev["risk_engine"]["hard_fails"]
-    if hard:
-        return {"rating": "RUG_RISK", "confidence": "high", "source": "gate",
-                "reason": "Hard fail: " + "; ".join(hard) + ".", "positives": [], "risks": hard}
+def missing_checks(ev: dict, launch_expected: bool) -> list[str]:
+    """On-chain checks that have not produced data yet (unknown, never 'safe')."""
     missing = []
     if not ev["contract"]["verified"]:
         missing.append("contract permissions (Helius)")
@@ -111,13 +107,25 @@ def gate(ev: dict, launch_expected: bool) -> dict | None:
         missing.append("holder concentration")
     if ev["exit"]["sell_route"] is None:
         missing.append("sell-route check (Jupiter)")
-    if ev["risk_engine"]["band"] is None or ev["market"]["liquidity_usd"] is None:
-        missing.append("market data")
     if launch_expected and ev["launch"]["status"] is None:
         missing.append("launch forensics")
-    if missing:
+    return missing
+
+
+def gate(ev: dict, launch_expected: bool) -> dict | None:
+    """Deterministic verdict that needs no LLM, or None to continue to the debate.
+
+    Only a hard fail (RUG_RISK) or missing *market* data (REVIEW) stops here. Missing
+    on-chain checks no longer park a coin in REVIEW forever: it gets a provisional verdict
+    whose ceiling is WATCH (see caps()) until those checks arrive."""
+    hard = ev["risk_engine"]["hard_fails"]
+    if hard:
+        return {"rating": "RUG_RISK", "confidence": "high", "source": "gate",
+                "reason": "Hard fail: " + "; ".join(hard) + ".", "positives": [], "risks": hard}
+    if ev["risk_engine"]["band"] is None or ev["market"]["liquidity_usd"] is None:
         return {"rating": "REVIEW", "confidence": "low", "source": "gate",
-                "reason": "Waiting for real data: " + ", ".join(missing) + ".", "positives": [], "risks": []}
+                "reason": "Waiting for real market data (price, liquidity, risk score).",
+                "positives": [], "risks": []}
     return None
 
 
@@ -145,6 +153,16 @@ def caps(ev: dict) -> tuple[str, list[str]]:
         cap("NEUTRAL", "liquidity under $10k")
     if la["status"] != "ok":
         cap("WATCH", "launch wallets not analysed")
+    # unknown on-chain facts are a risk, never a pass: a provisional verdict can't reach the top
+    if not (ev.get("contract") or {}).get("verified"):
+        cap("WATCH", "contract permissions not verified yet")
+    if (ev.get("holders") or {}).get("top10_wallet_pct") is None:
+        cap("WATCH", "holder concentration unknown")
+    if (ev.get("exit") or {}).get("sell_route") is None:
+        cap("WATCH", "sell route not checked yet")
+    # live flow: heavy distribution caps the call regardless of how clean the contract is
+    if (ev.get("market") or {}).get("sell_pressure") == "heavy_distribution":
+        cap("NEUTRAL", "heavy distribution (sell pressure)")
     cr = ev.get("creator") or {}
     cb = cr.get("band")
     # The score is GMGN's; this stricter rule is ours: frequent dumping at open is disqualifying
@@ -173,8 +191,12 @@ def clamp(rating: str, ev: dict) -> tuple[str, list[str]]:
     return rating, []
 
 
-def rules_verdict(ev: dict) -> dict:
-    """No-LLM verdict from the same evidence (transparent thresholds)."""
+def rules_verdict(ev: dict, missing: list[str] | None = None) -> dict:
+    """No-LLM verdict from the same evidence (transparent thresholds).
+
+    Scores strengths against concerns (structure, live flow, momentum) so a coin lands on a
+    clear side instead of defaulting to NEUTRAL. `missing` lists on-chain checks still
+    pending: the verdict is then provisional (low confidence, capped at WATCH by caps())."""
     m, rk = ev["market"], ev["risk_engine"]
     pos, neg = [], list(rk["flags"][:3])
     liq, risk = m["liquidity_usd"] or 0, rk["score"] if rk["score"] is not None else 100
@@ -189,20 +211,51 @@ def rules_verdict(ev: dict) -> dict:
         pos.append(f"healthy buy share {bs:.0%}")
     if (m["price_change_1h_pct"] or 0) > 0 and (m["holder_growth_pct"] or 0) > 0:
         pos.append("price and holders rising")
+    mom, sellp, liqh = m.get("momentum"), m.get("sell_pressure"), m.get("liquidity_health")
+    if mom in ("strong", "extreme"):
+        pos.append(f"{mom} momentum")
+    if sellp == "healthy_accumulation":
+        pos.append("buyers absorbing supply (accumulation)")
     cr = ev.get("creator") or {}
     if cr.get("band") == "clean":
         pos.append(f"creator record clean ({cr['score']:.0f}/100)")
     elif cr.get("band") in ("avoid", "stay_away"):
         neg.insert(0, f"creator record {cr['score']:.0f}/100: {cr.get('summary') or cr['band']}")
-    score = len(pos) - (2 if risk >= 50 else 0)
-    rating = "STRONG_WATCH" if score >= 5 else "WATCH" if score >= 3 else "AVOID" if risk >= 70 else "NEUTRAL"
+
+    # concerns from live structure and flow (each one costs a point)
+    flow_neg = []
+    if sellp in ("distribution", "heavy_distribution"):
+        flow_neg.append(sellp.replace("_", " "))
+    if mom in ("weakening", "low"):
+        flow_neg.append(f"momentum {mom}")
+    if liqh in ("thin", "critical"):
+        flow_neg.append(f"liquidity health {liqh}")
+    if liq and liq < 10_000:
+        flow_neg.append(f"liquidity only ${liq:,.0f}")
+    if (m["price_change_1h_pct"] or 0) <= -20:
+        flow_neg.append(f"price {m['price_change_1h_pct']:+.0f}% in 1h")
+    neg += [x for x in flow_neg if x not in neg]
+
+    score = len(pos) - len(flow_neg) - (2 if risk >= 50 else 0)
+    if risk >= 70 or score <= -2:
+        rating = "AVOID"
+    elif score >= 5:
+        rating = "STRONG_WATCH"
+    elif score >= 2:
+        rating = "WATCH"
+    else:
+        rating = "NEUTRAL"
     rating, capped = clamp(rating, ev)
     reason = (("Strengths: " + ", ".join(pos) + ". ") if pos else "") + \
              (("Concerns: " + "; ".join(neg) + ".") if neg else "No major flags.")
     if capped:
         reason += " Capped by: " + ", ".join(capped) + "."
-    return {"rating": rating, "confidence": "medium" if len(pos) >= 3 or risk >= 70 else "low",
-            "source": "rules", "reason": reason, "positives": pos, "risks": neg}
+    conf = "medium" if len(pos) >= 3 or risk >= 70 or score <= -2 else "low"
+    if missing:
+        reason += " Provisional: waiting for " + ", ".join(missing) + "."
+        conf = "low"
+    return {"rating": rating, "confidence": conf, "source": "rules", "reason": reason,
+            "positives": pos, "risks": neg, "provisional": bool(missing)}
 
 
 # ---------------------------------------------------------------- LLM debate

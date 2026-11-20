@@ -319,6 +319,7 @@ def signals_feed(address: str | None = None, limit: int = Query(60, le=300),
                  search: str | None = None,
                  sort: str = Query("smart", pattern="^(smart|importance|confidence|recent)$"),
                  since_secs: int | None = None,
+                 tone: str | None = Query(None, pattern="^(constructive|risk)$"),
                  db: Session = Depends(get_db)):
     """Enriched reverse-chronological intelligence events (v3 §20–§24).
 
@@ -344,6 +345,10 @@ def signals_feed(address: str | None = None, limit: int = Query(60, le=300),
         q = q.where(Token.chain == chain)
     if since_secs:
         q = q.where(SignalEvent.ts >= now - min(since_secs, 86400))
+    if tone == "constructive":
+        q = q.where(SignalEvent.severity == "positive")
+    elif tone == "risk":
+        q = q.where(SignalEvent.severity.in_(("danger", "warning")))
     if search:
         like = f"%{search.strip()[:40]}%"
         q = q.where((SignalEvent.title.like(like)) | (SignalEvent.signal_text.like(like))
@@ -386,7 +391,8 @@ def signals_feed(address: str | None = None, limit: int = Query(60, le=300),
     return {"items": out, "count": len(out), "ts": now,
             "filters": {"categories": sorted(cat_set), "importance": importance,
                         "chain": chain, "age": age, "momentum": momentum,
-                        "min_confidence": min_confidence, "sort": sort}}
+                        "min_confidence": min_confidence, "sort": sort, "tone": tone,
+                        "since_secs": since_secs}}
 
 
 @router.get("/signals/pulse")
@@ -516,6 +522,101 @@ def signals_quality(db: Session = Depends(get_db)):
 
 
 
+def _latest_ratings(db: Session, tokens: list[Token]) -> dict[str, str]:
+    """address -> latest verdict rating."""
+    from ..services.ai_verdict import latest_verdicts
+    by_id = latest_verdicts(db, [t.id for t in tokens])
+    return {t.address: by_id[t.id].rating for t in tokens if t.id in by_id}
+
+
+def _window_price_change(db: Session, rows, secs: int) -> dict[str, float | None]:
+    """address -> % price change over the last `secs`, from stored 5-min price snapshots
+    (the snapshot closest to the window start). None when history doesn't reach back."""
+    now = int(time.time())
+    cutoff = now - secs
+    by_id = {t.id: (t, sc) for sc, t in rows}
+    if not by_id:
+        return {}
+    snaps = db.execute(select(PriceSnapshot.token_id, PriceSnapshot.ts, PriceSnapshot.price_usd).where(
+        PriceSnapshot.token_id.in_(list(by_id)), PriceSnapshot.ts >= cutoff - 900,
+        PriceSnapshot.ts <= cutoff + 900)).all()
+    start: dict[int, tuple[int, float]] = {}
+    for tid, ts, px in snaps:
+        if not px:
+            continue
+        best = start.get(tid)
+        if best is None or abs(ts - cutoff) < abs(best[0] - cutoff):
+            start[tid] = (ts, px)
+    out: dict[str, float | None] = {}
+    for tid, (t, sc) in by_id.items():
+        cur = ((sc.components_json or {}).get("summary") or {}).get("price")
+        if tid in start and cur:
+            out[t.address] = round((cur / start[tid][1] - 1) * 100, 2)
+        else:
+            s = (sc.components_json or {}).get("summary") or {}
+            out[t.address] = s.get("price_change_h1") if secs == 3600 else \
+                s.get("price_change_h24") if secs == 86400 else None
+    return out
+
+
+def _event_flow(db: Session, token_ids: list[int], secs: int) -> dict[int, dict]:
+    """token_id -> {positive, danger, positive_importance} for events in the window."""
+    from ..models import SignalEvent
+    if not token_ids:
+        return {}
+    since = int(time.time()) - secs
+    out: dict[int, dict] = {}
+    for tid, sev, imp in db.execute(select(SignalEvent.token_id, SignalEvent.severity,
+                                           SignalEvent.importance_score).where(
+            SignalEvent.token_id.in_(token_ids), SignalEvent.ts >= since)).all():
+        d = out.setdefault(tid, {"positive": 0, "danger": 0, "positive_importance": 0.0})
+        if sev == "positive":
+            d["positive"] += 1
+            d["positive_importance"] += imp or 0
+        elif sev == "danger":
+            d["danger"] += 1
+    return out
+
+
+@router.get("/signals/priority")
+def signals_priority(window: str = Query("4h", pattern="^(1h|2h|4h|6h|12h|24h)$"),
+                     limit: int = Query(8, ge=1, le=20), db: Session = Depends(get_db)):
+    """Priority coins: tracked coins that pass every quality gate (risk, liquidity, no
+    distribution, no Avoid/Rug verdict, momentum or constructive events in the window),
+    ranked by a transparent priority score. Near misses fail exactly one soft gate."""
+    from ..services import market_views as MV
+    rows = latest_score_rows(db)
+    cards = [card(t, sc) for sc, t in rows]
+    tokens = [t for _, t in rows]
+    flow = _event_flow(db, [t.id for t in tokens], MV.WINDOWS_S[window])
+    events = {t.address: flow[t.id] for t in tokens if t.id in flow}
+    out = MV.priority_coins(cards, _latest_ratings(db, tokens), events, limit)
+    out.update({"window": window,
+                "note": "Coins that pass every gate right now. A research shortlist, not a buy signal."})
+    return out
+
+
+@router.get("/market/distribution")
+def market_distribution(window: str = Query("4h", pattern="^(1h|2h|4h|6h|12h|24h)$"),
+                        momentum: Optional[str] = None, whale: Optional[str] = None,
+                        min_liquidity: float = Query(3000, ge=0),
+                        min_sellp: float = Query(55, ge=0, le=100),
+                        sort: str = Query("sellp", pattern="^(sellp|price_drop|momentum_low|liquidity|volume)$"),
+                        limit: int = Query(12, ge=1, le=50), db: Session = Depends(get_db)):
+    """Distribution watch: tokens under sell pressure, with momentum / whale / liquidity
+    filters and the real price change over the chosen window (1h … 24h)."""
+    from ..services import market_views as MV
+    rows = latest_score_rows(db)
+    cards = [card(t, sc) for sc, t in rows]
+    mom = {m for m in (momentum or "").split(",") if m in MV.MOMENTUM_BANDS} or None
+    wh = {w for w in (whale or "").split(",") if w} or None
+    out = MV.distribution_watch(cards, _window_price_change(db, rows, MV.WINDOWS_S[window]),
+                                momentum=mom, whale=wh, min_liquidity=min_liquidity,
+                                min_sellp=min_sellp, sort=sort, limit=limit)
+    out.update({"window": window, "sort": sort})
+    return out
+
+
 @router.get("/tokens/compare")
 def tokens_compare(addresses: str, db: Session = Depends(get_db)):
     """Side-by-side memecoin comparison (v2 §29): ?addresses=a,b,c (≤5)."""
@@ -528,6 +629,9 @@ def tokens_compare(addresses: str, db: Session = Depends(get_db)):
             found.append(card(*by_addr[a]))
         else:
             missing.append(a)
+    ratings = _latest_ratings(db, [by_addr[c["address"]][0] for c in found])
+    for c in found:
+        c["verdict"] = ratings.get(c["address"])
     return {"items": found, "missing": missing,
             "metrics": ["momentum", "sellp", "risk", "trend", "fomo", "liq_health",
                         "liquidity", "mcap", "volume_24h", "vol_accel_h1",
@@ -804,20 +908,36 @@ def token_verdict(address: str, db: Session = Depends(get_db)):
 
 
 @router.get("/verdicts/scorecard")
-def verdict_scorecard(days: int = 7, db: Session = Depends(get_db)):
-    """How FOMO's verdicts aged: accuracy per rating and per source (AI vs rules)."""
+def verdict_scorecard(days: int = 7, hours: Optional[float] = Query(None, gt=0, le=720),
+                      db: Session = Depends(get_db)):
+    """How FOMO's verdicts aged: accuracy per rating and per source (AI vs rules).
+    ?hours=2|4|6|12 gives a short look-back window instead of ?days."""
     from ..services.outcomes import scorecard
-    return scorecard(db, max(1, min(days, 30)))
+    return scorecard(db, max(1, min(days, 30)), hours=hours)
 
 
 @router.get("/verdicts")
-def verdicts(rating: Optional[str] = None, limit: int = 50, db: Session = Depends(get_db)):
-    """Latest verdict per token, newest first. Optional ?rating=WATCH filter."""
+def verdicts(rating: Optional[str] = None, limit: int = 50,
+             hours: Optional[float] = Query(None, gt=0, le=720),
+             db: Session = Depends(get_db)):
+    """Latest verdict per token, newest first. Optional ?rating=WATCH filter and
+    ?hours=N (only coins whose latest call is from the last N hours). `counts` is the
+    rating mix of those latest calls, so the page shows the market's verdict at a glance."""
+    import datetime as _dt
     from ..models import Token, TokenVerdict
     from sqlalchemy import func as _f
     sub = select(TokenVerdict.token_id, _f.max(TokenVerdict.id).label("mid")).group_by(TokenVerdict.token_id).subquery()
-    q = (select(TokenVerdict, Token).join(sub, TokenVerdict.id == sub.c.mid)
-         .join(Token, Token.id == TokenVerdict.token_id).order_by(TokenVerdict.id.desc()))
+    base = (select(TokenVerdict, Token).join(sub, TokenVerdict.id == sub.c.mid)
+            .join(Token, Token.id == TokenVerdict.token_id))
+    count_q = select(TokenVerdict.rating).join(sub, TokenVerdict.id == sub.c.mid)
+    if hours:
+        since = _dt.datetime.utcnow() - _dt.timedelta(hours=hours)
+        base = base.where(TokenVerdict.created_at >= since)
+        count_q = count_q.where(TokenVerdict.created_at >= since)
+    counts: dict[str, int] = {}
+    for (r,) in db.execute(count_q).all():
+        counts[r] = counts.get(r, 0) + 1
+    q = base.order_by(TokenVerdict.id.desc())
     if rating:
         q = q.where(TokenVerdict.rating == rating.upper())
     rows = db.execute(q.limit(max(1, min(limit, 200)))).all()
@@ -830,7 +950,8 @@ def verdicts(rating: Optional[str] = None, limit: int = 50, db: Session = Depend
                                        "ret_6h": o.ret_6h, "ret_12h": o.ret_12h, "ret_24h": o.ret_24h,
                                        "judge_h": o.judge_h, "rugged": o.rugged}
     return {"items": [{"address": t.address, "symbol": t.symbol, "name": t.name, "image_url": t.image_url,
-                       **_verdict_json(v), "outcome": outcome(v)} for v, t in rows]}
+                       **_verdict_json(v), "outcome": outcome(v)} for v, t in rows],
+            "counts": counts, "hours": hours}
 
 
 _TM_CACHE: dict[tuple, tuple[float, dict]] = {}
@@ -1040,10 +1161,12 @@ def news_feed(limit: int = Query(40, ge=1, le=100), narrative: str | None = None
 
 # ---------------------------------------------------------------- calibration
 @router.get("/calibration/overview")
-def calibration_overview(db: Session = Depends(get_db)):
-    """Signal reliability over labeled forward outcomes (§21, Tier-4)."""
+def calibration_overview(days: Optional[float] = Query(None, gt=0, le=90),
+                         db: Session = Depends(get_db)):
+    """Signal reliability over labeled forward outcomes (§21, Tier-4).
+    ?days=1|3|7 limits it to recent score snapshots (default: all history)."""
     from ..engine.backtest import calibration_report
-    return calibration_report(db)
+    return calibration_report(db, days)
 
 
 # ---------------------------------------------------------------- misc

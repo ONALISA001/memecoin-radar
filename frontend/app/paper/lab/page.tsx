@@ -18,7 +18,7 @@ function Row({ r, best, onApply }: { r: any; best: boolean; onApply?: () => void
       <td className="!py-2.5">
         <div className="font-semibold text-sm">{r.name} {best && <span className="badge badge-green !text-2xs ml-1">leading</span>}
           {r.halt?.active && <span className="badge badge-amber !text-2xs ml-1">paused</span>}</div>
-        <div className="text-xs text-dim max-w-[420px] leading-snug">{r.summary}</div>
+        <div className="text-xs text-dim max-w-[420px] min-w-[260px] leading-snug whitespace-normal">{r.summary}</div>
       </td>
       <td className={`num ${pnlCls(r.return_pct)}`}>{r.running === false ? "—" : pct(r.return_pct)}</td>
       <td className="num">{r.running === false ? "—" : usd(r.equity, 0)}</td>
@@ -42,6 +42,45 @@ function Row({ r, best, onApply }: { r: any; best: boolean; onApply?: () => void
   );
 }
 
+const STATUS: Record<string, [string, string]> = {
+  proven_edge: ["proven edge", "badge-green"], promising: ["promising", "badge-cyan"],
+  underperforming: ["flat", "badge-gray"], losing: ["losing", "badge-red"], too_early: ["too early", "badge-gray"],
+};
+
+/** AI verdict on the lab: ranks the strategy accounts and compares how they trade. */
+function LabVerdict({ k }: { k: number }) {
+  const { data: rv, loading } = useApi(`/paper/lab/review?k=${k}`, 120000);
+  if (loading && !rv) return <Panel title="AI verdict on the strategies"><Empty text="Reviewing strategies…" /></Panel>;
+  if (!rv?.available) return null;
+  return (
+    <Panel title={<span>🤖 AI verdict on the strategies <span className="panel-sub">— {rv.source === "rules+llm" ? "AI write-up from the lab stats" : "rule-based review of the lab stats"}</span></span>}>
+      <div className="p-4 space-y-3">
+        <div className="text-base font-semibold">{rv.verdict}</div>
+        {rv.ai_text && <p className="text-sm leading-relaxed text-ink/85 border-l-2 border-cyanx/60 pl-3">{rv.ai_text}</p>}
+        <ul className="space-y-1">
+          {(rv.insights || []).map((t: string, i: number) => <li key={i} className="text-sm text-ink/80">• {t}</li>)}
+        </ul>
+        {rv.head_to_head && (
+          <div className="rounded-lg border border-line/60 px-3 py-2 text-xs flex flex-wrap gap-x-4 gap-y-1">
+            <span className="text-dim">AI Verdict Follower vs Baseline</span>
+            <span className={`num font-semibold ${pnlCls(rv.head_to_head.return_diff_pp)}`}>{pct(rv.head_to_head.return_diff_pp)} return</span>
+            {rv.head_to_head.win_rate_diff_pp != null && <span className="num">{pct(rv.head_to_head.win_rate_diff_pp)} win rate</span>}
+            <span className="text-dim">{rv.head_to_head.read}</span>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-1.5">
+          {(rv.strategies || []).map((s: any) => (
+            <span key={s.key} className={`badge ${(STATUS[s.status] || STATUS.too_early)[1]} !text-2xs`} title={s.why}>
+              #{s.rank} {s.name} · {(STATUS[s.status] || STATUS.too_early)[0]}
+            </span>
+          ))}
+        </div>
+        <div className="text-2xs text-dim">{rv.disclaimer}{rv.ai_error ? ` (AI write-up unavailable: ${rv.ai_error})` : ""}</div>
+      </div>
+    </Panel>
+  );
+}
+
 export default function StrategyLabPage() {
   const [k, setK] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
@@ -53,6 +92,7 @@ export default function StrategyLabPage() {
   const rows: any[] = data?.presets || [];
   const ranked = rows.filter((r) => r.running && r.proven_edge).sort((a, b) => b.return_pct - a.return_pct);
   const leader = ranked[0]?.key;
+  const notRunning = rows.filter((r) => !r.running);
 
   return (
     <div className="space-y-3">
@@ -60,13 +100,14 @@ export default function StrategyLabPage() {
       <Panel title={<span>Strategy Lab <span className="panel-sub">— each strategy trades its own $10k virtual account on the same live market</span></span>}
              right={<div className="flex gap-1">
                {!data?.running && <button className="btn !py-1" onClick={() => act("/paper/lab/start", "Lab started — strategies trade from the next signal.")}>▶ Start lab</button>}
+               {data?.running && notRunning.length > 0 && <button className="btn !py-1" onClick={() => act("/paper/lab/start", `Started ${notRunning.length} new strateg${notRunning.length > 1 ? "ies" : "y"} — they trade from the next signal.`)}>▶ Start {notRunning.length} new</button>}
                {data?.running && <button className="pill-mini" onClick={() => { if (confirm("Reset every lab account to $10k and clear its history?")) act("/paper/lab/reset", "Lab accounts reset."); }}>Reset lab</button>}
                <Link href="/paper" className="pill-mini">← Paper</Link>
              </div>}>
         {msg && <div className="px-4 py-2 text-sm text-cyanx border-b border-line/50">{msg}</div>}
         {!data?.running && (
           <div className="px-4 py-3 text-sm text-dim">
-            Start the lab to run all four strategies side by side. Your main account isn&apos;t changed. Compare after
+            Start the lab to run all {rows.length} strategies side by side. Your main account isn&apos;t changed. Compare after
             at least {data?.min_trades_for_verdict ?? 30} closed trades each — fewer is mostly luck.
           </div>
         )}
@@ -91,6 +132,7 @@ export default function StrategyLabPage() {
           Profit factor = gross wins ÷ gross losses (above 1 = profitable).
         </div>
       </Panel>
+      {data?.running && <LabVerdict k={k} />}
     </div>
   );
 }
