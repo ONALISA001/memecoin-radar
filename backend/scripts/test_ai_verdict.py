@@ -92,6 +92,27 @@ async def debate_tests():
         check("no JSON => LLMError", False)
     except L.LLMError:
         check("no JSON => LLMError", True)
+    # reasoning ("thinking") models, e.g. on NVIDIA NIM
+    think = ('<think>Maybe {"rating":"STRONG_WATCH"}? The sniper share {is} low... '
+             'I will answer.</think>\n{"rating":"WATCH","confidence":"medium","reason":"quote \\" and } brace"}')
+    j = L.extract_json(think)
+    check("reasoning text stripped; answer JSON used", j["rating"] == "WATCH" and "brace" in j["reason"], str(j))
+    j = L.extract_json('Draft {"note": 1} then final {"rating":"AVOID"}')
+    check("prefers the object with a rating", j["rating"] == "AVOID")
+    check("unclosed opening tag handled", L.strip_reasoning("reasoning...</think> answer") == "answer")
+    def nim(req):
+        return httpx.Response(200, json={"choices": [{"message": {
+            "reasoning_content": "long thoughts", "content": "<think>x</think>Bull case here"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5}})
+    config.LLM_PROVIDER, config.LLM_BASE_URL = "openai", "https://integrate.api.nvidia.com/v1"
+    seen_url = []
+    def nim_seen(req):
+        seen_url.append(str(req.url)); return nim(req)
+    txt = await L.LLMClient(transport=httpx.MockTransport(nim_seen)).complete("s", "u", "meta/llama")
+    check("OpenAI-compatible (NVIDIA) path: content only, reasoning dropped",
+          txt == "Bull case here" and seen_url[0] == "https://integrate.api.nvidia.com/v1/chat/completions", txt)
+    config.LLM_PROVIDER, config.LLM_BASE_URL = "anthropic", ""
+
     def boom(req): return httpx.Response(401, json={"error": "bad key LLMSECRET789"})
     try:
         await L.LLMClient(transport=httpx.MockTransport(boom)).complete("s", "u", "m")

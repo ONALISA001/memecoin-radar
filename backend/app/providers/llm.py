@@ -53,8 +53,8 @@ class LLMClient:
                     u = body.get("usage") or {}
                     self.tokens_in += int(u.get("input_tokens") or 0)
                     self.tokens_out += int(u.get("output_tokens") or 0)
-                    return "".join(b.get("text", "") for b in body.get("content") or []
-                                   if b.get("type") == "text").strip()
+                    return strip_reasoning("".join(b.get("text", "") for b in body.get("content") or []
+                                                   if b.get("type") == "text"))
                 base = (config.LLM_BASE_URL or "https://api.openai.com/v1").rstrip("/")
                 r = await c.post(f"{base}/chat/completions",
                                  headers={"Authorization": f"Bearer {config.LLM_API_KEY}"},
@@ -66,20 +66,63 @@ class LLMClient:
                 u = body.get("usage") or {}
                 self.tokens_in += int(u.get("prompt_tokens") or 0)
                 self.tokens_out += int(u.get("completion_tokens") or 0)
-                return (((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "").strip()
+                # reasoning models on OpenAI-compatible hosts may also send `reasoning_content`
+                # separately; only `content` is the answer
+                return strip_reasoning(((body.get("choices") or [{}])[0].get("message") or {}).get("content") or "")
         except Exception as exc:
             raise LLMError(_scrub(f"{type(exc).__name__}: {exc}")[:200]) from None
 
 
-def extract_json(text: str) -> dict:
-    """First JSON object in a model reply (tolerates ```json fences and chatter)."""
-    m = re.search(r"\{.*\}", text or "", re.S)
-    if not m:
+THINK_RE = re.compile(r"<(think|thinking|reasoning)>.*?</\1>", re.S | re.I)
+
+
+def strip_reasoning(text: str) -> str:
+    """Drop the visible reasoning that 'thinking' models (DeepSeek-R1, Qwen3, Nemotron
+    reasoning...) put before their answer, so only the answer is used."""
+    text = THINK_RE.sub("", text or "")
+    for tag in ("</think>", "</thinking>", "</reasoning>"):   # opening tag cut off / prefilled
+        if tag in text.lower():
+            text = text[text.lower().rindex(tag) + len(tag):]
+    return text.strip()
+
+
+def _json_objects(text: str):
+    """Every balanced {...} block, in order (string-aware)."""
+    depth, start, in_str, esc = 0, None, False, False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"' and depth:
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth:
+            depth -= 1
+            if depth == 0:
+                yield text[start:i + 1]
+
+
+def extract_json(text: str, want_key: str | None = "rating") -> dict:
+    """The answer's JSON object. Tolerates ```json fences, chatter and reasoning text:
+    prefers the LAST object that parses and has `want_key`, else the last that parses."""
+    text = strip_reasoning(text)
+    parsed = []
+    for chunk in _json_objects(text):
+        try:
+            obj = json.loads(chunk)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            parsed.append(obj)
+    if not parsed:
         raise LLMError("no JSON object in reply")
-    try:
-        out = json.loads(m.group(0))
-    except json.JSONDecodeError as exc:
-        raise LLMError(f"bad JSON: {exc}") from None
-    if not isinstance(out, dict):
-        raise LLMError("JSON is not an object")
-    return out
+    keyed = [o for o in parsed if want_key and want_key in o]
+    return (keyed or parsed)[-1]
