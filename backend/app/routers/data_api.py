@@ -739,6 +739,33 @@ def token_launch_forensics(address: str, db: Session = Depends(get_db)):
                        "block; snipers = within a few slots. Holdings are as of the analysis time.")}
 
 
+@router.get("/tokens/{address}/creator")
+def token_creator(address: str, db: Session = Depends(get_db)):
+    """Creator track record: the creator's EARLIER launches (this coin excluded), scored with
+    GMGN's dev-score model on real Helius + DexScreener + GeckoTerminal data."""
+    from ..models import CreatorProfile, TokenLaunchForensics
+    token = get_token_or_404(db, address)
+    lf = db.execute(select(TokenLaunchForensics).where(
+        TokenLaunchForensics.token_id == token.id)).scalar_one_or_none()
+    if lf is None or not lf.creator:
+        return {"available": False, "reason": "creator unknown (launch not analysed yet)"}
+    row = db.execute(select(CreatorProfile).where(CreatorProfile.creator == lf.creator)).scalar_one_or_none()
+    if row is None:
+        return {"available": False, "creator": lf.creator, "reason": "not scored yet"}
+    if row.status == "error" and row.band is None:
+        return {"available": False, "creator": lf.creator, "reason": "scoring failed; it will retry"}
+    s = row.score_json or {}
+    return {"available": True, "creator": lf.creator, "source": "helius+dexscreener+geckoterminal",
+            "model": "GMGN dev-score (MIT), ported",
+            "scored_at": row.scored_at.isoformat() if row.scored_at else None,
+            **{k: s.get(k) for k in ("status", "band", "label", "total", "conduct", "power", "bonus",
+                                      "dump_tier", "launches", "traded", "dumps", "dump_rate",
+                                      "median_pull_multiple", "fastest_first_sell_s", "moved_supply_out",
+                                      "alive", "graduated", "stuck_on_curve", "successes_1m",
+                                      "peak_mcap_usd", "career_days", "history_complete", "terms",
+                                      "coins", "limits", "summary", "txs_scanned")}}
+
+
 def _verdict_json(v, full: bool = False) -> dict:
     from ..engine.verdict import LABEL
     out = {"rating": v.rating, "label": LABEL.get(v.rating, v.rating), "confidence": v.confidence,

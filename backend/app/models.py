@@ -378,6 +378,26 @@ class TokenLaunchForensics(Base):
     wallets_json = Column(JSON)              # evidence: [{wallet, role, slot_offset, pct, funder?, fresh?}]
 
 
+class CreatorProfile(Base):
+    """Creator track record (earlier launches, dump conduct, power). One row per creator
+    wallet, re-scored after CREATOR_TTL_H. Model ported from GMGN dev-score (MIT)."""
+    __tablename__ = "creator_profiles"
+    id = Column(Integer, primary_key=True)
+    creator = Column(String(64), unique=True, index=True, nullable=False)
+    scored_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    status = Column(String(16))              # ok | new | error
+    error = Column(String(200))
+    method = Column(String(8))               # gtfa | rpc
+    band = Column(String(16))                # clean | mixed | avoid | stay_away | new
+    total = Column(Float)
+    conduct = Column(Float)
+    power = Column(Float)
+    dump_tier = Column(String(16))
+    launches = Column(Integer)
+    txs_scanned = Column(Integer)
+    score_json = Column(JSON)                # full breakdown + per-coin evidence
+
+
 class TokenVerdict(Base):
     """AI verdict history (bull / bear / judge, or gate / rules). Market values at the
     time are kept so outcomes can be scored later (did the call age well?)."""

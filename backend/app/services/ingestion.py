@@ -49,6 +49,7 @@ from ..providers import jupiter as jup_mod
 from .holders import real_holder_stats
 from .contract_facts import is_mock, latest_contract_facts, unverified_facts
 from .launch_alerts import evaluate_launches, send_launch_alerts
+from . import creator_profiles as creator_svc
 from . import launch_forensics as lf_svc
 from . import ai_verdict as verdict_svc
 from . import outcomes as outcomes_svc
@@ -711,6 +712,17 @@ async def onchain_checks() -> dict:
                           {"note": "wallet-level launch analysis: bundles, snipers, shared funders",
                            "last_batch": lfx})
             db.commit()
+    # Creator track record (earlier launches of the creators forensics found)
+    try:
+        crx = await creator_svc.run_creator_profiles(SessionLocal)
+    except Exception as exc:          # never let it break the on-chain tick
+        crx = {"error": type(exc).__name__}
+    if crx.get("scored"):
+        with SessionLocal() as db:
+            upsert_source(db, "creator-track-record", "onchain", "ok" if crx.get("ok") else "degraded",
+                          {"note": "creator's earlier launches: dumps at open, graduations, peaks "
+                                   "(GMGN dev-score model)", "last_batch": crx})
+            db.commit()
     with SessionLocal() as db:
         db.execute(delete(TokenRiskCheck).where(
             TokenRiskCheck.checked_at < now - _dt.timedelta(days=7)))   # retention
@@ -728,7 +740,7 @@ async def onchain_checks() -> dict:
         launch["sent"] = await asyncio.to_thread(send_launch_alerts, launch.pop("to_send"))
     return {"helius": {"ok": done, "failed": failed},
             "jupiter": {"ok": exit_ok, "failed": exit_failed} if jup is not None else "disabled",
-            "launch_forensics": lfx, "launch_alerts": launch}
+            "launch_forensics": lfx, "creator_profiles": crx, "launch_alerts": launch}
 
 
 async def tick() -> dict:
