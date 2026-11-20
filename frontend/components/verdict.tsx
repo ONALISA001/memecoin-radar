@@ -37,7 +37,7 @@ export function OutcomeChips({ o }: { o: any }) {
   );
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
-      {chip("1h", o.ret_1h)}{chip("6h", o.ret_6h)}{chip("24h", o.ret_24h)}
+      {chip("1h", o.ret_1h)}{chip("6h", o.ret_6h)}{chip("12h", o.ret_12h)}{chip("24h", o.ret_24h)}
       {o.rugged && <span className="badge badge-red !text-2xs">rugged</span>}
       {o.result
         ? <span className={`badge ${RESULT[o.result] || "badge-gray"} !text-2xs`}>{o.result}</span>

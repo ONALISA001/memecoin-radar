@@ -24,6 +24,10 @@ Base = declarative_base()
 
 # Columns added after their table first shipped: {table: [(name, postgres type, sqlite type)]}.
 _ADDED_COLUMNS = {
+    "verdict_outcomes": [("ret_12h", "DOUBLE PRECISION", "FLOAT"), ("judge_h", "INTEGER", "INTEGER"),
+                         ("ret_judge", "DOUBLE PRECISION", "FLOAT"), ("max_up_judge", "DOUBLE PRECISION", "FLOAT"),
+                         ("max_dd_judge", "DOUBLE PRECISION", "FLOAT"),
+                         ("liq_change_judge", "DOUBLE PRECISION", "FLOAT")],
     "token_risk_checks": [("top1_wallet_pct", "DOUBLE PRECISION", "FLOAT"),
                           ("top10_wallet_pct", "DOUBLE PRECISION", "FLOAT"),
                           ("excluded_pct", "DOUBLE PRECISION", "FLOAT"),

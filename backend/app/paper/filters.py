@@ -9,8 +9,35 @@ from __future__ import annotations
 
 import time
 
-from ..models import Token
+from ..models import Token, TokenVerdict
 from ..services.contract_facts import contract_facts_for
+
+BAD_VERDICTS = ("AVOID", "RUG_RISK")
+GOOD_VERDICTS = {1: ("WATCH", "STRONG_WATCH"), 2: ("STRONG_WATCH",)}
+# size multiplier by (rating, confidence); never above 1.0 (the risk rules stay in charge)
+VERDICT_SIZE = {("STRONG_WATCH", "high"): 1.0, ("STRONG_WATCH", "medium"): 0.85, ("STRONG_WATCH", "low"): 0.6,
+                ("WATCH", "high"): 0.8, ("WATCH", "medium"): 0.6, ("WATCH", "low"): 0.4}
+
+
+def latest_verdict(db, token_id: int, now: int | None = None) -> dict | None:
+    """The coin's most recent verdict as a small dict (rating, confidence, source, id,
+    created_ts, age_h). REVIEW is skipped: it means "not enough data", not a call."""
+    v = db.query(TokenVerdict).filter(TokenVerdict.token_id == token_id,
+                                      TokenVerdict.rating != "REVIEW") \
+        .order_by(TokenVerdict.id.desc()).first()
+    if v is None or v.created_at is None:
+        return None
+    import datetime as _dt
+    c = v.created_at if v.created_at.tzinfo else v.created_at.replace(tzinfo=_dt.timezone.utc)
+    ts = int(c.timestamp())
+    return {"id": v.id, "rating": v.rating, "confidence": v.confidence or "low", "source": v.source,
+            "created_ts": ts, "age_h": round(max(0.0, ((now or time.time()) - ts) / 3600), 2)}
+
+
+def verdict_size_mult(v: dict | None) -> float:
+    if not v:
+        return 1.0
+    return VERDICT_SIZE.get((v["rating"], v.get("confidence") or "low"), 0.4)
 
 
 def token_age_h(token: Token, now: int | None = None) -> float | None:
@@ -47,6 +74,21 @@ def strategy_checks(db, settings: dict, token: Token, mkt: dict, now: int) -> li
             w10 = f.get("top10_wallet_pct")
             out.append(("wallet concentration", w10 is not None and w10 <= cap,
                         f"top-10 wallets {w10:.0f}% vs max {cap:g}%" if w10 is not None else "no wallet data yet"))
+    vf, block = int(s.get("verdict_filter") or 0), bool(s.get("block_bad_verdicts"))
+    if vf or block:
+        v = latest_verdict(db, token.id, now)
+        max_age = float(s.get("verdict_max_age_h") or 0) or 1e9
+        fresh = v is not None and v["age_h"] <= max_age
+        label = lambda: f"{v['rating'].replace('_', ' ').title()} ({v['confidence']}, {v['age_h']:.1f}h old)"  # noqa: E731
+        if block:
+            bad = fresh and v["rating"] in BAD_VERDICTS
+            out.append(("AI verdict not negative", not bad, f"rated {label()}" if bad else
+                        ("no recent verdict" if not fresh else f"rated {label()}")))
+        if vf:
+            want = GOOD_VERDICTS.get(vf, GOOD_VERDICTS[1])
+            ok = fresh and v["rating"] in want
+            out.append(("AI verdict", ok, f"rated {label()}" if fresh else
+                        ("no verdict yet" if v is None else f"verdict too old ({v['age_h']:.1f}h > {max_age:g}h)")))
     cap = s.get("max_vol_liq_ratio", 0)
     if cap > 0:
         r = mkt.get("vol_liq_ratio")

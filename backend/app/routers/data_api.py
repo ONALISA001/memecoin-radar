@@ -767,7 +767,8 @@ def token_verdict(address: str, db: Session = Depends(get_db)):
         d, o = _verdict_json(r, full), outs.get(r.id)
         d["outcome"] = None if o is None else {
             "status": o.status, "result": o.result, "ret_1h": o.ret_1h, "ret_6h": o.ret_6h,
-            "ret_24h": o.ret_24h, "max_up_24h": o.max_up_24h, "max_dd_24h": o.max_dd_24h,
+            "ret_12h": o.ret_12h, "ret_24h": o.ret_24h, "max_up_24h": o.max_up_24h, "max_dd_24h": o.max_dd_24h,
+            "judge_h": o.judge_h, "ret_judged": o.ret_judge if o.ret_judge is not None else o.ret_24h,
             "rugged": o.rugged, "data_source": o.data_source}
         return d
     return {"available": True, "latest": with_outcome(rows[0], full=True),
@@ -799,7 +800,8 @@ def verdicts(rating: Optional[str] = None, limit: int = 50, db: Session = Depend
     def outcome(v):
         o = outs.get(v.id)
         return None if o is None else {"status": o.status, "result": o.result, "ret_1h": o.ret_1h,
-                                       "ret_6h": o.ret_6h, "ret_24h": o.ret_24h, "rugged": o.rugged}
+                                       "ret_6h": o.ret_6h, "ret_12h": o.ret_12h, "ret_24h": o.ret_24h,
+                                       "judge_h": o.judge_h, "rugged": o.rugged}
     return {"items": [{"address": t.address, "symbol": t.symbol, "name": t.name, "image_url": t.image_url,
                        **_verdict_json(v), "outcome": outcome(v)} for v, t in rows]}
 

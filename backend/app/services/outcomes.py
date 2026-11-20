@@ -1,19 +1,22 @@
 """Outcome tracker: did FOMO's verdicts age well?
 
 For every verdict (except REVIEW) it records, from REAL data only:
-  * price change at +1h, +6h, +24h            (stored price snapshots, 5-min buckets)
-  * best and worst point within 24h, liquidity change, rug flag
-  * if the token dropped off tracking: one DexScreener lookup near +24h
-Nothing is estimated: a horizon with no data stays empty; no 24h price => no_data.
+  * price change at +1h, +6h, +12h, +24h        (stored price snapshots, 5-min buckets)
+  * at the JUDGING point (OUTCOME_JUDGE_HOURS, default 12h): best and worst point
+    since the call, liquidity change and a rug flag, then right / wrong / mixed
+  * the 24h numbers keep filling in afterwards, for reference
+  * if the token dropped off tracking: a DexScreener lookup near the judging point
+Nothing is estimated: a horizon with no data stays empty; no price at the judging
+point (or within 6h after it) => no_data.
 
-Was the call right? (judged at 24h)
-  WATCH / STRONG_WATCH  right: no rug and (+10% at 24h or +50% at some point)
-                        wrong: rugged, or -30% or worse at 24h
-  AVOID / RUG_RISK      right: rugged, or -30% or worse at 24h
-                        wrong: +30% or better at 24h without a rug (missed a runner)
+Was the call right? (judged at {J}h)
+  WATCH / STRONG_WATCH  right: no rug and (+10% at {J}h or +50% at some point)
+                        wrong: rugged, or -30% or worse at {J}h
+  AVOID / RUG_RISK      right: rugged, or -30% or worse at {J}h
+                        wrong: +30% or better at {J}h without a rug (missed a runner)
   NEUTRAL               right: within +/-30% and no rug; otherwise mixed (never wrong)
   anything else         mixed
-Rug = price -80% or worse, or liquidity down 80%+ from the verdict.
+Rug = price -80% or worse, liquidity down 80%+, or a -90% crash at any point.
 """
 from __future__ import annotations
 
@@ -23,19 +26,28 @@ import statistics
 import time
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 
 from .. import config
 from ..models import (DataSource, LiquiditySnapshot, PriceSnapshot, Token, TokenVerdict,
                       VerdictOutcome)
 
-HORIZONS = {"ret_1h": 3600, "ret_6h": 6 * 3600, "ret_24h": 24 * 3600}
+HORIZONS = {"ret_1h": 3600, "ret_6h": 6 * 3600, "ret_12h": 12 * 3600, "ret_24h": 24 * 3600}
 TOLERANCE = 20 * 60          # a snapshot within 20 min of the target counts
-FALLBACK_WINDOW = 3 * 3600   # DexScreener fallback accepted up to 3h after +24h
-GIVE_UP = 30 * 3600          # no 24h data after this => no_data
+FALLBACK_WINDOW = 3 * 3600   # DexScreener fallback accepted up to 3h after a target
+JUDGE_GRACE = 6 * 3600       # no price at the judging point after this long => no_data
+H24_GIVE_UP = 30 * 3600      # stop waiting for 24h reference numbers
 BULLISH, BEARISH = ("WATCH", "STRONG_WATCH"), ("AVOID", "RUG_RISK")
 FALLBACK_RETRY = 15 * 60     # one DexScreener attempt per outcome per 15 min
 _FALLBACK_TRIED: dict[int, int] = {}
+
+
+def judge_hours() -> int:
+    return max(1, int(config.OUTCOME_JUDGE_HOURS))
+
+
+def rules_text() -> str:
+    return __doc__.split("Was the call right?")[1].strip().replace("{J}", str(judge_hours()))
 
 
 def _epoch(d) -> int:
@@ -52,23 +64,24 @@ def _pct(now: float | None, then: float | None) -> float | None:
     return round((now / then - 1) * 100, 2)
 
 
-def judge_call(rating: str, ret_24h: float | None, max_up: float | None, rugged: bool | None) -> str | None:
-    if ret_24h is None:
+def judge_call(rating: str, ret: float | None, max_up: float | None, rugged: bool | None) -> str | None:
+    """ret = price change at the judging point."""
+    if ret is None:
         return None
     if rating in BULLISH:
-        if rugged or ret_24h <= -30:
+        if rugged or ret <= -30:
             return "wrong"
-        if ret_24h >= 10 or (max_up or 0) >= 50:
+        if ret >= 10 or (max_up or 0) >= 50:
             return "right"
         return "mixed"
     if rating in BEARISH:
-        if rugged or ret_24h <= -30:
+        if rugged or ret <= -30:
             return "right"
-        if ret_24h >= 30:
+        if ret >= 30:
             return "wrong"
         return "mixed"
     if rating == "NEUTRAL":
-        return "right" if (abs(ret_24h) < 30 and not rugged) else "mixed"
+        return "right" if (abs(ret) < 30 and not rugged) else "mixed"
     return "mixed"
 
 
@@ -102,7 +115,7 @@ async def _dexscreener_now(addresses: list[str], transport=None) -> dict[str, di
     return out
 
 
-def _ensure_rows(db, now: int) -> None:
+def _ensure_rows(db) -> None:
     """Create outcome rows for new verdicts (last 3 days, not REVIEW)."""
     since = dt.datetime.utcnow() - dt.timedelta(days=3)
     have = select(VerdictOutcome.verdict_id)
@@ -116,19 +129,38 @@ def _ensure_rows(db, now: int) -> None:
     db.flush()
 
 
+def _liq_at(db, token_id: int, target: int) -> float | None:
+    liq = [(r.ts, r.liquidity_usd) for r in db.execute(
+        select(LiquiditySnapshot).where(LiquiditySnapshot.token_id == token_id,
+                                        LiquiditySnapshot.ts >= target - TOLERANCE,
+                                        LiquiditySnapshot.ts <= target + TOLERANCE)).scalars().all()]
+    return _snap_at(liq, target)
+
+
+def _judge(o: VerdictOutcome, J: int) -> None:
+    o.rugged = bool((o.ret_judge <= -80)
+                    or (o.liq_change_judge is not None and o.liq_change_judge <= -80)
+                    or (o.max_dd_judge is not None and o.max_dd_judge <= -90))
+    o.result = judge_call(o.rating, o.ret_judge, o.max_up_judge, o.rugged)
+    o.judge_h = J
+
+
 async def update_outcomes(session_factory, now: int | None = None, transport=None) -> dict:
     if not config.OUTCOMES_ENABLED:
         return {"status": "disabled"}
     now = now or int(time.time())
-    res = {"updated": 0, "done": 0, "no_data": 0, "fallback": 0}
+    J = judge_hours()
+    jsec = J * 3600
+    res = {"updated": 0, "judged": 0, "done": 0, "no_data": 0, "fallback": 0, "judge_h": J}
     with session_factory() as db:
-        _ensure_rows(db, now)
-        pend = db.execute(select(VerdictOutcome).where(
-            VerdictOutcome.status == "pending",
+        _ensure_rows(db)
+        rows = db.execute(select(VerdictOutcome).where(
+            or_(VerdictOutcome.status == "pending", VerdictOutcome.status == "judged"),
             VerdictOutcome.verdict_ts <= now - HORIZONS["ret_1h"])).scalars().all()
-        need_fallback: list[VerdictOutcome] = []
-        for o in pend:
-            start, end = o.verdict_ts, o.verdict_ts + HORIZONS["ret_24h"]
+        need: list[tuple[VerdictOutcome, str]] = []          # (row, "judge" | "24h")
+        for o in rows:
+            start = o.verdict_ts
+            end = start + max(jsec, HORIZONS["ret_24h"])
             prices = [(r.ts, r.price_usd) for r in db.execute(
                 select(PriceSnapshot).where(PriceSnapshot.token_id == o.token_id,
                                             PriceSnapshot.ts >= start - TOLERANCE,
@@ -142,48 +174,73 @@ async def update_outcomes(session_factory, now: int | None = None, transport=Non
                         setattr(o, col, _pct(v, o.price_at))
                         o.data_source = o.data_source or "snapshots"
                         changed = True
-            window = [v for ts, v in prices if start <= ts <= min(end, now) and v and v > 0]
-            if window and o.price_at:
-                o.max_up_24h = _pct(max(window), o.price_at)
-                o.max_dd_24h = _pct(min(window), o.price_at)
-            if now >= end:
-                if o.ret_24h is not None and o.liq_change_24h is None:
-                    liq = [(r.ts, r.liquidity_usd) for r in db.execute(
-                        select(LiquiditySnapshot).where(LiquiditySnapshot.token_id == o.token_id,
-                                                        LiquiditySnapshot.ts >= end - TOLERANCE,
-                                                        LiquiditySnapshot.ts <= end + TOLERANCE)).scalars().all()]
-                    o.liq_change_24h = _pct(_snap_at(liq, end), o.liquidity_at)
-                if o.ret_24h is None:
-                    if now <= end + FALLBACK_WINDOW:
+            if o.price_at:
+                def window(until):
+                    return [v for ts, v in prices if start <= ts <= min(until, now) and v and v > 0]
+                w24 = window(start + HORIZONS["ret_24h"])
+                if w24:
+                    o.max_up_24h, o.max_dd_24h = _pct(max(w24), o.price_at), _pct(min(w24), o.price_at)
+            # ---- judging point
+            if o.status == "pending" and now >= start + jsec:
+                if o.ret_judge is None:
+                    v = _snap_at(prices, start + jsec)
+                    if v is not None:
+                        o.ret_judge = _pct(v, o.price_at)
+                        o.liq_change_judge = _pct(_liq_at(db, o.token_id, start + jsec), o.liquidity_at)
+                if o.ret_judge is None:
+                    if now <= start + jsec + FALLBACK_WINDOW:
                         if now - _FALLBACK_TRIED.get(o.id, 0) >= FALLBACK_RETRY:
                             _FALLBACK_TRIED[o.id] = now
-                            need_fallback.append(o)
-                    elif now >= start + GIVE_UP:
+                            need.append((o, "judge"))
+                    elif now >= start + jsec + JUDGE_GRACE:
                         _FALLBACK_TRIED.pop(o.id, None)
                         o.status = "no_data"
                         res["no_data"] += 1
                         changed = True
+            # ---- 24h reference numbers after judging
+            if o.status == "judged" and now >= start + HORIZONS["ret_24h"]:
+                if o.ret_24h is not None and o.liq_change_24h is None:
+                    o.liq_change_24h = _pct(_liq_at(db, o.token_id, start + HORIZONS["ret_24h"]), o.liquidity_at)
+                if o.ret_24h is None and now <= start + HORIZONS["ret_24h"] + FALLBACK_WINDOW \
+                        and now - _FALLBACK_TRIED.get(o.id, 0) >= FALLBACK_RETRY:
+                    _FALLBACK_TRIED[o.id] = now
+                    need.append((o, "24h"))
+                if o.ret_24h is not None or now >= start + H24_GIVE_UP:
+                    _FALLBACK_TRIED.pop(o.id, None)
+                    o.status = "done"
+                    res["done"] += 1
+                    changed = True
             res["updated"] += 1 if changed else 0
-        # DexScreener fallback for tokens no longer tracked
-        if need_fallback:
+        # ---- DexScreener fallback for tokens no longer tracked
+        if need:
             addr = {t.id: t.address for t in db.execute(select(Token).where(
-                Token.id.in_({o.token_id for o in need_fallback}))).scalars().all()}
+                Token.id.in_({o.token_id for o, _ in need}))).scalars().all()}
             live = await _dexscreener_now(sorted(set(addr.values())), transport=transport)
-            for o in need_fallback:
+            for o, what in need:
                 m = live.get(addr.get(o.token_id))
-                if m and m["price"] > 0:
+                if not m or m["price"] <= 0:
+                    continue
+                if what == "judge":
+                    o.ret_judge = _pct(m["price"], o.price_at)
+                    o.liq_change_judge = _pct(m["liquidity"], o.liquidity_at)
+                else:
                     o.ret_24h = _pct(m["price"], o.price_at)
                     o.liq_change_24h = _pct(m["liquidity"], o.liquidity_at)
-                    o.data_source = "dexscreener" if not o.data_source else o.data_source + "+dex"
-                    res["fallback"] += 1
-        # finalise
-        for o in pend:
-            if o.status == "pending" and o.ret_24h is not None and now >= o.verdict_ts + HORIZONS["ret_24h"]:
-                o.rugged = bool((o.ret_24h <= -80) or (o.liq_change_24h is not None and o.liq_change_24h <= -80)
-                                or (o.max_dd_24h is not None and o.max_dd_24h <= -90))
-                o.result = judge_call(o.rating, o.ret_24h, o.max_up_24h, o.rugged)
-                o.status = "done"
-                res["done"] += 1
+                o.data_source = "dexscreener" if not o.data_source else (
+                    o.data_source if "dex" in o.data_source else o.data_source + "+dex")
+                res["fallback"] += 1
+        # ---- judge
+        for o in rows:
+            if o.status == "pending" and o.ret_judge is not None and now >= o.verdict_ts + jsec:
+                prices = [v for ts, v in db.execute(
+                    select(PriceSnapshot.ts, PriceSnapshot.price_usd).where(
+                        PriceSnapshot.token_id == o.token_id, PriceSnapshot.ts >= o.verdict_ts,
+                        PriceSnapshot.ts <= o.verdict_ts + jsec)).all() if v and v > 0]
+                if prices and o.price_at:
+                    o.max_up_judge, o.max_dd_judge = _pct(max(prices), o.price_at), _pct(min(prices), o.price_at)
+                _judge(o, J)
+                o.status = "done" if jsec >= HORIZONS["ret_24h"] else "judged"
+                res["judged"] += 1
         db.commit()
     return res
 
@@ -201,28 +258,36 @@ def scorecard(db, days: int = 7, now: int | None = None) -> dict:
     calls = list(first.values())
 
     def stats(items):
-        done = [o for o, _ in items if o.status == "done"]
-        r24 = [o.ret_24h for o in done if o.ret_24h is not None]
+        done = [o for o, _ in items if o.result is not None]
+        rj = [_ret_j(o) for o in done if _ret_j(o) is not None]
         n = len(done)
         right = sum(1 for o in done if o.result == "right")
         wrong = sum(1 for o in done if o.result == "wrong")
-        return {"calls": len(items), "scored": n, "pending": sum(1 for o, _ in items if o.status == "pending"),
+        return {"calls": len(items), "scored": n,
+                "pending": sum(1 for o, _ in items if o.result is None and o.status == "pending"),
                 "right": right, "wrong": wrong, "mixed": n - right - wrong,
                 "hit_rate": round(right / n, 3) if n else None,
                 "avg_ret_1h": _avg([o.ret_1h for o, _ in items]), "avg_ret_6h": _avg([o.ret_6h for o, _ in items]),
-                "avg_ret_24h": _avg(r24), "median_ret_24h": round(statistics.median(r24), 1) if r24 else None,
+                "avg_ret_12h": _avg([o.ret_12h for o, _ in items]), "avg_ret_24h": _avg([o.ret_24h for o, _ in items]),
+                "avg_ret_judged": _avg(rj), "median_ret_judged": round(statistics.median(rj), 1) if rj else None,
                 "rug_rate": round(sum(1 for o in done if o.rugged) / n, 3) if n else None}
 
     by_rating = {r: stats([c for c in calls if c[0].rating == r])
                  for r in ("STRONG_WATCH", "WATCH", "NEUTRAL", "AVOID", "RUG_RISK")}
     by_source = {s: stats([c for c in calls if c[0].source == s]) for s in ("llm", "rules", "gate")}
     misses = [c for c in calls if c[0].result == "wrong"]
-    misses.sort(key=lambda c: -abs(c[0].ret_24h or 0))
-    return {"days": days, "overall": stats(calls), "by_rating": by_rating, "by_source": by_source,
+    misses.sort(key=lambda c: -abs(_ret_j(c[0]) or 0))
+    return {"days": days, "judge_h": judge_hours(), "overall": stats(calls), "by_rating": by_rating,
+            "by_source": by_source,
             "worst_misses": [{"symbol": t.symbol, "address": t.address, "rating": o.rating, "source": o.source,
-                              "ret_24h": o.ret_24h, "max_up_24h": o.max_up_24h, "rugged": o.rugged,
-                              "verdict_id": o.verdict_id} for o, t in misses[:5]],
-            "rules": __doc__.split("Was the call right?")[1].strip()}
+                              "ret_judged": _ret_j(o), "judge_h": o.judge_h or 24, "ret_24h": o.ret_24h,
+                              "rugged": o.rugged, "verdict_id": o.verdict_id} for o, t in misses[:5]],
+            "rules": rules_text()}
+
+
+def _ret_j(o) -> float | None:
+    """Return at the point the call was judged (older rows were judged at 24h)."""
+    return o.ret_judge if o.ret_judge is not None else o.ret_24h
 
 
 def _avg(xs):
@@ -240,7 +305,7 @@ def track_record_text(db, days: int = 7) -> str | None:
         s = sc["by_rating"][r]
         if s["scored"]:
             lines.append(f"{r}: {s['scored']} scored, {s['right']} right, {s['wrong']} wrong, "
-                         f"rug rate {(s['rug_rate'] or 0):.0%}, avg 24h {s['avg_ret_24h'] or 0:+.0f}%")
+                         f"rug rate {(s['rug_rate'] or 0):.0%}, avg {sc['judge_h']}h {s['avg_ret_judged'] or 0:+.0f}%")
     if sc["worst_misses"]:
         ids = [m["verdict_id"] for m in sc["worst_misses"][:3]]
         evs = {v.id: v.evidence_json or {} for v in db.execute(
@@ -248,7 +313,7 @@ def track_record_text(db, days: int = 7) -> str | None:
         for m in sc["worst_misses"][:3]:
             ev = evs.get(m["verdict_id"], {})
             la, ho, mk = ev.get("launch") or {}, ev.get("holders") or {}, ev.get("market") or {}
-            what = "rugged" if m["rugged"] else f"went {m['ret_24h']:+.0f}% in 24h"
+            what = "rugged" if m["rugged"] else f"went {m['ret_judged']:+.0f}% in {m['judge_h']}h"
             lines.append(f"MISS: rated {m['rating']}, {what}. Evidence then: snipers {la.get('sniper_pct')}%, "
                          f"bundle {la.get('bundle_pct')}%, top10 {ho.get('top10_wallet_pct')}%, "
                          f"liquidity ${mk.get('liquidity_usd')}, 1h {mk.get('price_change_1h_pct')}%")
@@ -265,15 +330,15 @@ def format_scorecard(sc: dict) -> str:
              "AVOID": "🟠 Avoid", "RUG_RISK": "🔴 Rug risk"}
     for r, s in sc["by_rating"].items():
         if s["scored"]:
-            lines.append(f"{names[r]}: {s['right']}/{s['scored']} right · avg 24h {s['avg_ret_24h'] or 0:+.0f}%"
+            lines.append(f"{names[r]}: {s['right']}/{s['scored']} right · avg {sc['judge_h']}h {s['avg_ret_judged'] or 0:+.0f}%"
                          f" · rugs {(s['rug_rate'] or 0):.0%}")
     src = sc["by_source"]
     if src["llm"]["scored"] and src["rules"]["scored"]:
         lines.append(f"AI debate {src['llm']['hit_rate'] or 0:.0%} vs rules {src['rules']['hit_rate'] or 0:.0%} hit rate")
     for m in sc["worst_misses"][:2]:
-        what = "rugged" if m["rugged"] else f"{m['ret_24h']:+.0f}% in 24h"
+        what = "rugged" if m["rugged"] else f"{m['ret_judged']:+.0f}% in {m['judge_h']}h"
         lines.append(f"❌ ${html.escape(m['symbol'] or '?')}: rated {m['rating'].replace('_', ' ').title()}, {what}")
-    lines.append("<i>Right/wrong judged at 24h from real prices. Not financial advice.</i>")
+    lines.append(f"<i>Right/wrong judged at {sc['judge_h']}h from real prices. Not financial advice.</i>")
     return "\n".join(lines)
 
 

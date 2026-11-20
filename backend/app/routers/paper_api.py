@@ -295,6 +295,10 @@ def paper_analytics(db: Session = Depends(get_db), user: User = Depends(get_curr
         eff(lambda p: met(p, "momentum", 65) and met(p, "volume_g_1h", 40), "Momentum + Volume"),
         eff(lambda p: (p.metrics_json or {}).get("sell_pressure", 100) < 40, "Low sell pressure (<40)"),
         eff(lambda p: p.market_regime == "BULLISH", "Bullish regime"),
+        eff(lambda p: _verdict(p) == "STRONG_WATCH", "AI verdict: Strong watch"),
+        eff(lambda p: _verdict(p) == "WATCH", "AI verdict: Watch"),
+        eff(lambda p: _verdict(p) in ("NEUTRAL", "AVOID", "RUG_RISK"), "AI verdict: Neutral or worse"),
+        eff(lambda p: _verdict(p) is None, "No AI verdict at entry"),
     ]
     pnl_sorted = sorted(pnls)
     med = pnl_sorted[len(pnl_sorted) // 2] if pnl_sorted else 0
@@ -320,6 +324,10 @@ def paper_analytics(db: Session = Depends(get_db), user: User = Depends(get_curr
         "confidence_analysis": conf_stats,
         "signal_effectiveness": effects,
     }
+
+
+def _verdict(p):
+    return ((p.metrics_json or {}).get("verdict") or {}).get("rating")
 
 
 def _by(rows, key):

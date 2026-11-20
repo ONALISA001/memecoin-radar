@@ -38,6 +38,16 @@ const GROUPS: { title: string; fields: [string, string, string][] }[] = [
     ],
   },
   {
+    title: "AI Verdict Rules (0 = off)",
+    fields: [
+      ["verdict_filter", "AI verdict filter", "0 off · 1 Watch or better · 2 Strong watch only"],
+      ["verdict_max_age_h", "Max verdict age (h)", "older verdicts don't count"],
+      ["block_bad_verdicts", "Block Avoid / Rug risk", "1 = never buy coins rated Avoid or Rug risk"],
+      ["verdict_sizing", "Size by AI conviction", "1 = Strong/high full size … Watch/low 40%"],
+      ["verdict_exit", "Exit on AI downgrade", "1 = sell if re-judged Avoid / Rug risk"],
+    ],
+  },
+  {
     title: "Risk Management",
     fields: [
       ["stop_loss_pct", "Stop-loss (%)", "from entry fill"],

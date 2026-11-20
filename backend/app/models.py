@@ -417,14 +417,20 @@ class VerdictOutcome(Base):
     liquidity_at = Column(Float)
     ret_1h = Column(Float)                   # % change in price
     ret_6h = Column(Float)
+    ret_12h = Column(Float)
     ret_24h = Column(Float)
+    judge_h = Column(Integer)                # hours after the call it was judged (None = legacy 24h)
+    ret_judge = Column(Float)                # % change at the judging point
+    max_up_judge = Column(Float)             # best / worst point up to the judging point, %
+    max_dd_judge = Column(Float)
+    liq_change_judge = Column(Float)
     max_up_24h = Column(Float)               # best point vs price_at, %
     max_dd_24h = Column(Float)               # worst point vs price_at, %
     liq_change_24h = Column(Float)           # %
     rugged = Column(Boolean)
     data_source = Column(String(24))         # snapshots | dexscreener
-    status = Column(String(10), default="pending")   # pending | done | no_data
-    result = Column(String(8))               # right | wrong | mixed (after 24h)
+    status = Column(String(10), default="pending")   # pending | judged | done | no_data
+    result = Column(String(8))               # right | wrong | mixed (set at the judging point)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
