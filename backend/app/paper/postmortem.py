@@ -55,7 +55,7 @@ MIN_CAUSE_SHARE = 0.25         # ... and this share of the losses (or of take-pr
 
 STOP_EXITS = ("STOP_LOSS",)
 SIGNAL_EXITS = ("SELL_SIGNAL", "CONFIDENCE_COLLAPSE", "RISK_EXIT", "LIQUIDITY_EXIT",
-                "VERDICT_EXIT", "MAX_HOLD")
+                "VERDICT_EXIT", "MAX_HOLD", "MOMENTUM_EXIT", "REGIME_EXIT", "TIME_STOP")
 
 CAUSES: dict[str, dict] = {
     "RUG": {"outcome": "loss", "label": "Rug or liquidity pull",
@@ -298,7 +298,8 @@ def _suggest(settings: dict, by: dict[str, list], wins: list, losses: list) -> l
             reasons[k] = reasons.get(k, 0) + 1
         worst = max(reasons, key=reasons.get)
         knob = {"RISK_EXIT": ("sell_pressure_exit", 10.0), "CONFIDENCE_COLLAPSE": ("confidence_collapse_pts", 10.0),
-                "LIQUIDITY_EXIT": ("liquidity_exit_pct", -10.0), "MAX_HOLD": ("max_hold_hours", None)}.get(worst)
+                "LIQUIDITY_EXIT": ("liquidity_exit_pct", -10.0), "MAX_HOLD": ("max_hold_hours", None),
+                "MOMENTUM_EXIT": ("momentum_exit_below", -5.0), "TIME_STOP": ("time_stop_hours", 1.0)}.get(worst)
         s = {"cause": "EARLY_EXIT", "why": f"{len(by['EARLY_EXIT'])} exits were followed by a recovery; "
                                            f"most came from {worst.replace('_', ' ').lower()} ({reasons[worst]}).",
              "tradeoff": "Looser exits also hold some coins that keep falling. Check SAVED_BY_EXIT before changing."}

@@ -546,6 +546,17 @@ def _uts(ts: int | None) -> str:
 
 
 # ------------------------------------------------------------------ backtest (§20)
+@router.post("/paper/backtest/compare", dependencies=[Depends(require_owner)])
+def paper_backtest_compare(body: dict, db: Session = Depends(get_db),
+                           user: User = Depends(get_current_user)):
+    """Replay the momentum-strategy family (Baseline + A–F, or ?keys) over the same window."""
+    hours = min(max(int(body.get("hours") or 72), 1), 24 * 30)
+    end_ts = int(time.time())
+    capital = min(float(body.get("capital") or 10000.0), 1_000_000)
+    keys = tuple(k for k in (body.get("keys") or PC.MOMENTUM_FAMILY) if k in PC.PRESETS)[:10]
+    return BT.compare_family(db, end_ts - hours * 3600, end_ts, capital, keys or PC.MOMENTUM_FAMILY)
+
+
 @router.post("/paper/backtest", dependencies=[Depends(require_owner)])
 def paper_backtest(body: dict, db: Session = Depends(get_db),
                    user: User = Depends(get_current_user)):

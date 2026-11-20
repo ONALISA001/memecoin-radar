@@ -17,7 +17,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from ..models import (DemoAccount, EquitySnapshot, PaperPosition, PaperSignal,
-                      PaperTradeEvent, SignalEvent, StrategyVersion, Token)
+                      PaperTradeEvent, SignalEvent, StrategyVersion, Token, TrendScore)
+from . import confluence as CF
 from . import config as PC
 from . import execution as X
 from . import risk as R
@@ -105,6 +106,39 @@ def _event(db, acct, pos, sig, kind: str, title: str, detail: str, data: dict) -
 
 
 _now_ts = 0  # set per tick — single clock per tick keeps timestamps consistent
+_breadth: float | None = None  # market-wide share of coins up 24h, set per tick
+
+# settings that need a confluence snapshot (skip the extra queries when none is on)
+_SNAP_KEYS = ("min_momentum", "momentum_rising", "min_volume_accel_pct", "require_bullish_regime",
+              "block_distribution_regime", "max_entry_sell_pressure", "min_market_breadth_pct",
+              "confluence_sizing", "momentum_exit_below", "regime_exit", "time_stop_hours")
+
+
+def _needs_snap(settings: dict) -> bool:
+    return any(settings.get(k) for k in _SNAP_KEYS)
+
+
+def momentum_history(db, token_id: int, now: int, n: int = 3) -> list[float]:
+    """Earlier momentum readings for a coin (oldest → newest), from stored scores before `now`."""
+    rows = db.execute(select(TrendScore.components_json).where(
+        TrendScore.token_id == token_id, TrendScore.ts < now, TrendScore.kind == "live")
+        .order_by(TrendScore.ts.desc()).limit(n)).scalars().all()
+    vals = [((c or {}).get("summary") or {}).get("momentum") for c in rows]
+    return [float(v) for v in reversed(vals) if v is not None]
+
+
+def snapshot(db, token_id: int, mkt: dict, now: int, metrics: dict | None = None) -> dict:
+    """Live confluence snapshot for one coin (see paper/confluence.py)."""
+    mom = mkt.get("momentum")
+    hist = momentum_history(db, token_id, now)
+    if mom is not None:
+        hist = hist + [float(mom)]
+    vol = mkt.get("volume_g_1h")
+    if vol is None and metrics:
+        vol = metrics.get("volume_g_1h")
+    return {"momentum": mom, "momentum_hist": hist, "volume_g_1h": vol,
+            "regime": mkt.get("regime", "NEUTRAL"), "sellp": mkt.get("sellp"),
+            "price_chg_1h": mkt.get("price_chg_1h"), "breadth": _breadth}
 
 
 def _now_ts_utc() -> int:
@@ -156,8 +190,9 @@ def _market_regime(mi: dict | None) -> str:
 def run_tick(db, now: int, market: dict) -> dict:
     """Process all accounts for one ingestion tick. Idempotent via the
     per-account last_event_id cursor + unique (account, source_event)."""
-    global _now_ts
+    global _now_ts, _breadth
     _now_ts = now
+    _breadth = CF.breadth(market)
     stats = {"signals": 0, "approved": 0, "rejected": 0, "bought": 0, "sold": 0, "accounts": 0}
     accounts = db.execute(select(DemoAccount).where(DemoAccount.active == True)).scalars().all()  # noqa: E712
     if not accounts:
@@ -386,6 +421,24 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
     if tok is not None:
         for name, ok, detail in F.strategy_checks(db, settings, tok, market.get(sig.token_id) or {}, now):
             R.chk(decision, name, ok, f"{name}: {detail}")
+    snap = None
+    if _needs_snap(settings):
+        snap = snapshot(db, sig.token_id, market.get(sig.token_id) or {}, now, sig_metrics)
+        for name, ok, detail in CF.entry_checks(settings, snap):
+            R.chk(decision, name, ok, f"{name}: {detail}")
+        mult, n_fac = CF.size_multiplier(settings, snap)
+        sig_metrics["confluence_factors"] = n_fac
+        if mult is None:
+            R.chk(decision, "confluence", False,
+                  f"confluence: only {n_fac} of 4 factors (min {int(settings.get('confluence_min_factors') or 3)})")
+    cool = float(settings.get("reentry_cooldown_h") or 0)
+    if cool > 0:
+        last = db.execute(select(func.max(PaperPosition.entry_ts)).where(
+            PaperPosition.account_id == acct.id, PaperPosition.token_id == sig.token_id)).scalar()
+        ok = last is None or now - last >= cool * 3600
+        R.chk(decision, "re-entry cooldown", ok,
+              "re-entry cooldown: " + ("no recent entry" if last is None else
+                                       f"last entry {(now - last) / 3600:.1f}h ago vs {cool:g}h"))
     # already holding this token?
     if decision["approved"] and db.execute(select(PaperPosition.id).where(
             PaperPosition.account_id == acct.id, PaperPosition.token_id == sig.token_id,
@@ -410,6 +463,11 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
         mult = F.verdict_size_mult(verdict)
         size = round(size * mult, 2)
         sig_metrics["verdict_size_mult"] = mult
+    if snap is not None and settings.get("confluence_sizing"):
+        cmult, _ = CF.size_multiplier(settings, snap)
+        if cmult:
+            size = round(size * cmult, 2)
+            sig_metrics["confluence_size_mult"] = cmult
     if size < float(settings["execution"]["min_order_usd"]):
         sig.status = "rejected"
         sig.reject_reason = f"order ${size:.2f} below minimum ${settings['execution']['min_order_usd']:.0f}"
@@ -503,6 +561,10 @@ def _manage_exit(db, acct, settings, p: PaperPosition, now: int, market: dict,
         reason = "TRAILING_STOP"
     elif p.token_id in sell_hits:
         reason = "SELL_SIGNAL"
+    elif _needs_snap(settings) and (cf := CF.exit_reason(
+            settings, {"momentum": mkt.get("momentum"), "regime": mkt.get("regime")},
+            p.entry_ts, now, p.entry_price, px)):
+        reason = cf
     elif (mkt.get("momentum") is not None and p.metrics_json.get("momentum") is not None
           and mkt["momentum"] <= p.metrics_json["momentum"] - float(settings["confidence_collapse_pts"])):
         reason = "CONFIDENCE_COLLAPSE"
@@ -568,6 +630,9 @@ def _close_position(db, acct, settings, p: PaperPosition, px: float, mkt: dict,
                   "LIQUIDITY_EXIT": "Liquidity deteriorated",
                   "MAX_HOLD": "Maximum holding period reached",
                   "VERDICT_EXIT": "AI verdict downgraded to Avoid / Rug risk",
+                  "MOMENTUM_EXIT": "Momentum faded below the exit level",
+                  "REGIME_EXIT": "Coin regime turned to distribution",
+                  "TIME_STOP": "Time stop: trade never got going",
                   "MANUAL": "Closed manually (simulated)"}.get(reason, reason)
     kind = "PROFIT" if pnl >= 0 else "LOSS"
     detail = (f"{reason_txt} · entry ${p.entry_price:.8g} → exit ${fill['exec_price']:.8g} "

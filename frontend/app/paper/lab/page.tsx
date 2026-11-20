@@ -10,6 +10,7 @@ const EXIT_LABEL: Record<string, string> = {
   STOP_LOSS: "stop", TAKE_PROFIT: "target", TRAILING_STOP: "trail", BREAKEVEN_STOP: "break-even",
   SELL_SIGNAL: "sell signal", CONFIDENCE_COLLAPSE: "momentum fade", RISK_EXIT: "sell pressure",
   LIQUIDITY_EXIT: "liquidity", MAX_HOLD: "time", MANUAL: "manual",
+  MOMENTUM_EXIT: "momentum fade", REGIME_EXIT: "regime flip", TIME_STOP: "time stop", VERDICT_EXIT: "verdict",
 };
 
 function Row({ r, best, onApply }: { r: any; best: boolean; onApply?: () => void }) {
@@ -118,10 +119,22 @@ export default function StrategyLabPage() {
               <th>Profit factor</th><th>Avg trade (95% range)</th><th>Avg win / loss</th><th>Max DD</th><th>Exits</th><th></th>
             </tr></thead>
             <tbody>
-              {rows.map((r) => (
-                <Row key={r.key} r={r} best={r.key === leader}
-                     onApply={r.running ? () => { if (confirm(`Use "${r.name}" rules on your main account? Its history is kept.`)) act(`/paper/lab/apply/${r.key}`, `Main account now uses "${r.name}".`); } : undefined} />
-              ))}
+              {(["core", "momentum"] as const).map((fam) => {
+                const group = rows.filter((r) => (r.family || "core") === fam);
+                if (!group.length) return null;
+                return [
+                  fam === "momentum" && (
+                    <tr key="hdr-momentum"><td colSpan={11} className="!text-left !py-2 bg-cyanx/5">
+                      <span className="text-xs font-bold text-cyanx">⚡ Momentum family (A–F)</span>
+                      <span className="text-2xs text-dim ml-2">built on strong momentum, volume and bullish regime ·</span>
+                      <Link href="/paper/backtest" className="text-2xs text-cyanx hover:underline ml-1">compare them on past data →</Link>
+                    </td></tr>),
+                  ...group.map((r) => (
+                    <Row key={r.key} r={r} best={r.key === leader}
+                         onApply={r.running ? () => { if (confirm(`Use "${r.name}" rules on your main account? Its history is kept.`)) act(`/paper/lab/apply/${r.key}`, `Main account now uses "${r.name}".`); } : undefined} />
+                  )),
+                ];
+              })}
               {data?.main && <Row r={data.main} best={false} />}
             </tbody>
           </table>
