@@ -331,7 +331,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
         <div className="xl:col-span-2"><TrendingTable /></div>
         <div className="space-y-6">
-          <PriorityCoins compact limit={6} />
+          <PriorityCoins compact />
           <RiskFeed />
           <MarketTabs />
         </div>

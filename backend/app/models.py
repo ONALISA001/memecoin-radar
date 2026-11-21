@@ -677,3 +677,20 @@ class StrategyProposal(Base):
     status = Column(String(12), default="pending", index=True)   # pending | approved | rejected | expired
     decided_ts = Column(Integer)
     result_json = Column(JSON)               # what approving actually did
+
+
+class PriorityPick(Base):
+    """A coin entering the Priority list (or the Early list), with the price then, labelled later
+    with what happened 1h and 4h after: the list's own track record."""
+    __tablename__ = "priority_picks"
+    id = Column(Integer, primary_key=True)
+    token_id = Column(Integer, ForeignKey("tokens.id"), index=True)
+    list_kind = Column(String(8))            # passing | early
+    ts = Column(Integer, index=True)
+    score = Column(Float)
+    price = Column(Float)
+    ret_1h = Column(Float)                   # % price change 1h after the pick
+    ret_4h = Column(Float)
+    max_up_4h = Column(Float)                # best point within 4h, %
+    max_dd_4h = Column(Float)                # worst point within 4h, %
+    status = Column(String(8), default="open")   # open | done | no_data

@@ -425,7 +425,7 @@ export function IntelFeed({ address, compact, focusId }: { address?: string; com
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-3 items-start">
         <div className="xl:col-span-3 min-w-0">{feed}</div>
         <div className="xl:col-span-2 space-y-3 min-w-0">
-          <PriorityCoins limit={8} />
+          <PriorityCoins />
           <MarketPulse window={win} onWindow={setWin} />
         </div>
       </div>

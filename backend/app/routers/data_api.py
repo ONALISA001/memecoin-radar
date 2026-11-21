@@ -580,18 +580,15 @@ def _event_flow(db: Session, token_ids: list[int], secs: int) -> dict[int, dict]
 
 @router.get("/signals/priority")
 def signals_priority(window: str = Query("4h", pattern="^(1h|2h|4h|6h|12h|24h)$"),
-                     limit: int = Query(8, ge=1, le=20), db: Session = Depends(get_db)):
+                     limit: int = Query(30, ge=1, le=50), db: Session = Depends(get_db)):
     """Priority coins: tracked coins that pass every quality gate (risk, liquidity, no
-    distribution, no Avoid/Rug verdict, momentum or constructive events in the window),
-    ranked by a transparent priority score. Near misses fail exactly one soft gate."""
+    distribution, no Avoid/Rug verdict, momentum or constructive events, no severe red flags),
+    ranked by a transparent score. `early`: coins building momentum fast before they meet
+    the full bar. `track_record`: how earlier picks did 1h and 4h later."""
     from ..services import market_views as MV
-    rows = latest_score_rows(db)
-    cards = [card(t, sc) for sc, t in rows]
-    tokens = [t for _, t in rows]
-    flow = _event_flow(db, [t.id for t in tokens], MV.WINDOWS_S[window])
-    events = {t.address: flow[t.id] for t in tokens if t.id in flow}
-    out = MV.priority_coins(cards, _latest_ratings(db, tokens), events, limit)
-    out.update({"window": window,
+    from ..services import priority_track as PT
+    out = MV.priority_now(db, window, limit)
+    out.update({"window": window, "track_record": PT.stats(db),
                 "note": "Coins that pass every gate right now. A research shortlist, not a buy signal."})
     return out
 
