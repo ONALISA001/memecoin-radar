@@ -1,5 +1,9 @@
 # Deploying Memecoin Radar to Vercel + Railway
 
+> **No credit card? Use the free setup instead:** Render (backend) + Supabase (database) + Netlify
+> (frontend). Step-by-step guide: **[docs/DEPLOY_RENDER_SUPABASE.md](docs/DEPLOY_RENDER_SUPABASE.md)**.
+> The Railway steps below still work if you have a Railway plan.
+
 This is the "access from anywhere, permanently" setup: **frontend on Vercel or
 Netlify** (free tier), **backend + Postgres on Railway** (~$5/mo hobby credit
 usually covers it). Total hands-on time: **~15 minutes**, no server to manage.

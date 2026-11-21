@@ -23,18 +23,47 @@ def _load_dotenv(path: str) -> None:
 
 _load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-_db = os.getenv("DATABASE_URL", "").strip()
-if _db.startswith("postgres://"):                 # some hosts still hand out the old scheme
-    _db = "postgresql://" + _db[len("postgres://"):]
+ON_RENDER = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
+ON_RAILWAY = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
+
+
+def normalize_db_url(url: str) -> str:
+    """Accept the URLs hosts hand out and make them work with SQLAlchemy + psycopg2.
+    * postgres://  → postgresql://   (old scheme still given by some hosts)
+    * Supabase requires TLS: add sslmode=require when the URL doesn't say otherwise."""
+    url = (url or "").strip()
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    if "supabase.co" in url or "supabase.com" in url:
+        if "sslmode=" not in url:
+            url += ("&" if "?" in url else "?") + "sslmode=require"
+    return url
+
+
+_db = normalize_db_url(os.getenv("DATABASE_URL", ""))
 if not _db:
-    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"):
+    if ON_RAILWAY or ON_RENDER:
         # Fail loudly: silently using a SQLite file inside the container would
         # lose all data on every redeploy.
         raise RuntimeError(
-            "DATABASE_URL is empty on Railway. In the API service > Variables, set it "
-            "with 'Add Reference' to the Postgres service's DATABASE_URL.")
+            "DATABASE_URL is empty. Set it in the host's environment variables to your Postgres "
+            "connection string (Supabase: Project Settings > Database > Connection string > "
+            "'Session pooler').")
     _db = f"sqlite:///{os.path.join(BASE_DIR, 'radar.db')}"
 DATABASE_URL = _db
+# Connection pool (Postgres). Supabase's free tier allows a limited number of connections,
+# shared with its own services, so keep this small; one API process needs only a few.
+DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
+DB_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "5"))
+# Free database plans are small (Supabase: 500 MB). Score snapshots older than this many hours
+# keep only their summary (what charts and backtests read); the latest keeps everything.
+SNAPSHOT_SLIM_AFTER_H = float(os.getenv("SNAPSHOT_SLIM_AFTER_H", "2"))
+# Free web services sleep without inbound traffic (Render: 15 min), which would stop the
+# ingestion loop. The app pings its own public URL every KEEP_AWAKE_MINUTES. Render sets
+# RENDER_EXTERNAL_URL automatically; KEEP_AWAKE_URL overrides it; KEEP_AWAKE=0 turns it off.
+KEEP_AWAKE = os.getenv("KEEP_AWAKE", "1") == "1"
+KEEP_AWAKE_URL = (os.getenv("KEEP_AWAKE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
+KEEP_AWAKE_MINUTES = float(os.getenv("KEEP_AWAKE_MINUTES", "10"))
 
 # Ingestion
 INGEST_INTERVAL_SECONDS = int(os.getenv("INGEST_INTERVAL_SECONDS", "60"))
