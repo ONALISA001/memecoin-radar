@@ -123,9 +123,13 @@ async def lifespan(app: FastAPI):
     ensure_schema_and_demo_user()
     task = asyncio.create_task(scheduler_loop())
     awake = asyncio.create_task(keep_awake_loop())
+    from .services import launch_radar
+    radar = [asyncio.create_task(launch_radar.stream_loop()), asyncio.create_task(launch_radar.enrich_loop())]
     yield
     task.cancel()
     awake.cancel()
+    for t in radar:
+        t.cancel()
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

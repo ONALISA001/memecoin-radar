@@ -161,6 +161,17 @@ NEW_POOL_MAX_AGE_H = float(os.getenv("NEW_POOL_MAX_AGE_H", "6"))
 NEW_POOL_MIN_LIQUIDITY_USD = float(os.getenv("NEW_POOL_MIN_LIQUIDITY_USD", "8000"))
 NEW_POOL_MIN_TXNS_H1 = int(os.getenv("NEW_POOL_MIN_TXNS_H1", "30"))
 
+# Launch radar: a live websocket of pump.fun coin creations and graduations, so new coins
+# show up seconds after they are created (not minutes later once they reach a DEX).
+# Market numbers come from DexScreener (batches of 30), candles from GeckoTerminal.
+LAUNCH_STREAM_ENABLED = os.getenv("LAUNCH_STREAM_ENABLED", "1") == "1"
+LAUNCH_STREAM_URL = os.getenv("LAUNCH_STREAM_URL", "wss://pumpportal.fun/api/data")
+LAUNCH_BOOK_MAX = int(os.getenv("LAUNCH_BOOK_MAX", "3000"))          # recent launches kept in memory
+LAUNCH_ENRICH_SECONDS = float(os.getenv("LAUNCH_ENRICH_SECONDS", "20"))
+LAUNCH_ENRICH_BATCHES = int(os.getenv("LAUNCH_ENRICH_BATCHES", "3"))  # x30 coins per refresh
+LAUNCH_TRADE_SUBS = int(os.getenv("LAUNCH_TRADE_SUBS", "60"))        # coins with every trade streamed
+LAUNCH_HOT_SLOTS = int(os.getenv("LAUNCH_HOT_SLOTS", "10"))          # hot launches fed to full scoring
+
 # Launch alert: one Telegram message when a fresh-pool token's FIRST complete
 # Helius check comes back clean (mint+freeze off, standard SPL, wallets spread).
 LAUNCH_ALERTS_ENABLED = os.getenv("LAUNCH_ALERTS_ENABLED", "1") == "1"

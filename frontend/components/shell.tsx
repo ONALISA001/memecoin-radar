@@ -8,13 +8,14 @@ import { timeAgo } from "@/lib/format";
 import {
   Gavel,
   Bell, BellRing, GitCompareArrows, History, Layers, LayoutDashboard, Menu, Radar, Radio, Search,
-  SlidersHorizontal, Sparkles, Star, Wallet, X, PauseCircle, Lock, LockOpen,
+  SlidersHorizontal, Sparkles, Star, Wallet, X, PauseCircle, Lock, LockOpen, Zap,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: React.ComponentType<{ size?: number; className?: string }> };
 const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   { title: "Discover", items: [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/launches", label: "Launch radar", icon: Zap },
     { href: "/new", label: "New coins", icon: Sparkles },
     { href: "/screener", label: "Screener", icon: SlidersHorizontal },
     { href: "/narratives", label: "Narratives", icon: Layers },
