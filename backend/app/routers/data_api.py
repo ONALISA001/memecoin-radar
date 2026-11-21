@@ -1200,3 +1200,25 @@ def search(q: str = Query(min_length=1, max_length=128), db: Session = Depends(g
                        .limit(5)).scalars().all()
     result["narratives"] = [{"id": n.id, "name": n.name, "score": n.score} for n in narrs]
     return result
+
+
+# ------------------------------------------------------------------ launch radar
+@router.get("/launches")
+def launches(tab: str = Query("new", pattern="^(new|bonding|graduated|hot)$"),
+             limit: int = Query(50, ge=1, le=100), min_mcap: float = Query(0, ge=0)):
+    """Coins seen seconds after creation (live pump.fun feed), with DexScreener market data.
+    Tabs: new (newest first), bonding (still on the curve, closest to graduating first),
+    graduated (just moved to a DEX), hot (active, mostly buyers, no severe launch flags)."""
+    from ..services import launch_radar as LR
+    return LR.listing(tab, limit, min_mcap=min_mcap)
+
+
+@router.get("/launches/{mint}/candles")
+async def launch_candles(mint: str, tf: str = Query("5m", pattern="^(1m|5m|15m|1h)$")):
+    from ..services import launch_radar as LR
+    if not valid_address(mint):
+        raise HTTPException(status_code=400, detail="Invalid address")
+    try:
+        return await LR.candles(mint, tf)
+    except Exception:  # noqa: BLE001  upstream hiccup: an empty chart, never a 500
+        return {"mint": mint, "tf": tf, "candles": [], "note": "Candles are unavailable right now. Try again shortly."}

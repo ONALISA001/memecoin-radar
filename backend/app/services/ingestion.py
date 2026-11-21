@@ -17,6 +17,7 @@ import traceback
 
 from sqlalchemy import delete, func, select
 
+from . import launch_radar
 from ..config import (DEMO_FALLBACK, HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
                       MAX_TRACKED_TOKENS, NEW_POOLS_ENABLED, NEW_POOL_MAX_AGE_H,
                       NEWS_REFRESH_MINUTES, NEWS_RSS_ENABLED, USE_SIMULATED_SOCIAL,
@@ -111,6 +112,8 @@ async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
             gt_ticks = {r.address: mt for r, mt in pools}
             seen = {r.address for r in fresh}
             fresh += [r for r in _sticky_new_pool_tokens() if r.address not in seen]
+            seen |= {r.address for r in fresh}
+            fresh += [r for r in launch_radar.hot_raw_tokens() if r.address not in seen]
         fresh_addrs = {r.address for r in fresh}
         promo = [r for r in promo if r.address not in fresh_addrs]
         ticks_obj = await provider.fetch_market(promo + fresh)
