@@ -1,0 +1,45 @@
+# Render Blueprint — MemeCoin Radar API (FastAPI backend) on Render's free plan.
+# Database: Supabase Postgres (free). Frontend: stays on Netlify.
+# Full walkthrough: DEPLOYMENT.md → "Free hosting: Render + Supabase".
+#
+# Render dashboard → New → Blueprint → pick this repo. Render reads this file, asks for the
+# values marked `sync: false`, then builds backend/Dockerfile. Every push to main redeploys.
+services:
+  - type: web
+    name: memecoin-radar-api
+    runtime: docker
+    plan: free
+    # Pick the region closest to your Supabase project's region (lower database latency):
+    # oregon | ohio | virginia | frankfurt | singapore
+    region: frankfurt
+    rootDir: backend          # builds backend/Dockerfile with backend/ as the build context
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      # --- required ------------------------------------------------------------------
+      - key: DATABASE_URL          # Supabase → Connect → "Session pooler" URI (port 5432), with your password
+        sync: false
+      - key: OWNER_KEY             # your owner password for "Owner login" (long and random)
+        sync: false
+      - key: JWT_SECRET            # signs logins; generated once by Render, keep it
+        generateValue: true
+      # --- set for this host -----------------------------------------------------------
+      - key: SEED_TICK             # open the web port fast; the scheduler runs the first tick
+        value: "0"
+      - key: KEEP_AWAKE            # free services sleep after 15 min idle: self-ping every 10 min
+        value: "1"
+      - key: DEMO_MODE             # visitors can read; only the owner can change things
+        value: "1"
+      - key: DB_POOL_SIZE          # small pool for Supabase's free connection limit
+        value: "5"
+      - key: JWT_TTL_HOURS         # how long an owner login lasts (168 = a week)
+        value: "168"
+      # --- optional integrations (leave blank to skip) ------------------------------------
+      - key: HELIUS_API_KEY        # real on-chain safety checks (free key at helius.dev)
+        sync: false
+      - key: LLM_API_KEY           # AI verdict debate / AI notes (rules are used without it)
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false

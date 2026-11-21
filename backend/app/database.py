@@ -4,10 +4,17 @@ WAL mode keeps reads non-blocking while the ingestion loop writes."""
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-from .config import DATABASE_URL
+from .config import DATABASE_URL, DB_MAX_OVERFLOW, DB_POOL_SIZE
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, connect_args=connect_args, pool_pre_ping=True)
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False}, pool_pre_ping=True)
+else:
+    # Hosted Postgres (Supabase / Railway / Neon): small pool, recycle connections before the
+    # pooler drops idle ones, fail fast instead of hanging when the database is unreachable.
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=DB_POOL_SIZE,
+                           max_overflow=DB_MAX_OVERFLOW, pool_recycle=300, pool_timeout=30,
+                           connect_args={"connect_timeout": 10,
+                                         "application_name": "memecoin-radar-api"})
 
 if DATABASE_URL.startswith("sqlite"):
     @event.listens_for(engine, "connect")

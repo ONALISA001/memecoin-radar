@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import (CORS_ORIGINS, DEMO_MODE, INGEST_INTERVAL_SECONDS, JWT_SECRET_IS_EPHEMERAL,
-                     OWNER_KEY)
+                     KEEP_AWAKE, KEEP_AWAKE_MINUTES, KEEP_AWAKE_URL, OWNER_KEY)
 from .database import Base, SessionLocal, engine, migrate_postgres
 from .routers import data_api, paper_api, user_api
 from .security import hash_password
@@ -70,6 +70,25 @@ def ensure_schema_and_demo_user():
             log.info("demo user created")
 
 
+async def keep_awake_loop():
+    """Free web services (Render) sleep after ~15 min without inbound requests, which would
+    stop the ingestion loop. Ping our own public URL so the service keeps collecting data.
+    Uses only a cheap GET / (no database). Off when KEEP_AWAKE=0 or no public URL is known."""
+    if not (KEEP_AWAKE and KEEP_AWAKE_URL):
+        return
+    import httpx
+    log.info("keep-awake: pinging %s every %g min", KEEP_AWAKE_URL, KEEP_AWAKE_MINUTES)
+    async with httpx.AsyncClient(timeout=20) as client:
+        while True:
+            await asyncio.sleep(KEEP_AWAKE_MINUTES * 60)
+            try:
+                r = await client.get(KEEP_AWAKE_URL + "/")
+                if r.status_code >= 400:
+                    log.warning("keep-awake ping returned %s", r.status_code)
+            except Exception as exc:  # noqa: BLE001  a failed ping must never stop the app
+                log.warning("keep-awake ping failed: %s", exc)
+
+
 async def scheduler_loop():
     # first tick happens immediately so fresh data appears right after boot
     from .services.backfill_scores import run_retro_backfill
@@ -102,8 +121,10 @@ async def lifespan(app: FastAPI):
              "read-only" if DEMO_MODE else "off", "on" if OWNER_KEY else "off")
     ensure_schema_and_demo_user()
     task = asyncio.create_task(scheduler_loop())
+    awake = asyncio.create_task(keep_awake_loop())
     yield
     task.cancel()
+    awake.cancel()
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -139,3 +160,25 @@ app.include_router(paper_api.router, prefix="/api", tags=["paper"])
 @app.get("/")
 def root():
     return {"ok": True, "service": "memecoin-radar-api", "docs": "/docs"}
+
+
+@app.get("/health")
+def health():
+    """Deploy health: database reachable, data freshness and database size (free plans are
+    small: Supabase 500 MB). Not used by keep-awake pings, which hit the cheaper GET /."""
+    import time as _t
+    from sqlalchemy import func, select, text
+    from .models import TrendScore
+    out: dict = {"ok": True}
+    try:
+        with SessionLocal() as db:
+            latest = db.execute(select(func.max(TrendScore.ts))).scalar()
+            out["last_score_age_s"] = None if latest is None else int(_t.time()) - int(latest)
+            if engine.dialect.name == "postgresql":
+                size = db.execute(text("SELECT pg_database_size(current_database())")).scalar()
+                out["db_size_mb"] = round((size or 0) / 1e6, 1)
+            out["db"] = engine.dialect.name
+    except Exception as exc:  # noqa: BLE001
+        log.warning("health check: database error: %s", exc)
+        out.update(ok=False, error=f"database unreachable ({type(exc).__name__})")
+    return out

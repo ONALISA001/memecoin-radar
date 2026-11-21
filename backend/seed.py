@@ -4,6 +4,7 @@
 Usage:  python seed.py
 """
 import asyncio
+import os
 import sys
 
 from sqlalchemy import func, select
@@ -35,6 +36,11 @@ def main() -> int:
             db.commit()
             print(f"▸ seeded {len(DEFAULT_ALERTS)} default alerts")
 
+    if os.getenv("SEED_TICK", "1") == "0":
+        # Hosts like Render wait for the web port to open; the API's own scheduler runs the
+        # first tick right after start-up, so skip the slow one here.
+        print("▸ SEED_TICK=0: schema ready; the API's scheduler will run the first tick")
+        return 0
     print("▸ running first ingestion tick (discovery + 48h backfill) …")
     stats = asyncio.run(ingestion.tick())
     print(f"▸ tick stats: {stats}")

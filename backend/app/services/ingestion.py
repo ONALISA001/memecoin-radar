@@ -318,6 +318,52 @@ def prune_old(db, now: int):
                   SocialSnapshot, TrendScore):
         db.execute(delete(model).where(model.ts < horizon))
     db.execute(delete(SocialPost).where(SocialPost.ts < now - 30 * 3600))
+    slim_old_scores(db, now)
+
+
+_SLIM_WATERMARK: dict[str, int] = {}
+
+
+def slim_old_scores(db, now: int, after_h: float | None = None) -> int:
+    """Keep only the summary (+ risk flags) of score snapshots older than `after_h` hours.
+
+    Each snapshot carries ~11 KB of explainability detail, but only the LATEST one per coin
+    is ever shown in full; older ones are read only for their summary (charts, momentum
+    history, backtests). Trimming them (~11 KB → ~1 KB) keeps 72 h of history around 40 MB
+    instead of ~350 MB, which fits a free 500 MB database. Done in SQL, once per row
+    (a watermark remembers how far it got; after a restart it re-trims harmlessly)."""
+    from sqlalchemy import text
+    from ..config import SNAPSHOT_SLIM_AFTER_H
+    after_h = SNAPSHOT_SLIM_AFTER_H if after_h is None else after_h
+    if after_h <= 0:
+        return 0
+    cut = now - int(after_h * 3600)
+    dialect = db.get_bind().dialect.name
+    start = _SLIM_WATERMARK.get(dialect, now - 72 * 3600)
+    if cut <= start:
+        return 0
+    if dialect == "postgresql":
+        sql = ("UPDATE trend_scores SET components_json = json_build_object("
+               "'summary', components_json->'summary', 'risk_flags', components_json->'risk_flags', "
+               "'risk_hard_fails', components_json->'risk_hard_fails', 'slim', true) "
+               "WHERE ts >= :start AND ts < :cut AND components_json IS NOT NULL")
+    elif dialect == "sqlite":
+        sql = ("UPDATE trend_scores SET components_json = json_object("
+               "'summary', json(json_extract(components_json, '$.summary')), "
+               "'risk_flags', json(coalesce(json_extract(components_json, '$.risk_flags'), '[]')), "
+               "'risk_hard_fails', json(coalesce(json_extract(components_json, '$.risk_hard_fails'), '[]')), "
+               "'slim', json('true')) "
+               "WHERE ts >= :start AND ts < :cut AND components_json IS NOT NULL")
+    else:
+        return 0
+    try:
+        with db.begin_nested():          # never let trimming break the tick
+            n = db.execute(text(sql), {"start": start, "cut": cut}).rowcount or 0
+    except Exception as exc:             # noqa: BLE001
+        log.warning("slimming old score snapshots failed: %s", exc)
+        return 0
+    _SLIM_WATERMARK[dialect] = cut
+    return n
 
 
 # --------------------------------------------------------------------------
