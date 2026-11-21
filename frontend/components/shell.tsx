@@ -206,7 +206,7 @@ function AuthBanner() {
         <span className="text-amberx font-semibold">
           {kind === "owner_expired" ? "Your owner session expired" : "Owner login required"}
         </span>
-        <span className="text-dim">— saving, running backtests and approving need the owner key. Log in, then try again.</span>
+        <span className="text-dim">— resets, backtests, supervisor approvals and deleting alerts need the owner key. Log in, then try again.</span>
         <input type="password" autoComplete="current-password" placeholder="Owner key" value={key}
                onChange={(e) => setKey(e.target.value)} aria-label="Owner key"
                className="rounded-md bg-panel2 border border-line px-2.5 py-1 text-xs text-ink outline-none focus:border-cyanx w-40" />
@@ -306,7 +306,7 @@ function OwnerAccess() {
   if (!open) {
     return (
       <button className="flex items-center gap-1.5 text-xs text-dim hover:text-ink" onClick={() => setOpen(true)}>
-        <Lock size={14} /> Read-only · Owner login
+        <Lock size={14} /> Owner login
       </button>
     );
   }

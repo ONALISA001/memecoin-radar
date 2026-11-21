@@ -106,8 +106,7 @@ function getPath(obj: any, path: string) {
 export default function PaperSettingsPage() {
   const [rev, setRev] = useState(0);
   const { data } = useApi(`/paper/settings?r=${rev}`, 60000) as any;
-  const role = useRole();
-  const owner = role === "owner";
+  const owner = useRole() === "owner";      // only the reset below needs it; saving is open
   const [form, setForm] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [msg, setMsg] = useState("");
@@ -195,13 +194,12 @@ export default function PaperSettingsPage() {
           </div>
         ))}
         <div className="p-4 flex items-center gap-3">
-          <button disabled={!dirty || saving || !owner} onClick={save}
-                  title={!owner ? "Log in as owner to save" : !dirty ? "Change a value first" : undefined}
+          <button disabled={!dirty || saving} onClick={save}
+                  title={!dirty ? "Change a value first" : undefined}
                   className="pill-mini !text-cyanx !border-cyanx/60 !py-2 !px-4 disabled:opacity-40 disabled:cursor-not-allowed">
             {saving ? "Saving…" : "Save settings"}
           </button>
-          {!owner && <span className="text-xs text-amberx">Read-only: log in as owner (sidebar) to save.</span>}
-          {owner && dirty && !saving && <span className="text-xs text-amberx">Unsaved changes</span>}
+          {dirty && !saving && <span className="text-xs text-amberx">Unsaved changes</span>}
           {msg && <span className="text-xs text-greenx">{msg}</span>}
           {err && <span className="text-xs text-redx">{err}</span>}
           <span className="text-2xs text-dim ml-auto">Strategy/risk changes create a new strategy version — historical trades keep their original config (§22).</span>
@@ -228,7 +226,7 @@ export default function PaperSettingsPage() {
             <button className="pill-mini !text-redx !border-redx/60 !py-2 !px-4" onClick={() => setConfirmReset(true)}>
               Reset demo account
             </button>
-            <span className="text-2xs text-dim">Export first if you want to keep the history.</span>
+            <span className="text-2xs text-dim">Export first if you want to keep the history.{!owner && " Owner login required."}</span>
           </div>
         ) : (
           <div className="p-4 space-y-3">
