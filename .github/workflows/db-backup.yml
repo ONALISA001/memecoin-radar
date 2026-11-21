@@ -1,0 +1,89 @@
+# Nightly backup of the Supabase database (public schema: all app data).
+#
+# The repository is PUBLIC, so the backup is ENCRYPTED (AES-256, gpg) with BACKUP_PASSPHRASE
+# before it is stored as a workflow artifact. Without the passphrase the file is unreadable.
+#
+# One-time setup (GitHub → Settings → Secrets and variables → Actions → New repository secret):
+#   SUPABASE_DB_URL     the Session-pooler connection string (same value as DATABASE_URL on Render)
+#   BACKUP_PASSPHRASE   a long passphrase (20+ characters). Store it somewhere safe: it's the only
+#                       way to open the backups.
+# Restore: the "Restore database backup" workflow, or docs/BACKUPS.md.
+name: Nightly database backup
+
+on:
+  schedule:
+    - cron: "30 2 * * *"          # every day at 02:30 UTC
+  workflow_dispatch: {}           # "Run workflow" button for an on-demand backup
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PG_IMAGE: postgres:17-alpine   # pg_dump must be >= the server's major version (Supabase: 17)
+    steps:
+      - name: Check the secrets are set
+        env:
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ -z "$DB" ] || [ -z "$PASS" ]; then
+            echo "::error::Add the SUPABASE_DB_URL and BACKUP_PASSPHRASE repository secrets (see the top of this file)."
+            exit 1
+          fi
+          if [ "${#PASS}" -lt 16 ]; then
+            echo "::error::BACKUP_PASSPHRASE is too short: use at least 16 characters (20+ recommended)."
+            exit 1
+          fi
+
+      - name: Dump, verify and encrypt
+        id: dump
+        env:
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          # Same tolerance as the app: accept a pasted NAME="…" line, quotes, and add sslmode.
+          DB=$(printf '%s' "$DB" | sed -E "s/^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[[:space:]]*//; s/^[\"']//; s/[\"'][[:space:]]*$//")
+          case "$DB" in *sslmode=*) ;; *\?*) DB="$DB&sslmode=require" ;; *) DB="$DB?sslmode=require" ;; esac
+          echo "::add-mask::$DB"
+
+          STAMP=$(date -u +%Y-%m-%d_%H%M)
+          docker run --rm -v "$PWD:/out" "$PG_IMAGE" \
+            pg_dump --dbname="$DB" --schema=public --no-owner --no-privileges --format=custom --file=/out/radar.dump
+
+          # Verify the dump is readable and not empty before keeping it.
+          docker run --rm -v "$PWD:/out" "$PG_IMAGE" pg_restore --list /out/radar.dump > contents.txt
+          TABLES=$(grep -c " TABLE DATA " contents.txt || true)
+          if [ "$TABLES" -lt 10 ]; then
+            echo "::error::Backup looks incomplete: only $TABLES tables with data."
+            exit 1
+          fi
+
+          printf '%s' "$PASS" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --symmetric --cipher-algo AES256 --output "radar-$STAMP.dump.gpg" radar.dump
+          rm -f radar.dump
+
+          SIZE=$(du -h "radar-$STAMP.dump.gpg" | cut -f1)
+          echo "stamp=$STAMP" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Database backup $STAMP UTC"
+            echo "- Tables with data: $TABLES"
+            echo "- Encrypted file: \`radar-$STAMP.dump.gpg\` ($SIZE)"
+            echo "- Kept for 30 days. Restore: run the **Restore database backup** workflow with this run's ID."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Store the encrypted backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ steps.dump.outputs.stamp }}
+          path: radar-*.dump.gpg
+          retention-days: 30
+          if-no-files-found: error
