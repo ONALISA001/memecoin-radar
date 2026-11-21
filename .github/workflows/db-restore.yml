@@ -1,0 +1,87 @@
+# Restore an encrypted backup made by "Nightly database backup" into the Supabase database.
+#
+# ⚠ This REPLACES all app data in the database with the backup's contents.
+# Before running: suspend the backend on Render (service → Settings → Suspend Web Service), so it
+# doesn't write while the tables are replaced. Resume it afterwards.
+#
+# Run: Actions → "Restore database backup" → Run workflow →
+#   run_id   the number at the end of the backup run's address (…/actions/runs/<run_id>)
+#   confirm  type RESTORE
+name: Restore database backup
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "ID of the backup run to restore (from its address: …/actions/runs/<run_id>)"
+        required: true
+      confirm:
+        description: "Type RESTORE to replace the database contents with this backup"
+        required: true
+
+permissions:
+  contents: read
+  actions: read           # to download an artifact from another workflow run
+
+concurrency:
+  group: db-backup         # never at the same time as a backup
+  cancel-in-progress: false
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PG_IMAGE: postgres:17-alpine
+    steps:
+      - name: Check confirmation and secrets
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          RUN_ID: ${{ inputs.run_id }}
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          if [ "$CONFIRM" != "RESTORE" ]; then
+            echo "::error::Not confirmed: type RESTORE in the confirm box."
+            exit 1
+          fi
+          case "$RUN_ID" in ''|*[!0-9]*) echo "::error::run_id must be the number from the backup run's address."; exit 1 ;; esac
+          if [ -z "$DB" ] || [ -z "$PASS" ]; then
+            echo "::error::Add the SUPABASE_DB_URL and BACKUP_PASSPHRASE repository secrets."
+            exit 1
+          fi
+
+      - name: Download the backup
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          pattern: db-backup-*
+          merge-multiple: true
+          path: backup
+
+      - name: Decrypt and restore
+        env:
+          DB: ${{ secrets.SUPABASE_DB_URL }}
+          PASS: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          DB=$(printf '%s' "$DB" | sed -E "s/^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=[[:space:]]*//; s/^[\"']//; s/[\"'][[:space:]]*$//")
+          case "$DB" in *sslmode=*) ;; *\?*) DB="$DB&sslmode=require" ;; *) DB="$DB?sslmode=require" ;; esac
+          echo "::add-mask::$DB"
+
+          FILE=$(ls backup/radar-*.dump.gpg | head -1)
+          echo "Restoring $(basename "$FILE")"
+          printf '%s' "$PASS" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --decrypt --output backup/radar.dump "$FILE"
+
+          # --clean --if-exists: drop the app's tables and recreate them from the backup.
+          docker run --rm -v "$PWD/backup:/in" "$PG_IMAGE" \
+            pg_restore --dbname="$DB" --clean --if-exists --no-owner --no-privileges \
+            --single-transaction --exit-on-error /in/radar.dump
+          rm -f backup/radar.dump
+
+          {
+            echo "### Restored $(basename "$FILE")"
+            echo "Resume the backend on Render (service → Resume Web Service) if you suspended it."
+          } >> "$GITHUB_STEP_SUMMARY"
