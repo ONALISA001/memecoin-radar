@@ -144,7 +144,9 @@ def early_reasons(c: dict, hist: list[float] | None, ev: dict | None) -> list[st
     slope = momentum_slope(hist)
     if age is None or _num(age) > EARLY_MAX_AGE_H or slope is None or slope < EARLY_MIN_SLOPE:
         return None
-    if _num(c.get("risk"), 100.0) >= P_MAX_RISK or _num(c.get("liquidity")) < EARLY_MIN_LIQ:
+    from . import launch_radar as LR
+    liq_floor = LR.LAUNCH_CURVE_MIN_LIQ_USD if LR.is_on_curve(c.get("address") or "") else EARLY_MIN_LIQ
+    if _num(c.get("risk"), 100.0) >= P_MAX_RISK or _num(c.get("liquidity")) < liq_floor:
         return None
     if (c.get("sellp_band") or "neutral") in DISTRIBUTION_BANDS or any(f["severe"] for f in red_flags(c)):
         return None

@@ -166,7 +166,11 @@ function LaunchRow({ r, now, open, onToggle }: { r: any; now: number; open: bool
           )}
           <div className="flex flex-wrap gap-1.5 text-2xs">
             <span className="badge !text-2xs">creator bought {r.dev_buy_pct}% at launch</span>
-            {r.liq_usd ? <span className="badge !text-2xs">liquidity {fmtUsd(r.liq_usd, 0)}</span> : null}
+            {r.liq_usd ? (
+              <span className="badge !text-2xs" title={r.curve_sol != null ? "Coins still on the bonding curve: 2x the real SOL in the curve" : undefined}>
+                {r.curve_sol != null ? `curve liquidity ${fmtUsd(r.liq_usd, 0)} (${r.curve_sol} SOL)` : `liquidity ${fmtUsd(r.liq_usd, 0)}`}
+              </span>
+            ) : null}
             {r.price_usd ? <span className="badge !text-2xs">price ${fmtPrice(r.price_usd)}</span> : null}
             <span className="badge !text-2xs">{r.dex}</span>
             {(r.flags || []).map((f: any) => (

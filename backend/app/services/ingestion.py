@@ -18,7 +18,7 @@ import traceback
 from sqlalchemy import delete, func, select
 
 from . import launch_radar
-from ..config import (DEMO_FALLBACK, HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
+from ..config import (LAUNCH_CURVE_MIN_LIQ_USD, DEMO_FALLBACK, HELIUS_MAX_CHECKS_PER_TICK, HELIUS_RECHECK_HOURS, SOLANA_ONLY,
                       MAX_TRACKED_TOKENS, NEW_POOLS_ENABLED, NEW_POOL_MAX_AGE_H,
                       NEWS_REFRESH_MINUTES, NEWS_RSS_ENABLED, USE_SIMULATED_SOCIAL,
                       TELEGRAM_CALL_CHANNELS, TELEGRAM_DISCOVERY_SLOTS, TELEGRAM_REFRESH_MINUTES,
@@ -119,6 +119,12 @@ async def discover_tokens() -> tuple[list[RawToken], dict[str, dict], bool]:
         ticks_obj = await provider.fetch_market(promo + fresh)
         for addr, mt in gt_ticks.items():                   # not on DexScreener yet
             ticks_obj.setdefault(addr, mt)
+        for addr, mt in launch_radar.curve_ticks(fresh_addrs).items():   # still on the bonding curve
+            cur = ticks_obj.get(addr)
+            if cur is None:
+                ticks_obj[addr] = mt
+            elif cur.liquidity_usd < mt.liquidity_usd:
+                cur.liquidity_usd = cur.pair_liquidity_usd = mt.liquidity_usd
         fresh = select_new_pool_tokens(fresh, ticks_obj)
         called = await _telegram_called(provider, {r.address for r in fresh} | {r.address for r in promo}, ticks_obj)
         promo = [r for r in promo if r.address in ticks_obj][:max(0, MAX_TRACKED_TOKENS - len(fresh) - len(called))]
@@ -158,15 +164,18 @@ async def _telegram_called(provider, already: set, ticks_obj: dict) -> list[RawT
         return []
 
 
-def _passes_new_pool_floor(mt) -> bool:
-    return (mt.liquidity_usd >= NEW_POOL_MIN_LIQUIDITY_USD
+def _passes_new_pool_floor(mt, on_curve: bool = False) -> bool:
+    """Coins still on the bonding curve get the smaller curve floor (a full curve is only ~$12K)."""
+    floor = LAUNCH_CURVE_MIN_LIQ_USD if on_curve else NEW_POOL_MIN_LIQUIDITY_USD
+    return (mt.liquidity_usd >= floor
             and mt.txns_h1_buys + mt.txns_h1_sells >= NEW_POOL_MIN_TXNS_H1)
 
 
 def select_new_pool_tokens(cands: list[RawToken], ticks: dict) -> list[RawToken]:
     """Fresh-pool candidates that still have live data and activity, most traded
     (1h transactions) first, capped at NEW_POOL_SLOTS. Dead launches drop out."""
-    keep = [r for r in cands if r.address in ticks and _passes_new_pool_floor(ticks[r.address])]
+    keep = [r for r in cands if r.address in ticks
+            and _passes_new_pool_floor(ticks[r.address], launch_radar.is_on_curve(r.address))]
     keep.sort(key=lambda r: -(ticks[r.address].txns_h1_buys + ticks[r.address].txns_h1_sells))
     for r in keep:
         r.extra["source"] = "new_pool"
