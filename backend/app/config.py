@@ -171,6 +171,11 @@ LAUNCH_ENRICH_SECONDS = float(os.getenv("LAUNCH_ENRICH_SECONDS", "20"))
 LAUNCH_ENRICH_BATCHES = int(os.getenv("LAUNCH_ENRICH_BATCHES", "3"))  # x30 coins per refresh
 LAUNCH_TRADE_SUBS = int(os.getenv("LAUNCH_TRADE_SUBS", "60"))        # coins with every trade streamed
 LAUNCH_HOT_SLOTS = int(os.getenv("LAUNCH_HOT_SLOTS", "10"))          # hot launches fed to full scoring
+# Coins still on the bonding curve have no DEX pool, so their liquidity is counted as 2x the real SOL
+# in the curve (what a balanced pool with that SOL holds). A full curve is only ~85 SOL (~$12K at
+# $70 SOL), so curve coins get this smaller floor for tracking and the Early tab. Passing Priority
+# coins still need $15K, which in practice means graduating first.
+LAUNCH_CURVE_MIN_LIQ_USD = float(os.getenv("LAUNCH_CURVE_MIN_LIQ_USD", "3000"))
 
 # Launch alert: one Telegram message when a fresh-pool token's FIRST complete
 # Helius check comes back clean (mint+freeze off, standard SPL, wallets spread).

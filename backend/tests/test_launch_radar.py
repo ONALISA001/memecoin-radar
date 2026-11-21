@@ -188,3 +188,55 @@ def test_launches_api():
 def test_stream_message_shapes_are_json_safe():
     create("jjj")
     json.dumps(LR.listing("new", 5, NOW + 5))                   # sets never leak into the API
+
+
+# ------------------------------------------------------------------ curve liquidity
+def test_curve_liquidity_is_twice_the_real_sol():
+    LR.STATUS["sol_usd"] = 70.0
+    create("cv0", creator="A", vTokensInBondingCurve=LR.V_TOKENS_START)
+    create("cv1", creator="B", vTokensInBondingCurve=LR.V_TOKENS_START - LR.TOKENS_FOR_SALE)
+    assert LR.curve_real_sol(LR.BOOK["cv0"]) == pytest.approx(0, abs=0.01)
+    assert LR.curve_real_sol(LR.BOOK["cv1"]) == pytest.approx(85, abs=0.5)          # a full curve
+    assert LR.curve_liquidity_usd(LR.BOOK["cv1"]) == pytest.approx(2 * 85 * 70, rel=0.01)
+    LR.handle_message({"txType": "migrate", "mint": "cv1"}, NOW)
+    assert LR.curve_liquidity_usd(LR.BOOK["cv1"]) is None and not LR.is_on_curve("cv1")
+
+
+def test_curve_ticks_only_for_coins_still_on_the_curve():
+    create("on", creator="A", vTokensInBondingCurve=700_000_000)
+    create("grad", creator="B")
+    create("nodata", creator="C", vTokensInBondingCurve=700_000_000)
+    LR.apply_dex_pairs([pair("on"), pair("grad", dex="pumpswap", liq=30_000)], NOW + 100)
+    ticks = LR.curve_ticks(["on", "grad", "nodata", "unknown"])
+    assert list(ticks) == ["on"]
+    t = ticks["on"]
+    assert t.liquidity_usd == LR.curve_liquidity_usd(LR.BOOK["on"]) > 3000
+    assert (t.txns_h1_buys, t.txns_h1_sells, t.pc_h1) == (300, 100, 40.0)
+    assert LR.row(LR.BOOK["on"], NOW + 100)["liq_usd"] == t.liquidity_usd     # shown on the radar too
+
+
+def test_curve_coins_get_the_smaller_tracking_floor():
+    from app.providers.base import MarketTick, RawToken
+    from app.services import ingestion as ING
+    create("crv", creator="A", vTokensInBondingCurve=700_000_000)
+    LR.apply_dex_pairs([pair("crv")], NOW + 100)
+    mt = MarketTick(liquidity_usd=4_000, txns_h1_buys=30, txns_h1_sells=10)
+    assert ING._passes_new_pool_floor(mt, on_curve=True) and not ING._passes_new_pool_floor(mt)
+    cands = [RawToken(address="crv", chain="solana", name="", symbol=""),
+             RawToken(address="dexcoin", chain="solana", name="", symbol="")]
+    kept = ING.select_new_pool_tokens(cands, {"crv": mt, "dexcoin": mt})
+    assert [r.address for r in kept] == ["crv"]
+
+
+def test_curve_coin_can_be_an_early_candidate_below_8k():
+    from app.services import market_views as MV
+    create("crvE", creator="A", vTokensInBondingCurve=700_000_000)
+    LR.apply_dex_pairs([pair("crvE")], NOW + 100)
+    base = {"symbol": "X", "name": "x", "risk": 30, "liquidity": 4_000, "volume_24h": 40_000, "sellp": 30,
+            "sellp_band": "neutral", "momentum": 45, "momentum_band": "weakening", "whale_class": "neutral",
+            "price": 1.0, "price_change_h1": 8.0, "buy_share": 0.62, "vol_accel_h1": 50, "holder_growth": 4,
+            "organic": 70, "liq_band": "healthy", "age_hours": 1}
+    cards = [{**base, "address": "crvE"}, {**base, "address": "dexE"}]
+    out = MV.priority_coins(cards, {}, {}, 10, hist={"crvE": [30, 36, 41, 45], "dexE": [30, 36, 41, 45]})
+    assert [r["address"] for r in out["early"]] == ["crvE"]          # same coin on a DEX needs $8K
+    assert out["items"] == [] or all(r["address"] != "crvE" for r in out["items"])   # Passing still needs $15K

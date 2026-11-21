@@ -28,17 +28,19 @@ from typing import Any
 import httpx
 
 from ..config import (DEXSCREENER_BASE, GECKOTERMINAL_BASE, LAUNCH_BOOK_MAX, LAUNCH_ENRICH_BATCHES,
+                      LAUNCH_CURVE_MIN_LIQ_USD,
                       LAUNCH_ENRICH_SECONDS, LAUNCH_HOT_SLOTS, LAUNCH_STREAM_ENABLED, LAUNCH_STREAM_URL,
                       LAUNCH_TRADE_SUBS)
-from ..providers.base import RawToken
+from ..providers.base import MarketTick, RawToken
 
 log = logging.getLogger("radar.launches")
 
 # pump.fun bonding curve constants (tokens have 6 decimals, 1B supply)
 SUPPLY = 1_000_000_000
 V_TOKENS_START = 1_073_000_000
+V_SOL_START = 30.0
 TOKENS_FOR_SALE = 793_100_000
-K_CURVE = 30 * V_TOKENS_START              # virtual SOL x virtual tokens at launch
+K_CURVE = V_SOL_START * V_TOKENS_START              # virtual SOL x virtual tokens at launch
 GRADUATED_DEXES = {"pumpswap", "raydium", "meteora", "orca", "raydium-cpmm", "raydium-clmm"}
 
 HOT_MAX_AGE_H = 6
@@ -125,6 +127,61 @@ def progress(l: Launch) -> float | None:
     mc = l.dex.get("mcap_usd")
     sol = STATUS.get("sol_usd")
     return progress_from_mcap_sol(mc / sol) if mc and sol else None
+
+
+def curve_real_sol(l: Launch) -> float | None:
+    """Real SOL buyers have put into the bonding curve (virtual SOL minus the 30 SOL it starts with)."""
+    if l.graduated:
+        return None
+    vt = l.v_tokens
+    if not vt and l.mcap_sol:
+        vt = math.sqrt(K_CURVE * SUPPLY / l.mcap_sol)
+    if not vt:
+        mc, sol = l.dex.get("mcap_usd"), STATUS.get("sol_usd")
+        if mc and sol:
+            vt = math.sqrt(K_CURVE * SUPPLY / (mc / sol))
+    if not vt:
+        return None
+    vt = max(V_TOKENS_START - TOKENS_FOR_SALE, min(V_TOKENS_START, vt))
+    return max(0.0, K_CURVE / vt - V_SOL_START)
+
+
+def curve_liquidity_usd(l: Launch) -> float | None:
+    """Liquidity of a coin still on the curve: 2x its real SOL, in USD (a balanced pool's depth)."""
+    real, sol = curve_real_sol(l), STATUS.get("sol_usd")
+    if real is None or not sol:
+        return None
+    return round(2 * real * sol, 0)
+
+
+def is_on_curve(mint: str) -> bool:
+    l = BOOK.get(mint)
+    return bool(l and not l.graduated and (l.dex_id in ("", "pumpfun")))
+
+
+def curve_ticks(mints) -> dict[str, MarketTick]:
+    """Market ticks for coins still on the curve, with the curve's liquidity. DexScreener lists them
+    with little or no liquidity, so the normal pipeline would otherwise drop them."""
+    out: dict[str, MarketTick] = {}
+    for m in mints:
+        l = BOOK.get(m)
+        if not l or not is_on_curve(m) or not l.dex:
+            continue
+        liq = curve_liquidity_usd(l)
+        if not liq:
+            continue
+        d = l.dex
+        out[m] = MarketTick(
+            price_usd=d.get("price_usd") or 0.0, mcap=d.get("mcap_usd") or 0.0, fdv=d.get("mcap_usd") or 0.0,
+            liquidity_usd=liq, pair_liquidity_usd=liq,
+            volume_h24=d.get("vol_h24") or 0.0, volume_h6=d.get("vol_h6") or 0.0,
+            volume_h1=d.get("vol_h1") or 0.0, volume_m5=d.get("vol_m5") or 0.0,
+            pc_m5=d.get("chg_m5") or 0.0, pc_h1=d.get("chg_h1") or 0.0,
+            pc_h6=d.get("chg_h6") or 0.0, pc_h24=d.get("chg_h24") or 0.0,
+            txns_h1_buys=d.get("buys_h1", 0), txns_h1_sells=d.get("sells_h1", 0),
+            txns_h24_buys=d.get("buys_h24", 0), txns_h24_sells=d.get("sells_h24", 0),
+            txns_m5_buys=d.get("buys_m5", 0) or 0, txns_m5_sells=d.get("sells_m5", 0) or 0)
+    return out
 
 
 # ------------------------------------------------------------------ stream messages
@@ -317,7 +374,8 @@ def row(l: Launch, now: float | None = None) -> dict:
     return {
         "mint": l.mint, "symbol": l.symbol, "name": l.name, "image_url": l.image_url or None,
         "creator": l.creator, "age_secs": int(now - l.created_ts), "created_ts": int(l.created_ts),
-        "mcap_usd": mc, "liq_usd": l.dex.get("liq_usd"), "price_usd": l.dex.get("price_usd"),
+        "mcap_usd": mc, "liq_usd": l.dex.get("liq_usd") or curve_liquidity_usd(l),
+        "curve_sol": round(curve_real_sol(l), 2) if curve_real_sol(l) is not None else None, "price_usd": l.dex.get("price_usd"),
         "vol_h1": l.dex.get("vol_h1"), "vol_h24": l.dex.get("vol_h24"),
         "buys_h1": b, "sells_h1": s, "buys_m5": l.dex.get("buys_m5"), "sells_m5": l.dex.get("sells_m5"),
         "chg_m5": l.dex.get("chg_m5"), "chg_h1": l.dex.get("chg_h1"), "chg_h6": l.dex.get("chg_h6"),
