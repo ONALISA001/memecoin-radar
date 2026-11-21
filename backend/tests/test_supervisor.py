@@ -76,7 +76,8 @@ def test_priority_coin_entries_buy_only_listed_coins_that_pass_own_rules():
             flat = Token(address="PrioFlatMint", chain="solana", symbol="PFLAT")
             db.add_all([good, flat]); db.flush()
             summ = {"price": 1.0, "liquidity": 80_000, "volume_1h": 20_000, "momentum": 85, "momentum_band": "extreme",
-                    "sellp": 30, "sellp_band": "neutral", "price_change_h1": 5, "price_change_h24": 10}
+                    "sellp": 30, "sellp_band": "neutral", "price_change_h1": 5, "price_change_h24": 10,
+                    "buy_share": 0.7, "vol_accel_h1": 60, "holder_growth": 5}
             for t, prev in ((good, 80.0), (flat, 90.0)):
                 db.add(TrendScore(token_id=t.id, ts=now - 300, kind="live", trend=60, risk=20,
                                   components_json={"summary": {**summ, "momentum": prev}}))

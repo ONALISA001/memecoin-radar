@@ -67,7 +67,7 @@ def test_priority_endpoint(tokens):
     d = r.json()
     addrs = [i["address"] for i in d["items"]]
     assert tokens["good"] in addrs and tokens["dump"] not in addrs
-    assert d["window"] == "2h" and len(d["gates"]) == 5
+    assert d["window"] == "2h" and len(d["gates"]) == 6
     assert client.get("/api/signals/priority?window=3h").status_code == 422
 
 
