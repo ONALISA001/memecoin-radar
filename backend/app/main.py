@@ -15,8 +15,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .config import (CORS_ORIGINS, DEMO_MODE, INGEST_INTERVAL_SECONDS, JWT_SECRET_IS_EPHEMERAL,
-                     KEEP_AWAKE, KEEP_AWAKE_MINUTES, KEEP_AWAKE_URL, OWNER_KEY)
+from .config import (CORS_ORIGINS, DATABASE_URL_SAFE, DEMO_MODE, INGEST_INTERVAL_SECONDS,
+                     JWT_SECRET_IS_EPHEMERAL, KEEP_AWAKE, KEEP_AWAKE_MINUTES, KEEP_AWAKE_URL, OWNER_KEY)
 from .database import Base, SessionLocal, engine, migrate_postgres
 from .routers import data_api, paper_api, user_api
 from .security import hash_password
@@ -117,6 +117,7 @@ async def lifespan(app: FastAPI):
                     "(logins reset on restart). Set JWT_SECRET in Railway > Variables.")
     if not OWNER_KEY:
         log.warning("OWNER_KEY not set: nobody can log in as owner, so the app is read-only.")
+    log.info("database: %s", DATABASE_URL_SAFE)       # password masked
     log.info("access: visitors=%s, owner login=%s",
              "read-only" if DEMO_MODE else "off", "on" if OWNER_KEY else "off")
     ensure_schema_and_demo_user()

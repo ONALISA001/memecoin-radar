@@ -1,6 +1,7 @@
 """Central configuration. All secrets/env-driven values live here; nothing
 secrets-bearing is ever sent to the frontend (§22)."""
 import os
+import re
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -27,17 +28,66 @@ ON_RENDER = bool(os.getenv("RENDER") or os.getenv("RENDER_SERVICE_ID"))
 ON_RAILWAY = bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"))
 
 
+class DatabaseUrlError(RuntimeError):
+    """A DATABASE_URL problem, explained without ever showing the password."""
+
+
+_QUOTES = "\"'`"
+
+
+def mask_db_url(url: str) -> str:
+    """The URL with its password replaced by *** (safe for logs and error messages)."""
+    return re.sub(r"(://[^:/@\s]+:)[^@\s]*@", r"\1***@", url or "")
+
+
 def normalize_db_url(url: str) -> str:
-    """Accept the URLs hosts hand out and make them work with SQLAlchemy + psycopg2.
+    """Accept the URLs hosts hand out (and common copy-paste slips) and make them work
+    with SQLAlchemy + psycopg2.
+
+    * A whole pasted line such as  DIRECT_URL="postgresql://…"  or  export DATABASE_URL='…'
+      → just the URL; surrounding quotes and spaces are dropped.
     * postgres://  → postgresql://   (old scheme still given by some hosts)
-    * Supabase requires TLS: add sslmode=require when the URL doesn't say otherwise."""
-    url = (url or "").strip()
+    * A password left inside the placeholder's brackets, [secret] → secret.
+    * Supabase requires TLS: add sslmode=require when the URL doesn't say otherwise.
+    """
+    url = (url or "").strip().strip(_QUOTES).strip()
+    m = re.match(r"^(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(.+)$", url)
+    if m and "://" not in url.split("=", 1)[0]:
+        url = m.group(1).strip().strip(_QUOTES).strip()
     if url.startswith("postgres://"):
         url = "postgresql://" + url[len("postgres://"):]
+    bracketed = re.match(r"^(\w[\w+.-]*://[^:/@\s]+:)\[([^\]@\s]+)\](@.+)$", url)
+    if bracketed and bracketed.group(2).upper() not in ("YOUR-PASSWORD", "YOUR_PASSWORD", "PASSWORD"):
+        url = bracketed.group(1) + bracketed.group(2) + bracketed.group(3)
     if "supabase.co" in url or "supabase.com" in url:
         if "sslmode=" not in url:
             url += ("&" if "?" in url else "?") + "sslmode=require"
     return url
+
+
+def check_db_url(url: str) -> None:
+    """Fail with a clear, password-free message instead of a parser traceback that would
+    print the whole connection string (password included) into the host's logs."""
+    if not url or url.startswith("sqlite"):
+        return
+    safe = mask_db_url(url)
+    if re.search(r"YOUR[-_]PASSWORD", url, re.IGNORECASE):
+        raise DatabaseUrlError(
+            "DATABASE_URL still contains the [YOUR-PASSWORD] placeholder: replace it (brackets "
+            f"included) with your database password. Value given: {safe}")
+    if not url.startswith(("postgresql://", "postgresql+")):
+        raise DatabaseUrlError(
+            "DATABASE_URL must start with postgresql:// — paste only the connection string, "
+            f"without a name or quotes in front. Value given starts with: {safe[:24]!r}")
+    try:
+        from sqlalchemy.engine import make_url
+        u = make_url(url)
+    except Exception:  # noqa: BLE001  the parser's own message would contain the password
+        raise DatabaseUrlError(
+            "DATABASE_URL could not be read. If your password contains @ : / ? # % or spaces, "
+            f"reset it to letters and digits only (or URL-encode it). Value given: {safe}") from None
+    if not u.host:
+        raise DatabaseUrlError(f"DATABASE_URL has no host name. Value given: {safe}")
 
 
 _db = normalize_db_url(os.getenv("DATABASE_URL", ""))
@@ -45,12 +95,13 @@ if not _db:
     if ON_RAILWAY or ON_RENDER:
         # Fail loudly: silently using a SQLite file inside the container would
         # lose all data on every redeploy.
-        raise RuntimeError(
+        raise DatabaseUrlError(
             "DATABASE_URL is empty. Set it in the host's environment variables to your Postgres "
-            "connection string (Supabase: Project Settings > Database > Connection string > "
-            "'Session pooler').")
+            "connection string (Supabase: Connect > Connection String > 'Session pooler').")
     _db = f"sqlite:///{os.path.join(BASE_DIR, 'radar.db')}"
+check_db_url(_db)
 DATABASE_URL = _db
+DATABASE_URL_SAFE = mask_db_url(_db)      # for logs
 # Connection pool (Postgres). Supabase's free tier allows a limited number of connections,
 # shared with its own services, so keep this small; one API process needs only a few.
 DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "5"))
