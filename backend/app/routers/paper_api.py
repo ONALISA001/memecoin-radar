@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import (BacktestRun, DemoAccount, EquitySnapshot, PaperPosition,
                       PaperSignal, PaperTradeEvent, PriceSnapshot, Token, User)
-from ..security import get_current_user, rate_limit, require_owner
+from ..security import get_current_user, rate_limit, require_owner, require_user
 from ..services.ingestion import latest_market_map
 from ..paper import engine as PE
 from ..paper import config as PC
@@ -392,7 +392,7 @@ def paper_settings(db: Session = Depends(get_db), user: User = Depends(get_curre
             "effective": PE.settings_for(acct), "strategy": _strategy(db, acct)}
 
 
-@router.post("/paper/settings", dependencies=[Depends(require_owner)])
+@router.post("/paper/settings", dependencies=[Depends(require_user)])
 def paper_settings_update(overrides: dict, db: Session = Depends(get_db),
                           user: User = Depends(get_current_user)):
     acct = _acct(db, user)
@@ -434,7 +434,7 @@ async def paper_lab_review(ai: bool = True, db: Session = Depends(get_db),
     return rev
 
 
-@router.post("/paper/lab/start", dependencies=[Depends(require_owner)])
+@router.post("/paper/lab/start", dependencies=[Depends(require_user)])
 def paper_lab_start(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from ..paper import lab as LAB
     accts = LAB.start_lab(db, user.id)
@@ -506,7 +506,7 @@ def paper_supervisor_decide(proposal_id: int, action: str, db: Session = Depends
     return {"ok": True, "proposal": SUP.proposal_dict(p)}
 
 
-@router.post("/paper/resume", dependencies=[Depends(require_owner)])
+@router.post("/paper/resume", dependencies=[Depends(require_user)])
 def paper_resume(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """End a cool-off pause now (resets the loss streak / re-anchors drawdown)."""
     acct = _acct(db, user)
@@ -524,7 +524,7 @@ def paper_reset(starting_cash: float = 10000.0, db: Session = Depends(get_db),
     return {"ok": True, "starting_cash": acct.starting_cash}
 
 
-@router.post("/paper/trades/{position_id}/close", dependencies=[Depends(require_owner)])
+@router.post("/paper/trades/{position_id}/close", dependencies=[Depends(require_user)])
 def paper_manual_close(position_id: int, db: Session = Depends(get_db),
                        user: User = Depends(get_current_user)):
     acct = _acct(db, user)

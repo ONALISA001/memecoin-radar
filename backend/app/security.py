@@ -83,11 +83,20 @@ def get_current_user(creds: HTTPAuthorizationCredentials | None = Depends(bearer
 
 
 def require_owner(creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> User:
-    """Owner token only. Use for every endpoint that changes data or runs jobs."""
+    """Owner token only: resets, approvals, backtests, deletions, Telegram tests."""
     payload = _decode(creds)
     if payload.get("role") != ROLE_OWNER:
         raise HTTPException(status_code=403, detail="Read-only access: owner login required")
     return _load_user(payload)
+
+
+def require_user(creds: HTTPAuthorizationCredentials | None = Depends(bearer)) -> User:
+    """Everyday actions (save settings, watchlist, alerts, close/resume, start lab): any valid
+    visitor or owner session. OPEN_BASIC_ACTIONS=0 makes these owner-only again."""
+    from .config import OPEN_BASIC_ACTIONS
+    if not OPEN_BASIC_ACTIONS:
+        return require_owner(creds)
+    return _load_user(_decode(creds))
 
 
 # ---------------- rate limiting ----------------

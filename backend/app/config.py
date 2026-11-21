@@ -250,6 +250,9 @@ LAUNCH_ALLOW_CLEAN_TOKEN_2022 = os.getenv("LAUNCH_ALLOW_CLEAN_TOKEN_2022", "1") 
 # Changing anything (alerts, watchlist, paper trader, admin jobs) needs an owner
 # token, which /api/auth/login issues only for the right OWNER_KEY.
 DEMO_MODE = os.getenv("DEMO_MODE", "1") == "1"
+# Everyday actions (save paper settings, watchlist, alerts, close/resume trades, start the lab) are
+# open to every visitor. Set OPEN_BASIC_ACTIONS=0 to make them owner-only again.
+OPEN_BASIC_ACTIONS = os.getenv("OPEN_BASIC_ACTIONS", "1") == "1"
 OWNER_KEY = os.getenv("OWNER_KEY", "").strip()
 _INSECURE_JWT_DEFAULT = "dev-only-insecure-secret-change-me"
 _jwt = os.getenv("JWT_SECRET", "").strip()

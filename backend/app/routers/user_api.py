@@ -14,7 +14,7 @@ from ..database import get_db
 from ..models import Alert, AlertEvent, Token, TrendScore, User, Watchlist
 from ..schemas import AlertCreate, AlertPatch, WatchlistAdd
 from ..security import (ROLE_OWNER, check_owner_key, get_current_user, issue_token,
-                        login_rate_limit, rate_limit, require_owner)
+                        login_rate_limit, rate_limit, require_owner, require_user)
 
 router = APIRouter(dependencies=[Depends(rate_limit)])
 
@@ -145,7 +145,7 @@ def watchlist_signals(hours: int = 24, min_importance: str = "MEDIUM",
             "ts": now}
 
 
-@router.post("/watchlist", dependencies=[Depends(require_owner)])
+@router.post("/watchlist", dependencies=[Depends(require_user)])
 def watchlist_add(body: WatchlistAdd, db: Session = Depends(get_db),
                   user: User = Depends(get_current_user)):
     token = db.execute(select(Token).where(Token.address == body.address)).scalar_one_or_none()
@@ -160,7 +160,7 @@ def watchlist_add(body: WatchlistAdd, db: Session = Depends(get_db),
     return {"ok": True}
 
 
-@router.delete("/watchlist/{address}", dependencies=[Depends(require_owner)])
+@router.delete("/watchlist/{address}", dependencies=[Depends(require_user)])
 def watchlist_remove(address: str, db: Session = Depends(get_db),
                      user: User = Depends(get_current_user)):
     token = db.execute(select(Token).where(Token.address == address)).scalar_one_or_none()
@@ -190,7 +190,7 @@ def alerts_list(db: Session = Depends(get_db), user: User = Depends(get_current_
                         "new_narrative"]}
 
 
-@router.post("/alerts", dependencies=[Depends(require_owner)])
+@router.post("/alerts", dependencies=[Depends(require_user)])
 def alerts_create(body: AlertCreate, db: Session = Depends(get_db),
                   user: User = Depends(get_current_user)):
     count = db.execute(select(func.count(Alert.id)).where(Alert.user_id == user.id)).scalar() or 0
@@ -217,7 +217,7 @@ def alerts_create(body: AlertCreate, db: Session = Depends(get_db),
     return _alert_out(a)
 
 
-@router.patch("/alerts/{alert_id}", dependencies=[Depends(require_owner)])
+@router.patch("/alerts/{alert_id}", dependencies=[Depends(require_user)])
 def alerts_patch(alert_id: int, body: AlertPatch, db: Session = Depends(get_db),
                  user: User = Depends(get_current_user)):
     a = db.get(Alert, alert_id)
@@ -295,7 +295,7 @@ def admin_backtest_run(user: User = Depends(get_current_user)):
     return run_retro_backfill()
 
 
-@router.post("/alerts/events/read-all", dependencies=[Depends(require_owner)])
+@router.post("/alerts/events/read-all", dependencies=[Depends(require_user)])
 def alert_events_read(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     rows = db.execute(
         select(AlertEvent).join(Alert, Alert.id == AlertEvent.alert_id)
