@@ -242,6 +242,34 @@ PRESETS["priority"] = {
                  "min_momentum": 60.0, "momentum_rising": True, "min_confidence": 55.0},
 }
 
+# Built from the radar's own measured signal outcomes (signal_event_outcomes, Nov 21-23 2026,
+# ~1,900 labelled buy-side events). Per event kind, the 4h median return and the share that beat a
+# 3.6% round trip: buy_pressure_increasing +10.4% / 57%, new_high +6.1% / 53%,
+# momentum_acceleration +2.6% / 49% (break-even after costs), unusual_volume -1.1% / 43% (loses),
+# liquidity_increase -13.8% / 25% (loses). Average 4h drawdown was 12-19%, so a 12% stop was
+# hit 31-48% of the time: wider stop, smaller size. Average return was far above the median
+# (fat right tail), so no fixed take-profit: lock in at +15% and trail. Gains were mostly made
+# within 4h (4h and 24h medians are similar), so trades that haven't worked after 2h are cut.
+# CAVEATS: under 3 days of data from one market; outcomes of coins that stopped being tracked
+# (often rugs) are missing, so these numbers are optimistic. new_token is left out for that
+# reason: only 162 of 778 launches have an outcome. Re-check once weeks of history exist.
+PRESETS["evidence"] = {
+    "name": "H · Measured Signals",
+    "summary": "Trades only the signal kinds that beat costs in the radar's own outcome history "
+               "(buy pressure rising, new highs, momentum acceleration); skips unusual-volume and "
+               "liquidity-increase signals, which lost money. 18% stop with smaller size (avg 4h "
+               "drawdown was 12-19%), no fixed target: break-even at +15%, 20% trail from +25%, "
+               "2h time stop, 6h max hold. Clean contracts, no chasing.",
+    "settings": {**_SAFETY, **_NO_CHASE,
+                 "allowed_kinds": ["buy_pressure_increasing", "new_high", "momentum_acceleration"],
+                 "min_token_age_h": 0.5, "min_confidence": 60.0,
+                 "stop_loss_pct": 18.0, "max_loss_per_trade_pct": 0.75, "max_position_usd": 300.0,
+                 "take_profit_pct": 0.0, "breakeven_at_pct": 15.0,
+                 "trailing_stop_pct": 20.0, "trail_activate_pct": 25.0,
+                 "time_stop_hours": 2.0, "time_stop_min_gain_pct": 3.0, "max_hold_hours": 6.0,
+                 "regime_exit": True},
+}
+
 # the Strategy Lab's momentum family, compared side by side in the backtester
 MOMENTUM_FAMILY = ("baseline", "mom_a", "mom_b", "mom_c", "mom_d", "mom_e", "mom_f")
 

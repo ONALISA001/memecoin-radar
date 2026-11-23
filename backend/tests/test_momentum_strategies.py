@@ -216,3 +216,12 @@ def test_compare_family(history):
     assert rows["mom_a"]["trades"] == 1 and rows["baseline"]["trades"] == 2
     assert rows["mom_a"]["vs_baseline_pp"] is not None and rows["baseline"]["vs_baseline_pp"] is None
     assert out["leader"] is None                 # nobody has 10 trades: no winner declared
+
+
+def test_measured_signals_preset_uses_only_known_settings_and_kinds():
+    p = PC.PRESETS["evidence"]["settings"]
+    assert not set(p) - set(PC.DEFAULT_SETTINGS)
+    assert set(p["allowed_kinds"]) <= set(PC.BUY_KINDS)
+    s = PC.merged_settings(p)
+    assert s["take_profit_pct"] == 0.0 and s["stop_loss_pct"] == 18.0
+    assert "unusual_volume" not in s["allowed_kinds"]
