@@ -13,6 +13,8 @@ Honest by construction (a pick that went badly must not quietly drop out of the 
   which is what a real buyer would have kept.
 
 * record(): each tick, coins newly on a list (not picked on that list in the last 6 h).
+* follow:   open picks the radar no longer tracks get their price stored every bucket until
+            their 4h mark, so every pick has a real 1h and 4h price.
 * label():  fills ret_1h / ret_4h / max_up_4h / max_dd_4h; returns picks needing a fallback.
 * stats():  last 7 days per list.
 """
@@ -26,7 +28,8 @@ import httpx
 from sqlalchemy import select
 
 from .. import config
-from ..models import PriceSnapshot, PriorityPick, SystemLog, Token
+from ..config import SNAPSHOT_BUCKET_SECONDS as BUCKET
+from ..models import LiquiditySnapshot, PriceSnapshot, PriorityPick, SystemLog, Token
 from ..providers.dex_limiter import dex_get
 
 REPICK_H = 6
@@ -186,35 +189,77 @@ def stats(db, days: int = 7, now: int | None = None) -> dict:
     return out
 
 
-def _phase1(session_factory) -> tuple[dict, dict[int, str]]:
+def follow_targets(db, now: int) -> dict[int, str]:
+    """{token_id: address} of coins with an open pick still inside its 4h window and no price
+    snapshot in the current bucket. The radar only tracks ~40 coins, so a pick can rotate out
+    before its 4h mark; following it here gives every pick a real 1h and 4h price."""
+    b = now - now % BUCKET
+    ids = {tid for (tid,) in db.execute(select(PriorityPick.token_id).where(
+        PriorityPick.status == "open", PriorityPick.ts >= now - HORIZONS["ret_4h"] - TOLERANCE)).all()}
+    if not ids:
+        return {}
+    have = {tid for (tid,) in db.execute(select(PriceSnapshot.token_id).where(
+        PriceSnapshot.token_id.in_(ids), PriceSnapshot.ts >= b)).all()}
+    return {t.id: t.address for t in db.execute(select(Token).where(
+        Token.id.in_(ids - have), Token.chain == "solana")).scalars().all()}
+
+
+def write_follow(db, follow: dict[int, str], live: dict[str, dict], now: int) -> int:
+    """Store the current-bucket price (and liquidity) of followed coins. A coin with no pool or
+    a dead pool gets nothing: at its 4h mark the fallback lookup then marks it rugged."""
+    b = now - now % BUCKET
+    n = 0
+    for tid, addr in follow.items():
+        m = live.get(addr)
+        if not m or m["price"] <= 0 or m["liquidity"] < RUG_LIQ_USD:
+            continue
+        if db.execute(select(PriceSnapshot.id).where(PriceSnapshot.token_id == tid,
+                                                     PriceSnapshot.ts == b)).first():
+            continue                                  # the radar tracked it meanwhile
+        db.add(PriceSnapshot(token_id=tid, ts=b, price_usd=m["price"]))
+        db.add(LiquiditySnapshot(token_id=tid, ts=b, liquidity_usd=m["liquidity"]))
+        n += 1
+    db.flush()
+    return n
+
+
+def _phase1(session_factory, now: int) -> tuple[dict, dict[int, str], dict[int, str]]:
     with session_factory() as db:
         relabelled = _relabel_once(db)
-        added = record(db)
-        need = label(db)
+        added = record(db, now)
+        need = label(db, now)
         addr = {t.id: t.address for t in db.execute(select(Token).where(
             Token.id.in_({p.token_id for p in need}))).scalars().all()} if need else {}
         want = {p.id: addr.get(p.token_id, "") for p in need}
+        follow = follow_targets(db, now)
         db.commit()
-    return {"recorded": added, "fallback": 0, "rugged": 0, "relabelled": relabelled}, want
+    return ({"recorded": added, "fallback": 0, "rugged": 0, "followed": 0, "relabelled": relabelled},
+            want, follow)
 
 
-def _phase2(session_factory, want: dict[int, str], live: dict[str, dict]) -> dict:
+def _phase2(session_factory, want: dict[int, str], follow: dict[int, str], live: dict[str, dict],
+            now: int) -> dict:
     with session_factory() as db:
-        need = db.execute(select(PriorityPick).where(PriorityPick.id.in_(list(want)),
-                                                     PriorityPick.status == "open")).scalars().all()
-        res = apply_fallback(db, need, live)
+        res = {"followed": write_follow(db, follow, live, now)}
+        if want:
+            need = db.execute(select(PriorityPick).where(PriorityPick.id.in_(list(want)),
+                                                         PriorityPick.status == "open")).scalars().all()
+            res.update(apply_fallback(db, need, live))
         db.commit()
     return res
 
 
-async def run(session_factory, transport=None) -> dict:
-    """Ingestion hook: record new picks, label old ones, look up the ones that fell off tracking.
-    Database work runs in a worker thread so it never blocks the event loop (health checks)."""
-    res, want = await asyncio.to_thread(_phase1, session_factory)
-    if want:
-        live = await _dex_now(sorted({a for a in want.values() if a}), transport=transport)
+async def run(session_factory, transport=None, now: int | None = None) -> dict:
+    """Ingestion hook: record new picks, follow open picks' prices, label old ones, and look up
+    the ones that fell off tracking. Database work runs in a worker thread so it never blocks
+    the event loop (health checks); all DexScreener lookups share one batched request."""
+    now = now or int(time.time())
+    res, want, follow = await asyncio.to_thread(_phase1, session_factory, now)
+    addrs = sorted({a for a in want.values() if a} | set(follow.values()))
+    if addrs:
+        live = await _dex_now(addrs, transport=transport)
         if live is not None:
-            res.update(await asyncio.to_thread(_phase2, session_factory, want, live))
+            res.update(await asyncio.to_thread(_phase2, session_factory, want, follow, live, now))
     return res
 
 

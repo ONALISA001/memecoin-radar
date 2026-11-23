@@ -102,10 +102,11 @@ def _pick(db, sym, path, now, kind="passing"):
 
 
 def _cleanup(db):
-    from app.models import SystemLog
+    from app.models import LiquiditySnapshot, SystemLog
     db.rollback()
     ids = [t.id for t in db.query(Token).filter(Token.address.like("Hn%")).all()]
     if ids:
+        db.query(LiquiditySnapshot).filter(LiquiditySnapshot.token_id.in_(ids)).delete(synchronize_session=False)
         db.query(PriorityPick).filter(PriorityPick.token_id.in_(ids)).delete(synchronize_session=False)
         db.query(PriceSnapshot).filter(PriceSnapshot.token_id.in_(ids)).delete(synchronize_session=False)
         db.query(Token).filter(Token.id.in_(ids)).delete(synchronize_session=False)
@@ -181,5 +182,44 @@ def test_relabel_once_replaces_stale_old_labels():
             assert PT._relabel_once(db) >= 1
             assert (p.status, p.ret_4h) == ("no_data", None)
             assert PT._relabel_once(db) == 0                              # only once
+        finally:
+            _cleanup(db)
+
+
+def test_open_picks_are_followed_until_their_4h_mark():
+    import asyncio
+    import httpx
+    from app.models import LiquiditySnapshot, SystemLog
+    from app.config import SNAPSHOT_BUCKET_SECONDS as B
+    now = int(time.time())
+    with SessionLocal() as db:
+        try:
+            db.add(SystemLog(ts=now, level="info", source="priority_track", message=PT.RELABEL_MARK))
+            live_t, _ = _pick(db, "ROTATED", [(60, 1.0)], now - 2 * 3600)        # off the radar now
+            thin_t, _ = _pick(db, "THIN", [(60, 1.0)], now - 2 * 3600)           # pool nearly empty
+            done_t, _ = _pick(db, "OLDER", [(60, 1.0)], now - 6 * 3600)          # past its window
+            db.commit()
+            seen = []
+
+            def dex(req):
+                seen.append(str(req.url))
+                return httpx.Response(200, json=[
+                    {"baseToken": {"address": live_t.address}, "priceUsd": "1.4", "liquidity": {"usd": 30000}},
+                    {"baseToken": {"address": thin_t.address}, "priceUsd": "0.2", "liquidity": {"usd": 300}}])
+            res = asyncio.run(PT.run(SessionLocal, transport=httpx.MockTransport(dex), now=now))
+            assert res["followed"] == 1
+            # the older pick is past its follow window: looked up once for its 4h result
+            # (no pool in the reply => rugged), but no new price is stored for it
+            b = now - now % B
+            db.expire_all()
+            snap = db.query(PriceSnapshot).filter_by(token_id=live_t.id, ts=b).one()
+            assert snap.price_usd == 1.4
+            assert db.query(LiquiditySnapshot).filter_by(token_id=live_t.id, ts=b).one().liquidity_usd == 30000
+            assert db.query(PriceSnapshot).filter_by(token_id=thin_t.id, ts=b).count() == 0
+            assert db.query(PriceSnapshot).filter_by(token_id=done_t.id, ts=b).count() == 0
+            assert db.query(PriorityPick).filter_by(token_id=done_t.id).one().status == "rugged"
+            # same bucket again: no duplicate row, no second lookup for it
+            asyncio.run(PT.run(SessionLocal, transport=httpx.MockTransport(dex), now=now + 30))
+            assert db.query(PriceSnapshot).filter_by(token_id=live_t.id, ts=b).count() == 1
         finally:
             _cleanup(db)
