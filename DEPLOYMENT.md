@@ -1,4 +1,4 @@
-# Deploying Memecoin Radar: Railway (API) + Supabase (database) + Netlify/Vercel (frontend)
+# Deploying Memecoin Radar: Railway (API + Postgres) + Netlify/Vercel (frontend)
 
 > **This is the live setup.** The API runs on a **paid Railway plan** because it must never
 > sleep: the scheduler collects prices every minute, and a gap leaves holes in the history the
@@ -6,6 +6,10 @@
 > Nov 21–23, 2026, which is why we moved. The old free guide is kept in
 > [docs/DEPLOY_RENDER_SUPABASE.md](docs/DEPLOY_RENDER_SUPABASE.md) (`render.yaml`), but don't
 > run both hosts at once: two schedulers writing to one database double-count everything.
+>
+> **Database: Railway Postgres** (decided Nov 23, 2026). It holds the full history (4,000+ coins,
+> 28k+ score snapshots, the Strategy Lab accounts). The Supabase project only has Nov 21–23 from
+> the Render period and is no longer written to.
 
 ```
 browser ──► your-site.netlify.app (Next.js)
@@ -13,7 +17,7 @@ browser ──► your-site.netlify.app (Next.js)
                  ▼
            your-api.up.railway.app (FastAPI + 24/7 scheduler)
                  ▼
-           Supabase Postgres (all history so far stays here)
+           Railway Postgres (same project; full history)
 ```
 
 ---
@@ -28,12 +32,12 @@ Already done: `github.com/ONALISA001/memecoin-radar`.
    `memecoin-radar`.
 2. In the service's **Settings → Source** set **Root Directory: `backend`**. Railway reads
    `backend/railway.toml` (Dockerfile build, health check, always-restart policy).
-3. **Settings → Deploy → Region**: pick the one closest to your Supabase project (Supabase
-   is in Frankfurt → choose **EU West / Amsterdam**). Leave **Serverless / App Sleeping OFF**.
+3. **+ New → Database → PostgreSQL** in the same project (skip if it exists). **Settings →
+   Deploy → Region**: same region as the database. Leave **Serverless / App Sleeping OFF**.
 4. **Variables** — copy them from the Render dashboard (Environment tab), then:
    | Variable | Value |
    |---|---|
-   | `DATABASE_URL` | the **same** Supabase "Session pooler" URI Render used (keeps all history) |
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (variable reference to the Railway Postgres; internal network) |
    | `OWNER_KEY` | same as on Render (your owner login) |
    | `JWT_SECRET` | same as on Render (or a new long random string: owners log in again) |
    | `HELIUS_API_KEY` | a **new** key from the Helius dashboard (the old one was printed in Render's logs; delete it there) |
@@ -54,8 +58,8 @@ Already done: `github.com/ONALISA001/memecoin-radar`.
 8. **Render dashboard → memecoin-radar-api → Settings → Suspend service** (or delete it) so
    only one scheduler writes to the database.
 9. GitHub → repo **Settings → Secrets and variables → Actions**: if the nightly backup workflow
-   uses the Render URL anywhere, point it at Railway. (The backup itself reads `DATABASE_URL`,
-   which doesn't change.)
+   uses the Render URL anywhere, point it at Railway. Set the `DB_BACKUP_URL` secret to the
+   Postgres service's `DATABASE_PUBLIC_URL` (see [docs/BACKUPS.md](docs/BACKUPS.md)).
 
 ### What keeps it running
 - **Watchdog:** if no scheduler tick finishes for 20 minutes (`WATCHDOG_RESTART_MIN`), the
@@ -131,7 +135,7 @@ Vercel rebuilds the frontend. Schema changes are safe: startup runs
 |---|---|---|
 | Vercel *or* Netlify frontend | Hobby / Starter | $0 |
 | Railway API (always on) | Hobby/Pro | your Railway plan |
-| Supabase Postgres | Free (500 MB) | $0 |
+| Railway Postgres | included in the plan | usage-based |
 | DexScreener market data | public API | $0 (rate-limited; app paces all calls together) |
 
 Simulated social providers cost nothing; plugging a real X API later is the only
