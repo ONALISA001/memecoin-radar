@@ -1,6 +1,6 @@
 # Database backups
 
-Every night at **02:30 UTC** a GitHub Actions workflow copies the Supabase database (all app data:
+Every night at **02:30 UTC** a GitHub Actions workflow copies the app database, Railway Postgres (all app data:
 paper trades, strategy lab, verdicts, watchlist, alerts, settings), **encrypts** it, and stores it on
 GitHub for **30 days**. Restoring is a button on GitHub: no software to install.
 
@@ -14,7 +14,7 @@ be downloaded by other GitHub users. Without your passphrase the backup file is 
 
    | Name | Value |
    |---|---|
-   | `SUPABASE_DB_URL` | the same value as `DATABASE_URL` on Render (the Supabase Session-pooler address) |
+   | `DB_BACKUP_URL` | Railway → **Postgres** service → **Variables** → copy **`DATABASE_PUBLIC_URL`** (the public address: GitHub's runner is outside Railway's private network, so `DATABASE_URL` won't connect) |
    | `BACKUP_PASSPHRASE` | a long passphrase you make up (20+ characters) |
 
    **Save the passphrase somewhere safe** (password manager or written down). It's the only way to
@@ -25,20 +25,21 @@ be downloaded by other GitHub users. Without your passphrase the backup file is 
 
 From then on it runs by itself every night. GitHub emails you if a run fails.
 
-If you change the Supabase password, update `SUPABASE_DB_URL` here too (and `DATABASE_URL` on Render).
+If the Railway database password or address changes, update `DB_BACKUP_URL` here too. (An older
+`SUPABASE_DB_URL` secret is still read if `DB_BACKUP_URL` is missing; delete it once `DB_BACKUP_URL` is set.)
 
 ## Restore a backup
 
 This **replaces** everything in the database with the backup's contents.
 
-1. Render → **memecoin-radar-api** → **Settings** → **Suspend Web Service** (so the backend doesn't
-   write while tables are replaced).
+1. Railway → the API service → **Deployments** → on the active deployment, **⋮ → Remove** (so the
+   backend doesn't write while tables are replaced).
 2. GitHub → **Actions** → **Nightly database backup** → open the run you want to go back to.
    Copy the number at the end of its address: `…/actions/runs/`**`1234567890`**.
 3. **Actions** → **Restore database backup** → **Run workflow**:
    - `run_id`: that number
    - `confirm`: type `RESTORE`
-4. When the run is green: Render → **Resume Web Service**.
+4. When the run is green: Railway → the API service → **Deploy** (redeploy the latest).
 
 ## On your own computer (optional)
 
@@ -58,5 +59,5 @@ pg_restore --list radar.dump
 - Kept **30 days** (GitHub's free storage for workflow files is limited; the database is a few MB).
 - GitHub pauses scheduled workflows in a repository with **no activity for 60 days**. Any push, or
   a manual **Run workflow**, re-enables it.
-- Only the `public` schema (the app's tables) is backed up; Supabase's own internal schemas are not
+- Only the `public` schema (the app's tables) is backed up; Postgres' own internal schemas are not
   needed.
