@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -16,7 +18,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import (CORS_ORIGINS, DATABASE_URL_SAFE, DEMO_MODE, INGEST_INTERVAL_SECONDS,
-                     JWT_SECRET_IS_EPHEMERAL, KEEP_AWAKE, KEEP_AWAKE_MINUTES, KEEP_AWAKE_URL, OWNER_KEY)
+                     JWT_SECRET_IS_EPHEMERAL, KEEP_AWAKE, KEEP_AWAKE_MINUTES, KEEP_AWAKE_URL, OWNER_KEY,
+                     STALE_AFTER_MIN, WATCHDOG, WATCHDOG_RESTART_MIN)
 from .database import Base, SessionLocal, engine, migrate_postgres
 from .routers import data_api, paper_api, user_api
 from .security import hash_password
@@ -24,6 +27,13 @@ from .services import ingestion
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("main")
+# httpx logs every request URL at INFO, and provider URLs carry API keys (Helius puts
+# ?api-key=... in the URL). Keep only its warnings so keys never reach the host's logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+# monotonic time of the last finished scheduler tick (crashed or not); the watchdog reads it
+LAST_TICK_DONE = time.monotonic()
 
 
 def _ensure_column(table: str, column: str, ddl: str):
@@ -91,6 +101,7 @@ async def keep_awake_loop():
 
 async def scheduler_loop():
     # first tick happens immediately so fresh data appears right after boot
+    global LAST_TICK_DONE
     from .services.backfill_scores import run_retro_backfill
     ticks = 0
     while True:
@@ -107,7 +118,25 @@ async def scheduler_loop():
                     log.exception("retro backfill failed")
         except Exception:
             log.exception("tick crashed")
+        LAST_TICK_DONE = time.monotonic()
         await asyncio.sleep(INGEST_INTERVAL_SECONDS)
+
+
+async def watchdog_loop():
+    """If no scheduler tick has finished for WATCHDOG_RESTART_MIN minutes the loop is stuck
+    (a hung request, a dead task). Exit so the host restarts the service, instead of
+    serving old data for days. On by default on Railway/Render, off locally."""
+    if not WATCHDOG:
+        return
+    limit = WATCHDOG_RESTART_MIN * 60
+    while True:
+        await asyncio.sleep(60)
+        idle = time.monotonic() - LAST_TICK_DONE
+        if idle > limit:
+            log.error("watchdog: no scheduler tick for %.0f min; exiting so the host restarts us",
+                      idle / 60)
+            logging.shutdown()
+            os._exit(1)
 
 
 @asynccontextmanager
@@ -123,11 +152,13 @@ async def lifespan(app: FastAPI):
     ensure_schema_and_demo_user()
     task = asyncio.create_task(scheduler_loop())
     awake = asyncio.create_task(keep_awake_loop())
+    dog = asyncio.create_task(watchdog_loop())
     from .services import launch_radar
     radar = [asyncio.create_task(launch_radar.stream_loop()), asyncio.create_task(launch_radar.enrich_loop())]
     yield
     task.cancel()
     awake.cancel()
+    dog.cancel()
     for t in radar:
         t.cancel()
 
@@ -178,7 +209,11 @@ def health():
     try:
         with SessionLocal() as db:
             latest = db.execute(select(func.max(TrendScore.ts))).scalar()
-            out["last_score_age_s"] = None if latest is None else int(_t.time()) - int(latest)
+            age = None if latest is None else int(_t.time()) - int(latest)
+            out["last_score_age_s"] = age
+            # stale = the radar is not collecting; the API still answers, so ok stays a
+            # database check and "stale" tells a monitor that the data has stopped.
+            out["stale"] = age is None or age > STALE_AFTER_MIN * 60
             if engine.dialect.name == "postgresql":
                 size = db.execute(text("SELECT pg_database_size(current_database())")).scalar()
                 out["db_size_mb"] = round((size or 0) / 1e6, 1)

@@ -25,6 +25,7 @@ import httpx
 from ..config import (CREATOR_PEAK_LOOKUPS, CREATOR_RPC_TX, CREATOR_TX_SCAN, CREATOR_USE_GTFA,
                       DEXSCREENER_BASE, GECKOTERMINAL_BASE, HELIUS_API_KEY, HELIUS_RPC_URL)
 from ..engine.dev_score import CoinRecord
+from .dex_limiter import dex_get
 from .launch_forensics import _keys, fee_payer, token_deltas
 
 TOKEN_PROGRAMS = {"spl-token", "spl-token-2022"}
@@ -218,7 +219,7 @@ class CreatorHistoryProvider:
         pairs = []
         for i in range(0, len(mints), 30):
             self.calls["dexscreener"] += 1
-            r = await client.get(f"{DEXSCREENER_BASE}/tokens/v1/solana/" + ",".join(mints[i:i + 30]))
+            r = await dex_get(client, f"{DEXSCREENER_BASE}/tokens/v1/solana/" + ",".join(mints[i:i + 30]))
             r.raise_for_status()
             body = r.json()
             pairs += body if isinstance(body, list) else (body.get("pairs") or [])

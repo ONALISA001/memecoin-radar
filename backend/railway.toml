@@ -9,6 +9,7 @@ dockerfilePath = "Dockerfile"
 # Root route returns {"ok": true} — cheap liveness probe.
 healthcheckPath = "/"
 healthcheckTimeout = 120
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 5
+# ALWAYS: the watchdog exits the process when the scheduler stalls; Railway must bring it
+# back every time, not just the first 5.
+restartPolicyType = "ALWAYS"
 # Binding/port: uvicorn reads $PORT inside the Dockerfile CMD.
