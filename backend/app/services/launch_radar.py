@@ -32,6 +32,7 @@ from ..config import (DEXSCREENER_BASE, GECKOTERMINAL_BASE, LAUNCH_BOOK_MAX, LAU
                       LAUNCH_ENRICH_SECONDS, LAUNCH_HOT_SLOTS, LAUNCH_STREAM_ENABLED, LAUNCH_STREAM_URL,
                       LAUNCH_TRADE_SUBS)
 from ..providers.base import MarketTick, RawToken
+from ..providers.dex_limiter import dex_get
 
 log = logging.getLogger("radar.launches")
 
@@ -534,7 +535,7 @@ async def enrich_once(transport: httpx.AsyncBaseTransport | None = None) -> int:
     pairs: list[dict] = []
     async with httpx.AsyncClient(timeout=10, transport=transport) as c:
         for i in range(0, len(mints), 30):
-            r = await c.get(f"{DEXSCREENER_BASE}/tokens/v1/solana/{','.join(mints[i:i + 30])}")
+            r = await dex_get(c, f"{DEXSCREENER_BASE}/tokens/v1/solana/{','.join(mints[i:i + 30])}")
             if r.status_code == 200:
                 d = r.json()
                 pairs += d if isinstance(d, list) else (d.get("pairs") or [])

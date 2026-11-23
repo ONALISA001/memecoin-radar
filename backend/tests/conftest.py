@@ -11,5 +11,6 @@ os.environ["DEMO_MODE"] = "1"
 os.environ["OWNER_KEY"] = "test-owner-key-123"
 os.environ["JWT_SECRET"] = "test-jwt-secret-not-for-production"
 os.environ.pop("RAILWAY_ENVIRONMENT", None)
+os.environ["DEX_MIN_INTERVAL_S"] = "0"       # no request pacing in tests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

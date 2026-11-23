@@ -29,6 +29,7 @@ import httpx
 from sqlalchemy import func, or_, select
 
 from .. import config
+from ..providers.dex_limiter import dex_get
 from ..models import (DataSource, LiquiditySnapshot, PriceSnapshot, Token, TokenVerdict,
                       VerdictOutcome)
 
@@ -102,7 +103,7 @@ async def _dexscreener_now(addresses: list[str], transport=None) -> dict[str, di
         for i in range(0, len(addresses), 30):
             chunk = addresses[i:i + 30]
             try:
-                r = await c.get(f"{config.DEXSCREENER_BASE}/tokens/v1/solana/{','.join(chunk)}")
+                r = await dex_get(c, f"{config.DEXSCREENER_BASE}/tokens/v1/solana/{','.join(chunk)}")
                 r.raise_for_status()
                 pairs = r.json()
             except Exception:

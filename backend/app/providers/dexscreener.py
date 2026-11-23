@@ -21,6 +21,7 @@ import httpx
 from ..config import (DEXSCREENER_BASE, MAX_MCAP_USD, MAX_TRACKED_TOKENS,
                       MIN_LIQUIDITY_USD, SOLANA_ONLY)
 from .base import HEALTH, MarketTick, RawToken
+from .dex_limiter import dex_get
 
 # Stablecoins / wrapped majors are never meme-coin candidates.
 EXCLUDED_SYMBOLS = {
@@ -57,7 +58,7 @@ class DexscreenerProvider:
         self.timeout = timeout
 
     async def _get(self, client: httpx.AsyncClient, path: str) -> Any:
-        r = await client.get(f"{DEXSCREENER_BASE}{path}")
+        r = await dex_get(client, f"{DEXSCREENER_BASE}{path}")
         r.raise_for_status()
         return r.json()
 

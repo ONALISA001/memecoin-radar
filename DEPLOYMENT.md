@@ -1,61 +1,73 @@
-# Deploying Memecoin Radar to Vercel + Railway
+# Deploying Memecoin Radar: Railway (API) + Supabase (database) + Netlify/Vercel (frontend)
 
-> **No credit card? Use the free setup instead:** Render (backend) + Supabase (database) + Netlify
-> (frontend). Step-by-step guide: **[docs/DEPLOY_RENDER_SUPABASE.md](docs/DEPLOY_RENDER_SUPABASE.md)**.
-> The Railway steps below still work if you have a Railway plan.
-
-This is the "access from anywhere, permanently" setup: **frontend on Vercel or
-Netlify** (free tier), **backend + Postgres on Railway** (~$5/mo hobby credit
-usually covers it). Total hands-on time: **~15 minutes**, no server to manage.
+> **This is the live setup.** The API runs on a **paid Railway plan** because it must never
+> sleep: the scheduler collects prices every minute, and a gap leaves holes in the history the
+> track record, backtests and paper trader learn from. Render's free plan slept for 42 hours on
+> Nov 21–23, 2026, which is why we moved. The old free guide is kept in
+> [docs/DEPLOY_RENDER_SUPABASE.md](docs/DEPLOY_RENDER_SUPABASE.md) (`render.yaml`), but don't
+> run both hosts at once: two schedulers writing to one database double-count everything.
 
 ```
-browser ──► your-app.vercel.app (Next.js)
-                 │  server-side rewrite /api/*   (§22: no secrets in the browser)
+browser ──► your-site.netlify.app (Next.js)
+                 │  server-side rewrite /api/*   (no secrets in the browser)
                  ▼
-           your-api.up.railway.app (FastAPI + scheduler)
+           your-api.up.railway.app (FastAPI + 24/7 scheduler)
                  ▼
-           Railway Postgres (persistent history for calibration/backtesting)
+           Supabase Postgres (all history so far stays here)
 ```
 
 ---
 
 ## Step 0 — put the code on GitHub (once)
 
-```bash
-cd memecoin-radar
-git init && git add -A && git commit -m "memecoin radar"
-# Create a new repo on github.com (Private is fine), then:
-git remote add origin https://github.com/YOUR_USERNAME/memecoin-radar.git
-git push -u origin main
-```
+Already done: `github.com/ONALISA001/memecoin-radar`.
 
-## Step 1 — backend on Railway (~5 min)
+## Step 1 — backend on Railway (~10 min)
 
-1. <https://railway.com> → **Sign in with GitHub** → **New Project** →
-   **Deploy from GitHub repo** → pick `memecoin-radar`.
-2. In the service's **Settings → Build** set **Root Directory: `backend`**
-   (Railway finds `backend/railway.toml` + `Dockerfile` automatically).
-3. **+ New → Database → PostgreSQL** in the same project.
-4. In the API service → **Variables**, add:
+1. <https://railway.com> → **New Project** → **Deploy from GitHub repo** → pick
+   `memecoin-radar`.
+2. In the service's **Settings → Source** set **Root Directory: `backend`**. Railway reads
+   `backend/railway.toml` (Dockerfile build, health check, always-restart policy).
+3. **Settings → Deploy → Region**: pick the one closest to your Supabase project (Supabase
+   is in Frankfurt → choose **EU West / Amsterdam**). Leave **Serverless / App Sleeping OFF**.
+4. **Variables** — copy them from the Render dashboard (Environment tab), then:
    | Variable | Value |
    |---|---|
-   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (click the variable-reference helper) |
-   | `JWT_SECRET` | any long random string (`openssl rand -hex 32`) |
-   | `OWNER_KEY` | another long random string — your owner login (`openssl rand -hex 24`) |
-   | `DEMO_MODE` | `1` = visitors can browse read-only; `0` = owner only |
-   | `INGEST_INTERVAL_SECONDS` | `60` (optional) |
-   | `RATE_LIMIT_PER_MIN` | `240` (optional) |
-   | `TELEGRAM_BOT_TOKEN` | token from @BotFather (optional — enables Telegram alerts) |
-   | `TELEGRAM_CHAT_ID` | channel/chat ID, e.g. `-100…` (the bot must be an admin of the channel) |
-   | `RISK_ALERT_TELEGRAM` | `1` (default) sends high-severity risk alerts with an AI read; `0` turns them off |
+   | `DATABASE_URL` | the **same** Supabase "Session pooler" URI Render used (keeps all history) |
+   | `OWNER_KEY` | same as on Render (your owner login) |
+   | `JWT_SECRET` | same as on Render (or a new long random string: owners log in again) |
+   | `HELIUS_API_KEY` | a **new** key from the Helius dashboard (the old one was printed in Render's logs; delete it there) |
+   | `DEMO_MODE` | `1` |
+   | `SEED_TICK` | `0` |
+   | `KEEP_AWAKE` | `0` (a paid Railway service never sleeps; no self-ping needed) |
+   | `DB_POOL_SIZE` | `5` |
+   | `JWT_TTL_HOURS` | `168` |
+   | `LLM_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | copy if you set them on Render |
 5. **Settings → Networking → Generate Domain** → copy the URL, e.g.
    `https://memecoin-radar-api.up.railway.app`.
-6. Wait for green. Check `https://<your-domain>/docs` — Swagger should load.
-   The first data tick runs on boot; tokens appear within ~1 minute.
+6. Wait for the deploy to go green, then open `https://<your-domain>/health`. Within ~2
+   minutes it should show `"stale": false` and a small `last_score_age_s`.
 
-> **SQLite alternative:** skip Postgres and add a Railway **Volume** mounted at
-> `/data`, then set `DATABASE_URL=sqlite:////data/radar.db`. Cheaper, but Postgres
-> survives redeploys/crashes more reliably and matches `docker-compose.yml`.
+### Then switch over
+7. **Netlify → Site settings → Environment variables**: set `API_ORIGIN` to the Railway URL
+   (no trailing slash) and **redeploy** the site (rewrites are baked in at build time).
+8. **Render dashboard → memecoin-radar-api → Settings → Suspend service** (or delete it) so
+   only one scheduler writes to the database.
+9. GitHub → repo **Settings → Secrets and variables → Actions**: if the nightly backup workflow
+   uses the Render URL anywhere, point it at Railway. (The backup itself reads `DATABASE_URL`,
+   which doesn't change.)
+
+### What keeps it running
+- **Watchdog:** if no scheduler tick finishes for 20 minutes (`WATCHDOG_RESTART_MIN`), the
+  app exits and Railway restarts it (`restartPolicyType = "ALWAYS"`). On by default on
+  Railway/Render (`WATCHDOG=0` turns it off).
+- **`/health` → `"stale": true`** when the newest score is older than 15 minutes
+  (`STALE_AFTER_MIN`). Point any uptime monitor (e.g. UptimeRobot keyword check for
+  `"stale":false`) at it to get an alert when data stops.
+- **DexScreener pacing:** every DexScreener call in the process shares one pace (0.4 s apart,
+  `DEX_MIN_INTERVAL_S`) and a 429 pauses all of them, so the loops no longer trip the limit
+  together.
+- **No API keys in logs:** request URLs (Helius puts its key in the URL) are no longer logged.
 
 ## Step 2 — frontend on Vercel **or Netlify** (~5 min)
 
@@ -118,8 +130,9 @@ Vercel rebuilds the frontend. Schema changes are safe: startup runs
 | Piece | Plan | Cost |
 |---|---|---|
 | Vercel *or* Netlify frontend | Hobby / Starter | $0 |
-| Railway API + Postgres | Hobby (~$5 credit/mo) | typically $0–5 |
-| DexScreener market data | public API | $0 (rate-limited, app throttles to ~1 req/s) |
+| Railway API (always on) | Hobby/Pro | your Railway plan |
+| Supabase Postgres | Free (500 MB) | $0 |
+| DexScreener market data | public API | $0 (rate-limited; app paces all calls together) |
 
 Simulated social providers cost nothing; plugging a real X API later is the only
 material operating cost (~$200/mo) — and it's optional by design (mock adapter).

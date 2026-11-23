@@ -115,6 +115,12 @@ SNAPSHOT_SLIM_AFTER_H = float(os.getenv("SNAPSHOT_SLIM_AFTER_H", "2"))
 KEEP_AWAKE = os.getenv("KEEP_AWAKE", "1") == "1"
 KEEP_AWAKE_URL = (os.getenv("KEEP_AWAKE_URL") or os.getenv("RENDER_EXTERNAL_URL") or "").strip().rstrip("/")
 KEEP_AWAKE_MINUTES = float(os.getenv("KEEP_AWAKE_MINUTES", "10"))
+# /health reports "stale": true when the newest score is older than this.
+STALE_AFTER_MIN = float(os.getenv("STALE_AFTER_MIN", "15"))
+# Exit (so the host restarts the service) when no scheduler tick has finished for this long.
+# On by default when hosted (Railway/Render), off locally; WATCHDOG=0/1 overrides.
+WATCHDOG = os.getenv("WATCHDOG", "1" if (ON_RAILWAY or ON_RENDER) else "0") == "1"
+WATCHDOG_RESTART_MIN = float(os.getenv("WATCHDOG_RESTART_MIN", "20"))
 
 # Ingestion
 INGEST_INTERVAL_SECONDS = int(os.getenv("INGEST_INTERVAL_SECONDS", "60"))
