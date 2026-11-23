@@ -972,7 +972,7 @@ async def tick() -> dict:
         log.error("verdicts failed: %s", exc)
     try:
         from . import priority_track
-        stats["priority_picks"] = await asyncio.to_thread(priority_track.run, SessionLocal)
+        stats["priority_picks"] = await priority_track.run(SessionLocal)
     except Exception as exc:                      # the pick tracker must never break a tick
         log.error("priority pick tracker failed: %s", exc)
     try:
