@@ -80,7 +80,7 @@ def test_pick_track_record_records_labels_and_scores():
                     "early": [{"token_id": loss.id, "price": 1.0, "score": 50}]}
             assert PT.record(db, now, prio) == 2
             assert PT.record(db, now + 60, prio) == 0           # not re-picked within 6 h
-            assert PT.label(db, now + 5 * 3600) == 2
+            assert PT.label(db, now + 5 * 3600) == []          # both labelled from snapshots
             w = db.query(PriorityPick).filter_by(token_id=win.id).one()
             assert (w.ret_1h, w.ret_4h, w.max_up_4h, w.status) == (15.0, 20.0, 30.0, "done")
             s = PT.stats(db, now=now + 5 * 3600)
@@ -88,3 +88,98 @@ def test_pick_track_record_records_labels_and_scores():
             assert s["early"]["avg_ret_4h"] == -30.0
         finally:
             db.rollback()
+
+
+def _pick(db, sym, path, now, kind="passing"):
+    """A token with price snapshots at the given (offset_s, price) points and a pick at `now`."""
+    t = Token(address=f"Hn{uuid.uuid4().hex}", chain="solana", symbol=sym)
+    db.add(t); db.flush()
+    for off, px in path:
+        db.add(PriceSnapshot(token_id=t.id, ts=now + off, price_usd=px))
+    p = PriorityPick(token_id=t.id, list_kind=kind, ts=now, price=1.0, status="open")
+    db.add(p); db.flush()
+    return t, p
+
+
+def _cleanup(db):
+    from app.models import SystemLog
+    db.rollback()
+    ids = [t.id for t in db.query(Token).filter(Token.address.like("Hn%")).all()]
+    if ids:
+        db.query(PriorityPick).filter(PriorityPick.token_id.in_(ids)).delete(synchronize_session=False)
+        db.query(PriceSnapshot).filter(PriceSnapshot.token_id.in_(ids)).delete(synchronize_session=False)
+        db.query(Token).filter(Token.id.in_(ids)).delete(synchronize_session=False)
+    db.query(SystemLog).filter_by(source="priority_track").delete()
+    db.commit()
+
+
+def test_track_record_counts_vanished_coins_instead_of_dropping_them():
+    import asyncio
+    import httpx
+    from app.models import SystemLog
+    H = 3600
+    now = int(time.time()) - 5 * H                      # 4h mark was 1h ago: fallback window open
+    with SessionLocal() as db:
+        try:
+            db.add(SystemLog(ts=now, level="info", source="priority_track", message=PT.RELABEL_MARK))
+            _, ok = _pick(db, "OK", [(H, 1.1), (4 * H, 1.2)], now)
+            dead_t, dead = _pick(db, "DEAD", [(H, 1.3)], now)            # tracking stopped after 1h
+            alive_t, alive = _pick(db, "ALIVE", [(H, 0.9)], now)
+            _, crash = _pick(db, "CRASH", [(H, 0.1)], now)               # -90%, then fell off
+            # old pick, no 4h price, fallback window long gone => no_data (not a stale +30%)
+            _, old = _pick(db, "OLD", [(H, 1.3)], now - 2 * 24 * H)
+            db.commit()
+
+            def dex(req):
+                assert dead_t.address in str(req.url) and alive_t.address in str(req.url)
+                return httpx.Response(200, json=[{"baseToken": {"address": alive_t.address},
+                                                  "priceUsd": "0.5", "liquidity": {"usd": 20000}}])
+            res = asyncio.run(PT.run(SessionLocal, transport=httpx.MockTransport(dex)))
+            assert res["rugged"] == 1 and res["fallback"] == 1
+            db.expire_all()
+            assert (ok.status, ok.ret_4h) == ("done", 20.0)
+            assert (dead.status, dead.ret_4h) == ("rugged", -100.0)       # no pool left
+            assert (alive.status, alive.ret_4h) == ("done", -50.0)        # DexScreener price now
+            assert (crash.status, crash.ret_4h) == ("rugged", -100.0)
+            assert old.status == "no_data" and old.ret_4h is None
+            s = PT.stats(db, days=7, now=int(time.time()))["passing"]
+            assert s["rugged"] == 2 and s["no_data"] == 1
+            assert s["coverage_pct"] == 80.0                              # 4 of 5 due picks judged
+            assert s["median_ret_4h"] == -75.0                            # [20, -100, -50, -100]
+            assert s["net_avg_ret_4h"] == round((20 - 100 - 50 - 100) / 4 - PT.ROUND_TRIP_COST_PCT, 2)
+        finally:
+            _cleanup(db)
+
+
+def test_failed_lookup_concludes_nothing():
+    import asyncio
+    import httpx
+    from app.models import SystemLog
+    now = int(time.time()) - 5 * 3600
+    with SessionLocal() as db:
+        try:
+            db.add(SystemLog(ts=now, level="info", source="priority_track", message=PT.RELABEL_MARK))
+            _, p = _pick(db, "GONE", [(3600, 1.3)], now)
+            db.commit()
+            asyncio.run(PT.run(SessionLocal, transport=httpx.MockTransport(lambda r: httpx.Response(500))))
+            db.expire_all()
+            assert p.status == "open" and p.ret_4h is None               # retried later, not a rug
+        finally:
+            _cleanup(db)
+
+
+def test_relabel_once_replaces_stale_old_labels():
+    from app.models import SystemLog
+    H = 3600
+    now = int(time.time()) - 3 * 24 * H
+    with SessionLocal() as db:
+        try:
+            # labelled the old way: last price before tracking stopped (+30%) stood in for 4h
+            _, p = _pick(db, "STALE", [(H, 1.3)], now)
+            p.ret_4h, p.status = 30.0, "done"
+            db.commit()
+            assert PT._relabel_once(db) >= 1
+            assert (p.status, p.ret_4h) == ("no_data", None)
+            assert PT._relabel_once(db) == 0                              # only once
+        finally:
+            _cleanup(db)

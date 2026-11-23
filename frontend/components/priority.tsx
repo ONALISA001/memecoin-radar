@@ -120,12 +120,17 @@ function TrackRecord({ t, kind }: { t: any; kind: "passing" | "early" }) {
   const s = t?.[kind];
   if (!s || !s.picks) return <span className="text-dim">Track record builds as picks age (each is judged 4h later).</span>;
   if (!s.judged_4h) return <span className="text-dim">{s.picks} picks in {t.days}d · first results 4h after each pick</span>;
+  // "net" = after a ~3.6% round trip (fees, slippage, spread): what a real buyer would keep.
+  // Rugged coins count as -100%; coverage says how many due picks have a result at all.
+  const upNet = s.net_up_after_4h_pct ?? s.up_after_4h_pct;
   return (
-    <span className="num">
+    <span className="num" title={t.note}>
       Last {t.days}d: {s.judged_4h} picks judged ·{" "}
-      <span className={(s.up_after_4h_pct ?? 0) >= 50 ? "text-greenx" : "text-amberx"}>{s.up_after_4h_pct}% up after 4h</span>
-      {" "}· avg <span className={pctColor(s.avg_ret_4h)}>{fmtPct(s.avg_ret_4h)}</span>
-      {s.reached_10pct_pct != null && <> · {s.reached_10pct_pct}% hit +10%</>}
+      <span className={(upNet ?? 0) >= 50 ? "text-greenx" : "text-amberx"}>{upNet}% up after 4h, net of costs</span>
+      {" "}· median <span className={pctColor(s.net_median_ret_4h ?? s.median_ret_4h)}>{fmtPct(s.net_median_ret_4h ?? s.median_ret_4h)}</span>
+      {" "}· avg <span className={pctColor(s.net_avg_ret_4h ?? s.avg_ret_4h)}>{fmtPct(s.net_avg_ret_4h ?? s.avg_ret_4h)}</span>
+      {s.rugged > 0 && <> · <span className="text-redx">{s.rugged} rugged (−100%)</span></>}
+      {s.coverage_pct != null && s.coverage_pct < 100 && <> · {s.coverage_pct}% of picks have a result</>}
     </span>
   );
 }
