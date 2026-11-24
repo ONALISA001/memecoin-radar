@@ -6,6 +6,8 @@ What is deleted, per real token:
   * price/volume/liquidity/holder/social snapshots with ts < first_seen bucket
     (everything before the token was discovered was invented by the simulator)
   * TrendScore rows with kind='retro' and SignalOutcome rows with kind='retro'
+  * ALL WalletActivity (whale trade) rows — the simulator is the only writer, so
+    every row on a real token is invented
 
 Live data recorded after discovery is kept.
 
@@ -29,14 +31,16 @@ from app.config import SNAPSHOT_BUCKET_SECONDS as BUCKET  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
 from app.services.holders import epoch  # noqa: E402
 from app.models import (HolderSnapshot, LiquiditySnapshot, PriceSnapshot,  # noqa: E402
-                        SignalOutcome, SocialSnapshot, Token, TrendScore, VolumeSnapshot)
+                        SignalOutcome, SocialSnapshot, Token, TrendScore, VolumeSnapshot,
+                        WalletActivity)
 
 SNAPSHOTS = (PriceSnapshot, VolumeSnapshot, LiquiditySnapshot, HolderSnapshot, SocialSnapshot)
 
 
 def purge(apply: bool) -> dict:
     totals = {m.__tablename__: 0 for m in SNAPSHOTS}
-    totals.update({"trend_scores(retro)": 0, "signal_outcomes(retro)": 0, "tokens": 0})
+    totals.update({"trend_scores(retro)": 0, "signal_outcomes(retro)": 0,
+                   "wallet_activity(all)": 0, "tokens": 0})
     with SessionLocal() as db:
         tokens = db.execute(select(Token)).scalars().all()
         for t in tokens:
@@ -50,8 +54,9 @@ def purge(apply: bool) -> dict:
                 totals[m.__tablename__] += n
                 if apply and n:
                     db.execute(delete(m).where(*cond))
-            for m, key in ((TrendScore, "trend_scores(retro)"), (SignalOutcome, "signal_outcomes(retro)")):
-                cond = (m.token_id == t.id, m.kind == "retro")
+            for m, key, cond in ((TrendScore, "trend_scores(retro)", (TrendScore.token_id == t.id, TrendScore.kind == "retro")),
+                                 (SignalOutcome, "signal_outcomes(retro)", (SignalOutcome.token_id == t.id, SignalOutcome.kind == "retro")),
+                                 (WalletActivity, "wallet_activity(all)", (WalletActivity.token_id == t.id,))):
                 n = db.execute(select(func.count()).select_from(m).where(*cond)).scalar() or 0
                 totals[key] += n
                 if apply and n:

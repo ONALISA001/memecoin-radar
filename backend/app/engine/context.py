@@ -194,6 +194,9 @@ class TokenContext:
 
     # convenience ---------------------------------------------------------
     def whale_events(self, db: Session, limit: int = 20):
+        # WalletActivity is simulator output; real tokens have none (legacy rows ignored)
+        if not (self.token.address or "").startswith("Mock"):
+            return []
         rows = db.execute(
             select(WalletActivity).where(WalletActivity.token_id == self.token.id)
             .order_by(WalletActivity.ts.desc()).limit(limit)

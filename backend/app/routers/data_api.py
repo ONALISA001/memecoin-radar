@@ -764,8 +764,12 @@ def token_holders(address: str, db: Session = Depends(get_db)):
     token = get_token_or_404(db, address)
     from ..services.holders import real_holder_stats
     rh = real_holder_stats(db, [token.id]).get(token.id)
+    mock = token.address.startswith("Mock")
+    # WalletActivity rows are only ever simulated (demo universe). Older versions
+    # wrote them for real tokens too, so never serve them for a real token —
+    # they would be passed off as Helius data.
     whales = db.execute(select(WalletActivity).where(WalletActivity.token_id == token.id)
-                        .order_by(WalletActivity.ts.desc()).limit(20)).scalars().all()
+                        .order_by(WalletActivity.ts.desc()).limit(20)).scalars().all() if mock else []
     return {"current": None if not rh else {
                 "holders": rh["count"], "capped": rh["capped"], "growth_pct": rh["growth_pct"],
                 "span_h": rh["span_h"],
@@ -775,8 +779,8 @@ def token_holders(address: str, db: Session = Depends(get_db)):
             "whales": [{"ts": w.ts, "wallet": w.wallet, "side": w.side,
                         "amount_usd": w.amount_usd, "kind": w.kind} for w in whales],
             # whale trade list is only simulated (demo universe); real tokens get none
-            "source": "mock:chain-sim" if token.address.startswith("Mock") else "helius",
-            "mock": token.address.startswith("Mock")}
+            "source": "mock:chain-sim" if mock else "helius",
+            "mock": mock}
 
 
 @router.get("/tokens/{address}/onchain-risk")
