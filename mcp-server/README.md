@@ -1,3 +1,36 @@
+# MCP servers
+
+This folder has two read-only MCP servers that share one virtualenv:
+
+- **`fomo_family_mcp.py`**: market data like the fomo.family Discover page (see below)
+- **`fomo_mcp.py`**: your own MemeCoin Radar app (the rest of this file)
+
+## fomo.family-style market data (`fomo_family_mcp.py`)
+
+fomo.family has no public API, so this server uses the public sources behind the same data
+instead of fomo's private backend. It never signs in, trades or moves funds.
+
+| Tool | What it returns | Source |
+|---|---|---|
+| `perps_markets` | Perps by category (crypto / stocks / commodities / fx / indices), sorted by volume, OI or move | Hyperliquid |
+| `search_perps` | Perp markets matching a symbol across all Hyperliquid venues | Hyperliquid |
+| `perp_detail` | One perp: price, change, volume, OI, funding, leverage + OHLCV candles | Hyperliquid |
+| `trending_tokens` | Trending Solana memecoins (5m / 1h / 6h / 24h) | GeckoTerminal |
+| `graduated_tokens` | pump.fun coins graduated to PumpSwap, by volume, transactions or newest | GeckoTerminal |
+| `bonding_tokens` | pump.fun coins still on the bonding curve, by volume, transactions or newest | GeckoTerminal |
+| `search_tokens` | Find a token by symbol, name or address, ranked by 24h volume | DexScreener |
+| `token_detail` | All pairs, liquidity and socials for one contract address | DexScreener |
+| `boosted_tokens` | Tokens with the most paid DexScreener boosts (paid promotion, not demand) | DexScreener |
+
+**Claude Code:** the repo's `.mcp.json` registers it as `fomo-family`; open this folder in
+Claude Code and approve the server when asked. **Claude Desktop:** add an entry like the
+`fomo` one below, pointing at `fomo_family_mcp.py`.
+
+GeckoTerminal's free API allows about 30 calls a minute; responses are cached for 15 to 60 seconds.
+Setting: `FOMO_FAMILY_TIMEOUT` (seconds per request, default 20).
+
+---
+
 # FOMO MCP server (read-only)
 
 Lets Claude (Claude Desktop, Claude Code) read your MemeCoin Radar app while you chat:

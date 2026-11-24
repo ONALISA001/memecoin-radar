@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "fomo-family": {
+      "command": "C:\\Users\\user\\Documents\\memecoin-radar\\mcp-server\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\Users\\user\\Documents\\memecoin-radar\\mcp-server\\fomo_family_mcp.py"]
+    }
+  }
+}
