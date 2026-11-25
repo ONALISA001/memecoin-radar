@@ -18,10 +18,10 @@ from sqlalchemy import select
 from ..models import DemoAccount, PaperPosition
 
 FEATURES = ("kind", "verdict", "regime", "momentum", "chg_1h", "liquidity", "buy_share", "sell_pressure",
-            "confidence")
+            "confidence", "sol")
 LABELS = {"kind": "signal", "verdict": "AI verdict", "regime": "regime", "momentum": "momentum",
           "chg_1h": "1h move", "liquidity": "liquidity", "buy_share": "buy share",
-          "sell_pressure": "sell pressure", "confidence": "confidence"}
+          "sell_pressure": "sell pressure", "confidence": "confidence", "sol": "SOL"}
 
 
 def _bucket(v, edges: tuple, names: tuple):
@@ -37,7 +37,8 @@ def _bucket(v, edges: tuple, names: tuple):
     return names[-1]
 
 
-def features(kind, verdict_rating, regime, momentum, chg_1h, liq, buy_share, sellp, confidence) -> dict:
+def features(kind, verdict_rating, regime, momentum, chg_1h, liq, buy_share, sellp, confidence,
+             sol_regime=None) -> dict:
     """Bucketed description of a setup. Missing facts are None (never matched)."""
     return {
         "kind": kind or None,
@@ -49,6 +50,7 @@ def features(kind, verdict_rating, regime, momentum, chg_1h, liq, buy_share, sel
         "buy_share": _bucket(buy_share, (50, 55, 60), ("<50%", "50-55%", "55-60%", "60%+")),
         "sell_pressure": _bucket(sellp, (30, 45, 60), ("<30", "30-45", "45-60", "60+")),
         "confidence": _bucket(confidence, (55, 65, 75), ("<55", "55-65", "65-75", "75+")),
+        "sol": sol_regime or None,
     }
 
 
@@ -59,7 +61,7 @@ def trade_features(p: PaperPosition) -> dict:
     return features(m.get("signal_kind"), v.get("rating"), p.market_regime,
                     m.get("momentum"), em.get("price_chg_1h"), em.get("liq") or m.get("liquidity"),
                     em.get("buy_share_pct"), em.get("sellp") if em.get("sellp") is not None else m.get("sell_pressure"),
-                    p.ai_confidence)
+                    p.ai_confidence, (m.get("sol") or {}).get("regime"))
 
 
 _CACHE: dict[tuple, list] = {}

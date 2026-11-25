@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import time
 
-from ..models import Token, TokenVerdict
+from ..models import CreatorProfile, Token, TokenLaunchForensics, TokenVerdict
+from ..providers import sol_market as SOL
 from ..services.contract_facts import contract_facts_for
+from . import execution as X
 
 BAD_VERDICTS = ("AVOID", "RUG_RISK")
 GOOD_VERDICTS = {1: ("WATCH", "STRONG_WATCH"), 2: ("STRONG_WATCH",)}
@@ -89,6 +91,13 @@ def strategy_checks(db, settings: dict, token: Token, mkt: dict, now: int) -> li
             ok = fresh and v["rating"] in want
             out.append(("AI verdict", ok, f"rated {label()}" if fresh else
                         ("no verdict yet" if v is None else f"verdict too old ({v['age_h']:.1f}h > {max_age:g}h)")))
+    cf = int(s.get("creator_filter") or 0)
+    if cf:
+        cr = creator_record(db, token.id)
+        out.append(creator_check(cf, int(s.get("creator_min_launches") or 0), cr))
+    sf = int(s.get("sol_regime_filter") or 0)
+    if sf:
+        out.append(sol_check(sf, SOL.current()))
     cap = s.get("max_vol_liq_ratio", 0)
     if cap > 0:
         r = mkt.get("vol_liq_ratio")
@@ -105,6 +114,59 @@ def strategy_checks(db, settings: dict, token: Token, mkt: dict, now: int) -> li
         out.append(("buyers in control", b is not None and b >= mn,
                     f"buys {b:.0f}% of 1h trades vs min {mn:g}%" if b is not None else "no data"))
     return out
+
+
+def creator_record(db, token_id: int) -> dict | None:
+    """The coin creator's scored track record: {band, launches, total} or None if unknown."""
+    f = db.query(TokenLaunchForensics).filter(TokenLaunchForensics.token_id == token_id).first()
+    if f is None or not f.creator:
+        return None
+    p = db.query(CreatorProfile).filter(CreatorProfile.creator == f.creator).first()
+    if p is None or p.status not in ("ok", "new"):
+        return None
+    return {"band": p.band, "launches": p.launches or 0, "total": p.total}
+
+
+def creator_check(mode: int, min_launches: int, cr: dict | None) -> tuple[str, bool, str]:
+    if cr is None:
+        # mode 1 only blocks known-bad creators; mode 2 needs a proven record
+        return ("creator record", mode == 1, "creator not scored yet")
+    band = (cr["band"] or "new").replace("_", " ")
+    what = f"{band}, {cr['launches']} earlier launch{'es' if cr['launches'] != 1 else ''}" + (
+        f", {cr['total']:.0f}/100" if cr.get("total") is not None else "")
+    if mode == 1:
+        return ("creator record", cr["band"] not in ("avoid", "stay_away"), what)
+    return ("creator record", cr["band"] == "clean" and cr["launches"] >= min_launches,
+            f"{what} (need clean with ≥{min_launches})")
+
+
+def sol_check(mode: int, sol: dict | None) -> tuple[str, bool, str]:
+    if sol is None:
+        return ("SOL regime", True, "SOL data unavailable — not applied")
+    what = f"SOL {sol['regime'].lower()} ({sol['chg_24h']:+.1f}% 24h, ${sol['price']:.2f} vs 24h avg ${sol['avg_24h']:.2f})"
+    ok = sol["regime"] != "DOWN" if mode == 1 else sol["regime"] == "UP"
+    return ("SOL regime", ok, what)
+
+
+def round_trip_cost_pct(size_usd: float, mkt: dict, exec_cfg: dict) -> float:
+    """Estimated % lost to fees and slippage buying `size_usd` and selling straight back."""
+    liq, chg = mkt.get("liq") or 0.0, mkt.get("price_chg_1h") or 0.0
+    slip = X.slippage_pct(size_usd, liq, chg, "BUY", exec_cfg) + X.slippage_pct(size_usd, liq, chg, "SELL", exec_cfg)
+    return round(slip + 2 * float(exec_cfg.get("fee_pct", 0.3)), 2)
+
+
+def cost_capped_size(size_usd: float, mkt: dict, exec_cfg: dict, cap_pct: float) -> tuple[float | None, float]:
+    """Largest size ≤ size_usd whose estimated round trip is ≤ cap_pct (shrinks in 20% steps),
+    or None if even the minimum order costs more. Returns (size, estimated cost %)."""
+    min_order = float(exec_cfg.get("min_order_usd", 25.0))
+    s = size_usd
+    while True:
+        c = round_trip_cost_pct(s, mkt, exec_cfg)
+        if c <= cap_pct:
+            return round(s, 2), c
+        if s <= min_order:
+            return None, c
+        s = max(min_order, s * 0.8)
 
 
 def pullback_candidate(settings: dict, mkt: dict) -> tuple[bool, list[dict]]:

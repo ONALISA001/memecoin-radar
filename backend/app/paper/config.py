@@ -87,6 +87,17 @@ DEFAULT_SETTINGS: dict = {
     "winners_min_win_rate": 55.0,      # % of similar trades that won
     "winners_min_avg_pct": 2.0,        # their average net return (after the ~3.6% round-trip costs)
     "winners_sizing": False,           # size by evidence: ≥70% winners full, ≥60% 75%, else 50%
+    # SOL market regime (providers/sol_market.py, Hyperliquid): memecoins fall with SOL. OFF by default.
+    "sol_regime_filter": 0,            # 0 off · 1 = no buys while SOL is in a downtrend · 2 = buy only in an uptrend
+    "sol_flat_size_mult": 1.0,         # size multiplier while SOL is flat (with the filter on)
+    # cost-aware sizing: estimated round trip (fees + both-side slippage for this size and pool).
+    # Shrinks the order until the estimate is under the cap; skips the trade if even the minimum
+    # order is too expensive. 0 = off. The fixed part alone is ~3.6%, so useful caps start near 4.5.
+    "max_round_trip_cost_pct": 0.0,
+    # creator track record (services/creator_profiles.py). OFF by default.
+    "creator_filter": 0,               # 1 = never buy coins whose creator is rated Avoid / Stay away
+                                       # 2 = only coins whose creator has a Clean record
+    "creator_min_launches": 2,         # with 2: earlier launches the record must be built on
     # pullback entries: generated from market data, not from intel events
     "pullback_entries": False,
     "pullback_min_chg_24h": 40.0,     # established uptrend
@@ -296,6 +307,35 @@ PRESETS["winners"] = {
                  "block_bad_verdicts": 1, "priority_entries": True, "pullback_entries": True,
                  "min_confidence": 50.0, "stop_loss_pct": 15.0, "max_hold_hours": 12.0,
                  "max_loss_per_trade_pct": 1.0},
+}
+
+# Controlled experiments: AI Verdict Follower with ONE rule added, so the gap between each and
+# the plain AI Verdict Follower account is that rule's effect (same signals, same exits).
+PRESETS["verdict_sol"] = {
+    "name": "V1 · AI Verdict + SOL Regime",
+    "summary": "AI Verdict Follower, but no buys while SOL is in a downtrend (below its 24h average and "
+               "down 3%+ over 24h, from Hyperliquid) and 60% size while SOL is flat. Tests whether "
+               "memecoin losses are mostly bad SOL days.",
+    "settings": {**PRESETS["ai_verdict"]["settings"], "sol_regime_filter": 1, "sol_flat_size_mult": 0.6},
+}
+PRESETS["verdict_cost"] = {
+    "name": "V2 · AI Verdict + Cost Cap",
+    "summary": "AI Verdict Follower, but each order shrinks until its estimated round trip (fees + slippage "
+               "for that pool and size) is under 5%, and trades that cost more even at the minimum order "
+               "are skipped. Tests whether thin pools are eating the returns.",
+    "settings": {**PRESETS["ai_verdict"]["settings"], "max_round_trip_cost_pct": 5.0},
+}
+# Creator records come from launch forensics + Helius history scans (credit-guarded), so only a
+# share of coins have one: expect few trades. A creator with 3+ earlier launches and a clean record
+# (no habitual dumping at open, coins that lived) is the one signal here a rug-puller can't fake cheaply.
+PRESETS["proven_creator"] = {
+    "name": "P · Proven Creator",
+    "summary": "Only coins whose creator has a Clean track record over 3+ earlier launches (didn't dump at "
+               "open, coins survived), with clean contracts and no Avoid / Rug verdict; let-winners-run "
+               "exits. Few trades — only scored creators qualify.",
+    "settings": {**_SAFETY, **_EXITS_LET_RUN, "creator_filter": 2, "creator_min_launches": 3,
+                 "block_bad_verdicts": 1, "min_confidence": 55.0, "stop_loss_pct": 15.0,
+                 "max_hold_hours": 12.0, "max_loss_per_trade_pct": 1.0},
 }
 
 # the Strategy Lab's momentum family, compared side by side in the backtester

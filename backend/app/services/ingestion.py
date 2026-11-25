@@ -841,6 +841,9 @@ async def tick() -> dict:
             for addr, pair in pair_of.items():
                 if pair in act and addr in ticks:
                     ticks[addr].update(act[pair])
+    if not fallback:   # SOL regime for the paper rules; refresh() self-throttles and never raises
+        from ..providers import sol_market
+        await sol_market.refresh()
     news_articles, news_status = None, None
     if NEWS_RSS_ENABLED and news_svc.SCHEDULE.due(NEWS_REFRESH_MINUTES):
         news_articles, news_status = await news_rss.fetch_news()

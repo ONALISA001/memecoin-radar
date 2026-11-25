@@ -48,6 +48,16 @@ const GROUPS: { title: string; fields: [string, string, string][] }[] = [
     ],
   },
   {
+    title: "Market, Cost & Creator Rules (0 = off)",
+    fields: [
+      ["sol_regime_filter", "SOL regime filter", "0 off · 1 no buys in a SOL downtrend · 2 only in an uptrend"],
+      ["sol_flat_size_mult", "Size while SOL is flat", "× size with filter 1, e.g. 0.6"],
+      ["max_round_trip_cost_pct", "Max round-trip cost (%)", "fees + slippage; shrinks size, e.g. 5"],
+      ["creator_filter", "Creator record", "1 block Avoid/Stay-away creators · 2 Clean only"],
+      ["creator_min_launches", "Creator: min earlier launches", "with Clean only · e.g. 3"],
+    ],
+  },
+  {
     title: "Momentum Confluence (0 = off · switches: 1 on / 0 off)",
     fields: [
       ["min_momentum", "Min momentum at entry", "e.g. 65"],
