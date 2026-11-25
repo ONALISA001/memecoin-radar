@@ -98,6 +98,19 @@ DEFAULT_SETTINGS: dict = {
     "creator_filter": 0,               # 1 = never buy coins whose creator is rated Avoid / Stay away
                                        # 2 = only coins whose creator has a Clean record
     "creator_min_launches": 2,         # with 2: earlier launches the record must be built on
+    # clean launch (launch forensics: bundles, snipers, dev holdings, linked wallets). OFF by default.
+    # With it on, a coin needs a finished forensics analysis that stays under every cap. Defaults sit
+    # below the levels the radar already flags (bundles ≥5% mild / ≥15% severe, snipers ≥10% / ≥25%).
+    "clean_launch": False,
+    "launch_max_bundle_pct": 5.0,       # supply bought in the launch-block bundle
+    "launch_max_sniper_pct": 10.0,      # supply bought by snipers in the first slots
+    "launch_max_dev_holds_pct": 5.0,    # creator's holding when analysed
+    "launch_max_linked_wallets": 2,     # early wallets sharing a funder or funded by the creator
+    # ensemble entries: buy a coin once several OTHER paper accounts bought it recently. OFF by default.
+    "ensemble_entries": False,
+    "ensemble_min_votes": 2,            # distinct other accounts that opened it…
+    "ensemble_window_min": 30,          # …within this many minutes
+    "ensemble_sizing": True,            # 2 votes → 60% size, 3 → 80%, 4+ → full
     # pullback entries: generated from market data, not from intel events
     "pullback_entries": False,
     "pullback_min_chg_24h": 40.0,     # established uptrend
@@ -336,6 +349,46 @@ PRESETS["proven_creator"] = {
     "settings": {**_SAFETY, **_EXITS_LET_RUN, "creator_filter": 2, "creator_min_launches": 3,
                  "block_bad_verdicts": 1, "min_confidence": 55.0, "stop_loss_pct": 15.0,
                  "max_hold_hours": 12.0, "max_loss_per_trade_pct": 1.0},
+}
+
+# Agreement between differently-built strategies is rarer than any one of them firing, and less
+# likely to be noise. Buys only through ensemble signals (no intel events of its own).
+PRESETS["ensemble"] = {
+    "name": "E2 · Ensemble Vote",
+    "summary": "Buys a coin only when at least 2 other paper accounts (main or lab) opened it in the last "
+               "30 minutes; 60% size with 2 votes, 80% with 3, full with 4+. Clean contracts, no Avoid / "
+               "Rug coins, let-winners-run exits. Tests whether strategies agreeing beats any one alone.",
+    "settings": {**_SAFETY, **_EXITS_LET_RUN, "allowed_kinds": ["__none__"], "ensemble_entries": True,
+                 "block_bad_verdicts": 1, "min_confidence": 50.0, "stop_loss_pct": 15.0,
+                 "max_hold_hours": 12.0, "max_loss_per_trade_pct": 1.0},
+}
+# Launch Survivor checks the contract and waits an hour; this judges how fair the launch itself
+# was (bundles, snipers, dev bag, linked wallets) and rides the first hours.
+PRESETS["clean_launch"] = {
+    "name": "L · Clean Launch",
+    "summary": "Coins up to 6h old whose launch looked fair: under 5% bundled, under 10% sniped, dev holding "
+               "under 5%, at most 2 linked early wallets, clean contract and real buying. Small size, 20% "
+               "stop, let-winners-run exits, 6h max hold.",
+    "settings": {**_SAFETY, "clean_launch": True, "max_token_age_h": 6.0, "min_buy_share_pct": 55.0,
+                 "max_chase_pct_1h": 80.0, "block_bad_verdicts": 1, "stop_loss_pct": 20.0,
+                 "take_profit_pct": 0.0, "breakeven_at_pct": 25.0, "trailing_stop_pct": 25.0,
+                 "trail_activate_pct": 40.0, "max_hold_hours": 6.0, "max_position_usd": 250.0,
+                 "max_loss_per_trade_pct": 0.75, "min_confidence": 55.0},
+}
+# The radar's outcome history shows short-horizon prices reverting after aggressive buying, and
+# Trend Pullback (the mild dip-buyer) has lost least. This is the deep version: a coin that ran
+# 100%+ in 24h, then gave back 25-50% in the last hour, with a 15m bounce and buyers back in control.
+PRESETS["fade_pump"] = {
+    "name": "F2 · Fade the Pump",
+    "summary": "Doesn't chase pumps: waits for a coin up 100%+ over 24h to drop 25–50% in an hour, then buys "
+               "only once the 15m bounce is under way (+2%) with buyers back in control. Clean contracts; "
+               "quick exits (+30% target, 15% stop, 6h max), one entry per coin per 12h.",
+    "settings": {**_SAFETY, "allowed_kinds": ["__none__"], "pullback_entries": True,
+                 "pullback_min_chg_24h": 100.0, "pullback_dip_1h": [-50.0, -25.0],
+                 "pullback_min_chg_15m": 2.0, "pullback_cooldown_h": 12.0, "min_buy_share_pct": 55.0,
+                 "min_token_age_h": 3.0, "block_bad_verdicts": 1, "stop_loss_pct": 15.0,
+                 "take_profit_pct": 30.0, "breakeven_at_pct": 15.0, "max_hold_hours": 6.0,
+                 "max_loss_per_trade_pct": 0.75, "max_position_usd": 300.0, "min_confidence": 60.0},
 }
 
 # the Strategy Lab's momentum family, compared side by side in the backtester
