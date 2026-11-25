@@ -361,7 +361,11 @@ def run(db, start: int, end: int, capital: float, overrides: dict, mode: str = "
             if size < ex["min_order_usd"]:
                 reject("order below minimum")
                 continue
-            fill = X.buy_fill(px, size, liq, m.get("volume_g_1h") or 0, ex)
+            # volatility slip is driven by the 1h PRICE change (as in live paper,
+            # engine.py) — never by volume growth
+            chg_1h = next((v for v in ((snap or {}).get("price_chg_1h"), m.get("price_chg_1h"),
+                                       m.get("price_change_h1")) if v is not None), 0)
+            fill = X.buy_fill(px, size, liq, chg_1h, ex)
             cash -= size
             last_entry[tid] = t
             open_pos[tid] = {

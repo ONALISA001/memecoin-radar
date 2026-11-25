@@ -24,6 +24,7 @@ from . import execution as X
 from . import risk as R
 from . import filters as F
 from . import postmortem as PM
+from . import winners as W
 from types import SimpleNamespace
 
 _feed_on = True     # Strategy Lab accounts don't post into the public intel feed
@@ -492,6 +493,16 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
         R.chk(decision, "re-entry cooldown", ok,
               "re-entry cooldown: " + ("no recent entry" if last is None else
                                        f"last entry {(now - last) / 3600:.1f}h ago vs {cool:g}h"))
+    learned = None
+    if settings.get("learn_from_winners"):
+        mkt0 = market.get(sig.token_id) or {}
+        cand = W.features(sig.kind, (sig_metrics.get("verdict") or {}).get("rating"), sig.market_regime,
+                          sig_metrics.get("momentum", mkt0.get("momentum")), mkt0.get("price_chg_1h"),
+                          mkt0.get("liq"), mkt0.get("buy_share_pct"), mkt0.get("sellp"), sig.confidence)
+        learned = W.judge(settings, cand, W.history(db, acct.user_id, now,
+                                                    float(settings.get("winners_lookback_days") or 0)))
+        sig_metrics["winners"] = {k: learned.get(k) for k in ("similar", "wins", "win_rate", "avg_pct")}
+        R.chk(decision, "similar trades won", learned["ok"], f"similar trades won: {learned['reason']}")
     # already holding this token?
     if decision["approved"] and db.execute(select(PaperPosition.id).where(
             PaperPosition.account_id == acct.id, PaperPosition.token_id == sig.token_id,
@@ -516,6 +527,9 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
         mult = F.verdict_size_mult(verdict)
         size = round(size * mult, 2)
         sig_metrics["verdict_size_mult"] = mult
+    if learned and learned.get("size_mult") and settings.get("winners_sizing"):
+        size = round(size * learned["size_mult"], 2)
+        sig_metrics["winners_size_mult"] = learned["size_mult"]
     if snap is not None and settings.get("confluence_sizing"):
         cmult, _ = CF.size_multiplier(settings, snap)
         if cmult:

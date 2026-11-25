@@ -225,3 +225,19 @@ def test_measured_signals_preset_uses_only_known_settings_and_kinds():
     s = PC.merged_settings(p)
     assert s["take_profit_pct"] == 0.0 and s["stop_loss_pct"] == 18.0
     assert "unusual_volume" not in s["allowed_kinds"]
+
+
+def test_backtest_entry_slippage_uses_price_change_not_volume_growth(history, monkeypatch):
+    """buy_fill's volatility term takes the 1h PRICE change. The backtest used to pass
+    volume growth (55% here) instead of the price change (8%)."""
+    seen = []
+    real = BT.X.buy_fill
+
+    def spy(ref_price, size_usd, liquidity_usd, price_chg_1h, exec_cfg):
+        seen.append(price_chg_1h)
+        return real(ref_price, size_usd, liquidity_usd, price_chg_1h, exec_cfg)
+
+    monkeypatch.setattr(BT.X, "buy_fill", spy)
+    with SessionLocal() as db:
+        _bt(db, "mom_a")
+    assert seen and all(v == 8.0 for v in seen), seen

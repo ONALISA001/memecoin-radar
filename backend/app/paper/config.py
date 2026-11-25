@@ -76,6 +76,17 @@ DEFAULT_SETTINGS: dict = {
     "priority_window_h": 4,            # look-back for the list's event flow: 1, 2, 4, 6, 12, 24
     "priority_min_score": 55.0,        # priority score needed (0–100)
     "priority_signal_cooldown_h": 2.0,  # at most one priority signal per coin per N hours
+    # learn-from-winners gate (paper/winners.py): buy only setups whose most similar past
+    # trades — from every paper account — mostly won. OFF by default.
+    "learn_from_winners": False,
+    "winners_lookback_days": 14.0,     # history window
+    "winners_min_history": 30,         # closed trades needed before the gate can approve anything
+    "winners_neighbors": 20,           # compare with at most this many most-similar trades
+    "winners_min_similar": 8,          # …and need at least this many
+    "winners_min_match": 0.6,          # share of known entry facts that must match to count as similar
+    "winners_min_win_rate": 55.0,      # % of similar trades that won
+    "winners_min_avg_pct": 2.0,        # their average net return (after the ~3.6% round-trip costs)
+    "winners_sizing": False,           # size by evidence: ≥70% winners full, ≥60% 75%, else 50%
     # pullback entries: generated from market data, not from intel events
     "pullback_entries": False,
     "pullback_min_chg_24h": 40.0,     # established uptrend
@@ -268,6 +279,23 @@ PRESETS["evidence"] = {
                  "trailing_stop_pct": 20.0, "trail_activate_pct": 25.0,
                  "time_stop_hours": 2.0, "time_stop_min_gain_pct": 3.0, "max_hold_hours": 6.0,
                  "regime_exit": True},
+}
+
+# Learns from the whole lab: every candidate is compared with the closed trades of ALL paper
+# accounts (main, every preset, challengers) and bought only when its most similar past
+# setups mostly won and beat costs on average. Takes every signal source the other accounts
+# use, so it sees the same opportunities; the history decides. Needs 30+ closed trades in the
+# last 14 days before it can buy anything. Exits copy the let-winners-run family.
+PRESETS["winners"] = {
+    "name": "W · Learn From Winners",
+    "summary": "Studies every closed trade across all accounts and only buys setups whose most similar "
+               "past trades mostly won: at least 8 look-alikes (signal, verdict, regime, momentum, 1h move, "
+               "liquidity, buy share, sell pressure, confidence), 55%+ of them winners, average +2% after "
+               "costs. Sizes by the evidence; clean contracts, no Avoid/Rug coins, let-winners-run exits.",
+    "settings": {**_SAFETY, **_EXITS_LET_RUN, "learn_from_winners": True, "winners_sizing": True,
+                 "block_bad_verdicts": 1, "priority_entries": True, "pullback_entries": True,
+                 "min_confidence": 50.0, "stop_loss_pct": 15.0, "max_hold_hours": 12.0,
+                 "max_loss_per_trade_pct": 1.0},
 }
 
 # the Strategy Lab's momentum family, compared side by side in the backtester
