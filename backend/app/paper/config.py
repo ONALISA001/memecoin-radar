@@ -111,6 +111,20 @@ DEFAULT_SETTINGS: dict = {
     "ensemble_min_votes": 2,            # distinct other accounts that opened it…
     "ensemble_window_min": 30,          # …within this many minutes
     "ensemble_sizing": True,            # 2 votes → 60% size, 3 → 80%, 4+ → full
+    # narrative rotation (paper/themes.py): only coins in a narrative money is rotating into, ranked
+    # from real market data (median 1h volume growth, rising median price). OFF by default.
+    "narrative_rotation": False,
+    "narrative_top_k": 2,               # how many of the hottest narratives count
+    "narrative_min_members": 3,         # tracked coins a narrative needs to be ranked
+    # Telegram calls (public call channels). OFF by default.
+    "tg_call_filter": 0,                # 1 = skip coins called in the window (fade the call)
+                                        # 2 = only coins called by ≥ tg_min_channels in the window
+    "tg_call_window_min": 30,
+    "tg_min_channels": 2,
+    "telegram_entries": False,          # create buy signals from fresh multi-channel calls
+    # graduation entries: pump.fun coins that just left the bonding curve for a DEX. OFF by default.
+    "graduation_entries": False,
+    "graduation_window_min": 30,        # minutes since graduation
     # pullback entries: generated from market data, not from intel events
     "pullback_entries": False,
     "pullback_min_chg_24h": 40.0,     # established uptrend
@@ -389,6 +403,47 @@ PRESETS["fade_pump"] = {
                  "min_token_age_h": 3.0, "block_bad_verdicts": 1, "stop_loss_pct": 15.0,
                  "take_profit_pct": 30.0, "breakeven_at_pct": 15.0, "max_hold_hours": 6.0,
                  "max_loss_per_trade_pct": 0.75, "max_position_usd": 300.0, "min_confidence": 60.0},
+}
+
+# Money moves between themes; the 2nd and 3rd coins of a hot theme often run after the leader.
+PRESETS["narrative"] = {
+    "name": "N · Narrative Rotation",
+    "summary": "Takes the usual buy signals, but only on coins in one of the 2 narratives money is "
+               "rotating into right now (highest median 1h volume growth with rising prices, 3+ tracked "
+               "coins; real market data only). Clean contracts, no chasing 1h pumps over 60%, "
+               "let-winners-run exits with a 3h time stop.",
+    "settings": {**_SAFETY, **_EXITS_LET_RUN, "narrative_rotation": True, "max_chase_pct_1h": 60.0,
+                 "block_bad_verdicts": 1, "min_confidence": 55.0, "stop_loss_pct": 15.0,
+                 "time_stop_hours": 3.0, "time_stop_min_gain_pct": 2.0, "max_hold_hours": 12.0,
+                 "max_loss_per_trade_pct": 1.0},
+}
+# Graduation is a clean, measurable event: the coin survived the bonding curve and now has a real
+# pool. Buy in the first 30 minutes only while buyers still lead and the pool is real.
+PRESETS["graduation"] = {
+    "name": "G2 · Graduation Play",
+    "summary": "Buys pump.fun coins in their first 30 minutes after graduating to a DEX, only while "
+               "buyers lead (55%+ of 1h trades), the pool holds $20K+ and the 1h move isn't already "
+               "over 80%. No Avoid / Rug coins; small size, 20% stop, trailing exit, 6h max.",
+    "settings": {"allowed_kinds": ["__none__"], "graduation_entries": True, "graduation_window_min": 30,
+                 "min_buy_share_pct": 55.0, "min_liquidity_usd": 20000.0, "max_chase_pct_1h": 80.0,
+                 "max_vol_liq_ratio": 15.0, "block_bad_verdicts": 1, "stop_loss_pct": 20.0,
+                 "take_profit_pct": 0.0, "breakeven_at_pct": 20.0, "trailing_stop_pct": 25.0,
+                 "trail_activate_pct": 35.0, "max_hold_hours": 6.0, "max_position_usd": 250.0,
+                 "max_loss_per_trade_pct": 0.75, "min_confidence": 55.0},
+}
+# Do Telegram calls start moves or mark tops? This account follows fresh calls from 2+ channels
+# (before the coin has run); every other account's trades are tagged with call facts, so Winning
+# patterns shows whether called coins won or lost — the fade answer comes from that data.
+PRESETS["telegram"] = {
+    "name": "T · Telegram Call Follow",
+    "summary": "Buys coins called by 2+ public Telegram call channels in the last 30 minutes, but only if "
+               "the 1h move is under 40% (early, not the top) and buyers lead. Clean contracts, quick exits "
+               "(+25% target, 12% stop, 3h max). Its results say whether following calls pays.",
+    "settings": {**_SAFETY, "allowed_kinds": ["__none__"], "telegram_entries": True, "tg_call_filter": 2,
+                 "tg_min_channels": 2, "tg_call_window_min": 30, "max_chase_pct_1h": 40.0,
+                 "min_buy_share_pct": 52.0, "block_bad_verdicts": 1, "stop_loss_pct": 12.0,
+                 "take_profit_pct": 25.0, "breakeven_at_pct": 12.0, "max_hold_hours": 3.0,
+                 "max_loss_per_trade_pct": 0.75, "max_position_usd": 300.0, "min_confidence": 55.0},
 }
 
 # the Strategy Lab's momentum family, compared side by side in the backtester
