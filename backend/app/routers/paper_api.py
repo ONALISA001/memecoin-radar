@@ -434,6 +434,14 @@ async def paper_lab_review(ai: bool = True, db: Session = Depends(get_db),
     return rev
 
 
+@router.get("/paper/lab/winners")
+def paper_lab_winners(days: float = 14, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """What the winning trades had in common, from the closed trades of every paper account
+    (the history the 'Learn From Winners' strategy decides with)."""
+    from ..paper import winners as W
+    return W.patterns(db, user.id, int(time.time()), max(1.0, min(days, 90.0)))
+
+
 @router.post("/paper/lab/start", dependencies=[Depends(require_user)])
 def paper_lab_start(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     from ..paper import lab as LAB

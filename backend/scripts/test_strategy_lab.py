@@ -115,7 +115,7 @@ PE.run_tick(db, NOW + 2100, dip); db.commit()
 n = db.query(PaperSignal).filter_by(account_id=accts["pullback"].id, kind="pullback_bounce").count()
 check("one pullback entry per coin per cooldown", n == 1, str(n))
 check("pullback signals don't collide on the dedupe key", db.query(PaperSignal).filter(
-    PaperSignal.source_event_id.is_(None)).count() == n)
+    PaperSignal.account_id == accts["pullback"].id, PaperSignal.source_event_id.is_(None)).count() == n)
 
 # --- API ----------------------------------------------------------------------------
 cmp_ = API.paper_lab(db=db, user=usr)

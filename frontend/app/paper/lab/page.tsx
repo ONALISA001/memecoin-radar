@@ -84,6 +84,41 @@ function LabVerdict({ k }: { k: number }) {
   );
 }
 
+function WinningPatterns({ k }: { k: number }) {
+  const { data } = useApi(`/paper/lab/winners?k=${k}`, 60000);
+  if (!data) return null;
+  const rows: any[] = data.patterns || [];
+  const best = rows.filter((r) => r.avg_pct > 0).slice(0, 8);
+  const worst = rows.filter((r) => r.avg_pct < 0).slice(-5).reverse();
+  const line = (r: any) => (
+    <tr key={`${r.feature}-${r.value}`}>
+      <td className="!text-left"><span className="text-dim">{r.label}</span> {String(r.value).replace(/_/g, " ")}</td>
+      <td>{r.trades}</td><td>{r.win_rate}%</td><td className={pnlCls(r.avg_pct)}>{pct(r.avg_pct)}</td>
+    </tr>
+  );
+  return (
+    <Panel title={<span>🏆 Winning patterns <span className="panel-sub">— what the winning trades of every account had in common (last {data.lookback_days ?? 14}d)</span></span>}>
+      {!data.trades ? <div className="px-4 py-3 text-sm text-dim">No closed trades yet.</div> : (
+        <div className="grid md:grid-cols-2 gap-3 p-3">
+          {[["Setups that won", best], ["Setups that lost", worst]].map(([title, list]: any) => (
+            <div key={title}>
+              <div className="text-xs font-bold mb-1">{title}</div>
+              {list.length ? (
+                <table className="tbl w-full"><thead><tr><th className="!text-left">When entered with</th><th>Trades</th><th>Won</th><th>Avg</th></tr></thead>
+                  <tbody>{list.map(line)}</tbody></table>
+              ) : <div className="text-2xs text-dim">None with 5+ trades yet.</div>}
+            </div>
+          ))}
+          <div className="md:col-span-2 text-2xs text-dim">
+            {data.trades} closed trades · {data.win_rate}% won · average {pct(data.avg_pct)} after costs. The &quot;W · Learn From Winners&quot;
+            strategy buys only setups whose most similar past trades mostly won. Small samples — patterns can stop working.
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 export default function StrategyLabPage() {
   const [k, setK] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
@@ -154,6 +189,7 @@ export default function StrategyLabPage() {
       </Panel>
       {data?.running && <SupervisorPanel onChanged={() => setK(k + 1)} />}
       {data?.running && <LabVerdict k={k} />}
+      {data?.running && <WinningPatterns k={k} />}
     </div>
   );
 }
