@@ -139,10 +139,13 @@ async def run_verdicts(session_factory, llm=None) -> dict:
                         out["reason"] += " Provisional: waiting for " + ", ".join(missing) + "."
                 except llm_mod.LLMError as exc:
                     res["llm_errors"] += 1
+                    # the raw error goes to the log, never into user-facing verdict text
+                    log.warning("AI verdict failed for token %s: %s", item["token"].id, exc)
+                    res.setdefault("llm_error", str(exc)[:160])
                     if item["llm_only"]:
                         continue    # keep the existing rules verdict
                     out = V.rules_verdict(item["evidence"], missing)
-                    out["reason"] += f" (AI unavailable: {str(exc)[:80]})"
+                    out["reason"] += " (AI review unavailable; rule-based verdict)"
             elif item["llm_only"]:
                 continue            # already has a rules verdict; wait for an AI slot
             elif use_llm and llm_left <= 0:
