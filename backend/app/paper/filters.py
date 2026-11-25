@@ -95,6 +95,9 @@ def strategy_checks(db, settings: dict, token: Token, mkt: dict, now: int) -> li
     if cf:
         cr = creator_record(db, token.id)
         out.append(creator_check(cf, int(s.get("creator_min_launches") or 0), cr))
+    if s.get("clean_launch"):
+        f = db.query(TokenLaunchForensics).filter(TokenLaunchForensics.token_id == token.id).first()
+        out.append(clean_launch_check(s, f))
     sf = int(s.get("sol_regime_filter") or 0)
     if sf:
         out.append(sol_check(sf, SOL.current()))
@@ -138,6 +141,21 @@ def creator_check(mode: int, min_launches: int, cr: dict | None) -> tuple[str, b
         return ("creator record", cr["band"] not in ("avoid", "stay_away"), what)
     return ("creator record", cr["band"] == "clean" and cr["launches"] >= min_launches,
             f"{what} (need clean with ≥{min_launches})")
+
+
+def clean_launch_check(s: dict, f) -> tuple[str, bool, str]:
+    """Launch fairness from forensics. Unanalysed / failed analyses don't pass: 'clean' must be shown."""
+    if f is None or f.status != "ok":
+        return ("clean launch", False, f"launch not analysed ({getattr(f, 'status', None) or 'pending'})")
+    linked = (f.shared_funder_wallets or 0) + (f.funded_by_creator or 0)
+    facts = [("bundled", f.bundle_pct, s["launch_max_bundle_pct"]), ("sniped", f.sniper_pct, s["launch_max_sniper_pct"]),
+             ("dev holds", f.dev_holds_pct, s["launch_max_dev_holds_pct"])]
+    bad = [f"{n} {v:.1f}% > {cap:g}%" for n, v, cap in facts if (v or 0) > cap]
+    if linked > int(s["launch_max_linked_wallets"]):
+        bad.append(f"{linked} linked wallets > {int(s['launch_max_linked_wallets'])}")
+    if bad:
+        return ("clean launch", False, "; ".join(bad))
+    return ("clean launch", True, ", ".join(f"{n} {(v or 0):.1f}%" for n, v, _ in facts) + f", {linked} linked")
 
 
 def sol_check(mode: int, sol: dict | None) -> tuple[str, bool, str]:

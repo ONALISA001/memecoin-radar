@@ -196,7 +196,9 @@ def run_tick(db, now: int, market: dict) -> dict:
     _now_ts = now
     _breadth = CF.breadth(market)
     stats = {"signals": 0, "approved": 0, "rejected": 0, "bought": 0, "sold": 0, "accounts": 0}
-    accounts = db.execute(select(DemoAccount).where(DemoAccount.active == True)).scalars().all()  # noqa: E712
+    # id order: accounts created later (e.g. the ensemble preset) see earlier accounts' buys this tick
+    accounts = db.execute(select(DemoAccount).where(DemoAccount.active == True)  # noqa: E712
+                          .order_by(DemoAccount.id)).scalars().all()
     if not accounts:
         return stats
     stats["accounts"] = len(accounts)
@@ -305,6 +307,8 @@ def _run_account(db, acct: DemoAccount, now: int, market: dict, stats: dict) -> 
         _pullback_entries(db, acct, settings, now, market, stats)
     if settings.get("priority_entries"):
         _priority_entries(db, acct, settings, now, market, stats)
+    if settings.get("ensemble_entries"):
+        _ensemble_entries(db, acct, settings, now, market, stats)
 
     # ② manage open positions (always — even while new buys are paused)
     pf = portfolio_state(db, acct, market)
@@ -410,6 +414,62 @@ def _priority_entries(db, acct, settings: dict, now: int, market: dict, stats: d
         ev = SimpleNamespace(title=f"Priority coin — ${c.get('symbol')}",
                              signal_text=f"passes every priority gate (score {c.get('score'):.0f})",
                              checklist_json=checklist, kind="priority_coin")
+        _risk_and_maybe_execute(db, acct, settings, sig, ev, now, market, stats)
+
+
+ENSEMBLE_SIZE = {2: 0.6, 3: 0.8}       # votes → size multiplier; 4+ = full size
+
+
+def ensemble_votes(db, acct, now: int, window_s: int) -> dict[int, list[str]]:
+    """{token_id: [labels of OTHER accounts of this user that opened it within the window]}.
+    Accounts run in id order, so ones processed earlier in this tick already count."""
+    rows = db.execute(select(PaperPosition.token_id, DemoAccount.id, DemoAccount.label, DemoAccount.strategy_key)
+                      .join(DemoAccount, DemoAccount.id == PaperPosition.account_id)
+                      .where(DemoAccount.user_id == acct.user_id, DemoAccount.id != acct.id,
+                             DemoAccount.active == True,  # noqa: E712
+                             PaperPosition.entry_ts >= now - window_s, PaperPosition.entry_ts <= now)).all()
+    out: dict[int, dict[int, str]] = {}
+    for tid, aid, label, key in rows:
+        out.setdefault(tid, {})[aid] = (label or key or "main").replace("Lab · ", "")
+    return {tid: sorted(v.values()) for tid, v in out.items()}
+
+
+def _ensemble_entries(db, acct, settings: dict, now: int, market: dict, stats: dict) -> None:
+    """Buy candidates that several other paper accounts opened recently. One signal per coin
+    per window; each still goes through the full risk engine and this account's own rules."""
+    window = int(float(settings.get("ensemble_window_min") or 30) * 60)
+    need = int(settings.get("ensemble_min_votes") or 2)
+    recent = {tid for (tid,) in db.execute(select(PaperSignal.token_id).where(
+        PaperSignal.account_id == acct.id, PaperSignal.kind == "ensemble_vote",
+        PaperSignal.ts >= now - window)).all()}
+    held = {tid for (tid,) in db.execute(select(PaperPosition.token_id).where(
+        PaperPosition.account_id == acct.id, PaperPosition.status == "open")).all()}
+    for tid, voters in ensemble_votes(db, acct, now, window).items():
+        if len(voters) < need or tid in recent or tid in held:
+            continue
+        mkt = market.get(tid) or {}
+        if not mkt.get("price"):
+            continue
+        n = len(voters)
+        # two real checks: the risk engine's min_bullish_signals counts passed checklist items
+        checklist = [{"label": "accounts that bought it", "passed": True, "value": ", ".join(voters)},
+                     {"label": "votes", "passed": n >= need, "value": f"{n} vs min {need} in {window // 60} min"}]
+        sig = PaperSignal(
+            account_id=acct.id, token_id=tid, ts=now, action="BUY", kind="ensemble_vote",
+            source_event_id=None, price=_price(market, tid), confidence=min(95.0, 50.0 + 10.0 * n),
+            importance="HIGH" if n >= 3 else "MEDIUM", importance_score=min(95, 50 + 10 * n),
+            risk_score=mkt.get("risk"), market_regime=mkt.get("regime", "NEUTRAL"),
+            metrics_json={"liquidity": mkt.get("liq"), "volume_24h": mkt.get("volume_24h"),
+                          "mcap": mkt.get("mcap"), "momentum": mkt.get("momentum"),
+                          "ensemble_votes": n, "ensemble_voters": voters},
+            why_json=[f"✓ {n} accounts bought it in the last {window // 60} min: {', '.join(voters)}"],
+            status="pending")
+        db.add(sig)
+        db.flush()
+        stats["signals"] += 1
+        ev = SimpleNamespace(title=f"Ensemble vote — ${_symbol(db, tid)}",
+                             signal_text=f"{n} paper strategies bought it", checklist_json=checklist,
+                             kind="ensemble_vote")
         _risk_and_maybe_execute(db, acct, settings, sig, ev, now, market, stats)
 
 
@@ -532,6 +592,12 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
         mult = F.verdict_size_mult(verdict)
         size = round(size * mult, 2)
         sig_metrics["verdict_size_mult"] = mult
+    votes = sig_metrics.get("ensemble_votes")
+    if votes and settings.get("ensemble_sizing"):
+        emult = ENSEMBLE_SIZE.get(int(votes), 1.0)
+        if emult != 1.0:
+            size = round(size * emult, 2)
+            sig_metrics["ensemble_size_mult"] = emult
     if learned and learned.get("size_mult") and settings.get("winners_sizing"):
         size = round(size * learned["size_mult"], 2)
         sig_metrics["winners_size_mult"] = learned["size_mult"]

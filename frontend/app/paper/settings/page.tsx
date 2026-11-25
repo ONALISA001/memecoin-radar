@@ -55,6 +55,11 @@ const GROUPS: { title: string; fields: [string, string, string][] }[] = [
       ["max_round_trip_cost_pct", "Max round-trip cost (%)", "fees + slippage; shrinks size, e.g. 5"],
       ["creator_filter", "Creator record", "1 block Avoid/Stay-away creators · 2 Clean only"],
       ["creator_min_launches", "Creator: min earlier launches", "with Clean only · e.g. 3"],
+      ["clean_launch", "Clean launch only", "1 = bundles/snipers/dev bag under the caps below"],
+      ["launch_max_bundle_pct", "Launch: max bundled (%)", "of supply · default 5"],
+      ["launch_max_sniper_pct", "Launch: max sniped (%)", "of supply · default 10"],
+      ["launch_max_dev_holds_pct", "Launch: max dev holding (%)", "default 5"],
+      ["launch_max_linked_wallets", "Launch: max linked wallets", "shared funder / creator-funded"],
     ],
   },
   {
