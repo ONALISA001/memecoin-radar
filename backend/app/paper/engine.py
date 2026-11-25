@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from ..models import (DemoAccount, EquitySnapshot, PaperPosition, PaperSignal,
-                      PaperTradeEvent, SignalEvent, StrategyVersion, Token, TrendScore)
+                      PaperTradeEvent, PriceSnapshot, SignalEvent, StrategyVersion, Token, TrendScore)
 from . import confluence as CF
 from . import config as PC
 from . import execution as X
@@ -773,7 +773,7 @@ def _manage_exit(db, acct, settings, p: PaperPosition, now: int, market: dict,
     mkt = market.get(p.token_id) or {}
     px = _price(market, p.token_id)
     if px <= 0:
-        return False
+        return _no_price_exit(db, acct, settings, p, now, stats)
     p.peak_price = max(p.peak_price or p.entry_price, px)
     p.trough_price = min(p.trough_price or p.entry_price, px)
     be = float(settings.get("breakeven_at_pct") or 0)
@@ -813,6 +813,35 @@ def _manage_exit(db, acct, settings, p: PaperPosition, now: int, market: dict,
     if reason is None:
         return False
     _close_position(db, acct, settings, p, px, mkt, now, reason, stats)
+    return True
+
+
+def last_known_price(db, p: PaperPosition) -> tuple[float, int | None]:
+    """(price, ts) of the coin's last recorded snapshot; if snapshots were pruned, the lowest price
+    the position saw while open (conservative), else 0."""
+    row = db.execute(select(PriceSnapshot.price_usd, PriceSnapshot.ts).where(
+        PriceSnapshot.token_id == p.token_id, PriceSnapshot.price_usd > 0)
+        .order_by(PriceSnapshot.ts.desc()).limit(1)).first()
+    if row:
+        return float(row[0]), int(row[1])
+    return float(p.trough_price or 0.0), None
+
+
+def _no_price_exit(db, acct, settings, p: PaperPosition, now: int, stats: dict) -> bool:
+    """A coin that stops reporting prices (dropped from tracking, delisted, rugged) can't hit a stop,
+    target or time limit, so its position would stay open forever and hold the account's cash.
+    After no_price_exit_h without a price, close it at the last known price. Liquidity is unknown,
+    so the sell is filled as a thin book (~8.5% slippage): deliberately pessimistic, since coins
+    that vanish from the market are often rugs."""
+    hours = float(settings.get("no_price_exit_h") or 0)
+    if hours <= 0 or now - (p.entry_ts or now) < hours * 3600:
+        return False
+    px, ts = last_known_price(db, p)
+    if ts is not None and now - ts < hours * 3600:
+        return False                         # priced recently: a short data gap, not a dead coin
+    if px <= 0:
+        px = p.entry_price * 1e-6            # nothing known at all: effectively a total loss
+    _close_position(db, acct, settings, p, px, {}, now, "NO_PRICE_EXIT", stats)
     return True
 
 
@@ -866,7 +895,9 @@ def _close_position(db, acct, settings, p: PaperPosition, px: float, mkt: dict,
                   "MOMENTUM_EXIT": "Momentum faded below the exit level",
                   "REGIME_EXIT": "Coin regime turned to distribution",
                   "TIME_STOP": "Time stop: trade never got going",
-                  "MANUAL": "Closed manually (simulated)"}.get(reason, reason)
+                  "MANUAL": "Closed manually (simulated)",
+                  "NO_PRICE_EXIT": "No price data for hours (coin dropped from tracking): "
+                                   "closed at the last known price, thin-book slippage"}.get(reason, reason)
     kind = "PROFIT" if pnl >= 0 else "LOSS"
     detail = (f"{reason_txt} · entry ${p.entry_price:.8g} → exit ${fill['exec_price']:.8g} "
               f"(slip {fill['slip_pct']:.2f}%) · fees ${(p.entry_fee + fill['fee']):.2f} · "

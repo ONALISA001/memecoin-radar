@@ -104,6 +104,7 @@ const GROUPS: { title: string; fields: [string, string, string][] }[] = [
       ["confidence_collapse_pts", "Confidence collapse exit (pts)", "momentum drop vs entry"],
       ["sell_pressure_exit", "Sell-pressure exit threshold", "0–100"],
       ["liquidity_exit_pct", "Liquidity exit (3h %≤)", "e.g. -20"],
+      ["no_price_exit_h", "No-price exit (h)", "close if the coin has no price this long · 0 = never"],
     ],
   },
   {

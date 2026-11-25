@@ -18,7 +18,7 @@ type BTResult = any;
 const EXIT_SHORT: Record<string, string> = {
   STOP_LOSS: "stop", TAKE_PROFIT: "target", TRAILING_STOP: "trail", BREAKEVEN_STOP: "break-even",
   SELL_SIGNAL: "sell signal", MOMENTUM_EXIT: "momentum fade", REGIME_EXIT: "regime flip", TIME_STOP: "time stop",
-  VERDICT_EXIT: "verdict", MAX_HOLD: "max hold", END_OF_WINDOW: "window end",
+  VERDICT_EXIT: "verdict", MAX_HOLD: "max hold", NO_PRICE_EXIT: "no price", END_OF_WINDOW: "window end",
 };
 const pctS = (v?: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`);
 

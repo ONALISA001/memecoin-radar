@@ -10,7 +10,7 @@ const pct = (v?: number | null) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${v
 const EXIT_LABEL: Record<string, string> = {
   STOP_LOSS: "stop", TAKE_PROFIT: "target", TRAILING_STOP: "trail", BREAKEVEN_STOP: "break-even",
   SELL_SIGNAL: "sell signal", CONFIDENCE_COLLAPSE: "momentum fade", RISK_EXIT: "sell pressure",
-  LIQUIDITY_EXIT: "liquidity", MAX_HOLD: "time", MANUAL: "manual",
+  LIQUIDITY_EXIT: "liquidity", MAX_HOLD: "time", MANUAL: "manual", NO_PRICE_EXIT: "no price",
   MOMENTUM_EXIT: "momentum fade", REGIME_EXIT: "regime flip", TIME_STOP: "time stop", VERDICT_EXIT: "verdict",
 };
 

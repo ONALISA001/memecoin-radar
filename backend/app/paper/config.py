@@ -35,6 +35,8 @@ DEFAULT_SETTINGS: dict = {
     "confidence_collapse_pts": 25.0,  # exit if momentum falls this far vs entry
     "sell_pressure_exit": 60.0,       # exit if sell pressure crosses this
     "liquidity_exit_pct": -20.0,      # exit if pool 3h change worse than this
+    "no_price_exit_h": 6.0,           # close a position whose coin has had no price for this long
+                                      # (dropped from tracking / delisted); 0 = never
     # ---- strategy-lab rules (all OFF by default: 0 / False / empty = not applied) ----
     "allowed_kinds": [],              # buy-event kinds to act on; [] = all BUY_KINDS
     "min_token_age_h": 0.0,           # skip coins younger than this (most launches die day 1)
