@@ -24,6 +24,7 @@ from . import execution as X
 from . import risk as R
 from . import filters as F
 from . import postmortem as PM
+from . import themes as TH
 from . import winners as W
 from ..providers import sol_market as SOL
 from types import SimpleNamespace
@@ -195,6 +196,9 @@ def run_tick(db, now: int, market: dict) -> dict:
     global _now_ts, _breadth
     _now_ts = now
     _breadth = CF.breadth(market)
+    # per-tick caches are keyed by `now`, a 5-min bucket that several ticks can share: start fresh
+    TH._CACHE.clear()
+    W._CACHE.clear()
     stats = {"signals": 0, "approved": 0, "rejected": 0, "bought": 0, "sold": 0, "accounts": 0}
     # id order: accounts created later (e.g. the ensemble preset) see earlier accounts' buys this tick
     accounts = db.execute(select(DemoAccount).where(DemoAccount.active == True)  # noqa: E712
@@ -309,6 +313,27 @@ def _run_account(db, acct: DemoAccount, now: int, market: dict, stats: dict) -> 
         _priority_entries(db, acct, settings, now, market, stats)
     if settings.get("ensemble_entries"):
         _ensemble_entries(db, acct, settings, now, market, stats)
+    if settings.get("graduation_entries"):
+        win = float(settings.get("graduation_window_min") or 30)
+        for tid, mins in TH.graduations(db, now, win):
+            _market_entry(db, acct, settings, now, market, stats, tid, "graduation", win, 65.0,
+                          [{"label": "graduated to a DEX", "passed": True, "value": f"{mins:.0f} min ago"},
+                           {"label": "inside entry window", "passed": mins <= win, "value": f"≤{win:g} min"}],
+                          {"graduated_min_ago": mins}, "Graduation", "just left the bonding curve")
+    if settings.get("telegram_entries"):
+        win = float(settings.get("tg_call_window_min") or 30)
+        need = int(settings.get("tg_min_channels") or 2)
+        calls = TH.telegram_calls(db, now, win)
+        if calls:
+            ids = dict(db.execute(select(Token.address, Token.id).where(Token.address.in_(list(calls)))).all())
+            for addr, c in sorted(calls.items(), key=lambda kv: -kv[1]["channels"]):
+                if addr in ids and c["channels"] >= need:
+                    _market_entry(db, acct, settings, now, market, stats, ids[addr], "telegram_call", win,
+                                  min(90.0, 50.0 + 10.0 * c["channels"]),
+                                  [{"label": "called by channels", "passed": True, "value": ", ".join(c["channel_names"])},
+                                   {"label": "channels", "passed": True, "value": f"{c['channels']} vs min {need}"}],
+                                  {"tg_channels": c["channels"]}, "Telegram call",
+                                  f"called by {c['channels']} channels")
 
     # ② manage open positions (always — even while new buys are paused)
     pf = portfolio_state(db, acct, market)
@@ -415,6 +440,35 @@ def _priority_entries(db, acct, settings: dict, now: int, market: dict, stats: d
                              signal_text=f"passes every priority gate (score {c.get('score'):.0f})",
                              checklist_json=checklist, kind="priority_coin")
         _risk_and_maybe_execute(db, acct, settings, sig, ev, now, market, stats)
+
+
+def _market_entry(db, acct, settings: dict, now: int, market: dict, stats: dict, tid: int, kind: str,
+                  cooldown_min: float, confidence: float, checklist: list[dict], extra: dict,
+                  title: str, text: str) -> None:
+    """One buy candidate from a non-intel source (graduation, Telegram call). Skips coins already
+    held or signalled for this kind within cooldown_min; then the full risk engine decides."""
+    mkt = market.get(tid) or {}
+    if not mkt.get("price"):
+        return
+    if db.execute(select(PaperPosition.id).where(PaperPosition.account_id == acct.id, PaperPosition.token_id == tid,
+                                                 PaperPosition.status == "open")).first():
+        return
+    if db.execute(select(PaperSignal.id).where(PaperSignal.account_id == acct.id, PaperSignal.token_id == tid,
+                                               PaperSignal.kind == kind,
+                                               PaperSignal.ts >= now - int(cooldown_min * 60))).first():
+        return
+    sig = PaperSignal(
+        account_id=acct.id, token_id=tid, ts=now, action="BUY", kind=kind, source_event_id=None,
+        price=_price(market, tid), confidence=confidence, importance="MEDIUM", importance_score=int(confidence),
+        risk_score=mkt.get("risk"), market_regime=mkt.get("regime", "NEUTRAL"),
+        metrics_json={"liquidity": mkt.get("liq"), "volume_24h": mkt.get("volume_24h"), "mcap": mkt.get("mcap"),
+                      "momentum": mkt.get("momentum"), **extra},
+        why_json=[f"✓ {c['label']} ({c['value']})" for c in checklist], status="pending")
+    db.add(sig)
+    db.flush()
+    stats["signals"] += 1
+    ev = SimpleNamespace(title=f"{title} — ${_symbol(db, tid)}", signal_text=text, checklist_json=checklist, kind=kind)
+    _risk_and_maybe_execute(db, acct, settings, sig, ev, now, market, stats)
 
 
 ENSEMBLE_SIZE = {2: 0.6, 3: 0.8}       # votes → size multiplier; 4+ = full size
@@ -528,6 +582,11 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
     sol = SOL.current()        # SOL's regime at entry, tagged on every trade for analytics/learning
     if sol:
         sig_metrics["sol"] = {k: sol.get(k) for k in ("regime", "chg_24h", "funding_1h_pct")}
+    # Telegram call facts at entry, on every trade: do called coins win or lose? (Winning patterns)
+    tok0 = db.get(Token, sig.token_id)
+    call = TH.telegram_calls(db, now, 60).get(tok0.address) if tok0 is not None else None
+    sig_metrics["telegram"] = ({"channels": call["channels"], "min_since_call": round((now - call["first_ts"]) / 60, 1)}
+                               if call else {"channels": 0})
     checks = ev.checklist_json or []
     decision = R.evaluate_signal(
         settings, {"confidence": sig.confidence, "risk_score": sig.risk_score or 100,
@@ -539,6 +598,19 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
     if tok is not None:
         for name, ok, detail in F.strategy_checks(db, settings, tok, market.get(sig.token_id) or {}, now):
             R.chk(decision, name, ok, f"{name}: {detail}")
+    # third-batch rules (need the whole market map / call feed, so they live here, not in filters)
+    extra_checks = []
+    if settings.get("narrative_rotation"):
+        extra_checks.append(TH.narrative_check(db, sig.token_id, market, now,
+                                               int(settings.get("narrative_top_k") or 2),
+                                               int(settings.get("narrative_min_members") or 3)))
+    tg_mode = int(settings.get("tg_call_filter") or 0)
+    if tg_mode and tok is not None:
+        win = float(settings.get("tg_call_window_min") or 30)
+        extra_checks.append(TH.telegram_check(tg_mode, TH.telegram_calls(db, now, win).get(tok.address),
+                                              int(settings.get("tg_min_channels") or 2), win, now))
+    for name, ok, detail in extra_checks:          # same "rule: why" format as the other filters
+        R.chk(decision, name, ok, f"{name}: {detail}")
     snap = None
     if _needs_snap(settings):
         snap = snapshot(db, sig.token_id, market.get(sig.token_id) or {}, now, sig_metrics)
@@ -563,7 +635,8 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
         cand = W.features(sig.kind, (sig_metrics.get("verdict") or {}).get("rating"), sig.market_regime,
                           sig_metrics.get("momentum", mkt0.get("momentum")), mkt0.get("price_chg_1h"),
                           mkt0.get("liq"), mkt0.get("buy_share_pct"), mkt0.get("sellp"), sig.confidence,
-                          (sig_metrics.get("sol") or {}).get("regime"))
+                          (sig_metrics.get("sol") or {}).get("regime"),
+                          (sig_metrics.get("telegram") or {}).get("channels"))
         learned = W.judge(settings, cand, W.history(db, acct.user_id, now,
                                                     float(settings.get("winners_lookback_days") or 0)))
         sig_metrics["winners"] = {k: learned.get(k) for k in ("similar", "wins", "win_rate", "avg_pct")}

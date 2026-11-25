@@ -60,6 +60,11 @@ const GROUPS: { title: string; fields: [string, string, string][] }[] = [
       ["launch_max_sniper_pct", "Launch: max sniped (%)", "of supply · default 10"],
       ["launch_max_dev_holds_pct", "Launch: max dev holding (%)", "default 5"],
       ["launch_max_linked_wallets", "Launch: max linked wallets", "shared funder / creator-funded"],
+      ["narrative_rotation", "Hot narratives only", "1 = coin must be in a top narrative by money flow"],
+      ["narrative_top_k", "How many hot narratives", "default 2"],
+      ["tg_call_filter", "Telegram calls", "0 off · 1 skip freshly called coins · 2 only called coins"],
+      ["tg_call_window_min", "Telegram window (min)", "default 30"],
+      ["tg_min_channels", "Telegram: min channels", "with 2 · default 2"],
     ],
   },
   {
