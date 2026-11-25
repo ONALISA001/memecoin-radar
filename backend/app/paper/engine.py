@@ -25,6 +25,7 @@ from . import risk as R
 from . import filters as F
 from . import postmortem as PM
 from . import winners as W
+from ..providers import sol_market as SOL
 from types import SimpleNamespace
 
 _feed_on = True     # Strategy Lab accounts don't post into the public intel feed
@@ -464,6 +465,9 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
     verdict = F.latest_verdict(db, sig.token_id, now)
     if verdict:
         sig_metrics["verdict"] = verdict
+    sol = SOL.current()        # SOL's regime at entry, tagged on every trade for analytics/learning
+    if sol:
+        sig_metrics["sol"] = {k: sol.get(k) for k in ("regime", "chg_24h", "funding_1h_pct")}
     checks = ev.checklist_json or []
     decision = R.evaluate_signal(
         settings, {"confidence": sig.confidence, "risk_score": sig.risk_score or 100,
@@ -498,7 +502,8 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
         mkt0 = market.get(sig.token_id) or {}
         cand = W.features(sig.kind, (sig_metrics.get("verdict") or {}).get("rating"), sig.market_regime,
                           sig_metrics.get("momentum", mkt0.get("momentum")), mkt0.get("price_chg_1h"),
-                          mkt0.get("liq"), mkt0.get("buy_share_pct"), mkt0.get("sellp"), sig.confidence)
+                          mkt0.get("liq"), mkt0.get("buy_share_pct"), mkt0.get("sellp"), sig.confidence,
+                          (sig_metrics.get("sol") or {}).get("regime"))
         learned = W.judge(settings, cand, W.history(db, acct.user_id, now,
                                                     float(settings.get("winners_lookback_days") or 0)))
         sig_metrics["winners"] = {k: learned.get(k) for k in ("similar", "wins", "win_rate", "avg_pct")}
@@ -535,6 +540,28 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
         if cmult:
             size = round(size * cmult, 2)
             sig_metrics["confluence_size_mult"] = cmult
+    if sol and sol["regime"] == "FLAT" and int(settings.get("sol_regime_filter") or 0) == 1:
+        smult = float(settings.get("sol_flat_size_mult") or 1.0)
+        if smult != 1.0:
+            size = round(size * smult, 2)
+            sig_metrics["sol_size_mult"] = smult
+    cap = float(settings.get("max_round_trip_cost_pct") or 0)
+    if cap > 0:
+        capped, est = F.cost_capped_size(size, market.get(sig.token_id) or {}, settings["execution"], cap)
+        sig_metrics["est_round_trip_pct"] = est
+        if capped is None:
+            sig.status = "rejected"
+            sig.reject_reason = f"round-trip cost ~{est:.1f}% even at the minimum order vs max {cap:g}%"
+            sig.risk_decision_json = decision
+            stats["rejected"] += 1
+            _event(db, acct, None, sig, "RISK", f"🚫 SIGNAL REJECTED — ${sym}",
+                   f"{ev.title}. Estimated round trip ~{est:.1f}% (fees + slippage for this pool) "
+                   f"is above the {cap:g}% cap.", {"est_round_trip_pct": est})
+            db.flush()
+            return
+        if capped < size:
+            sig_metrics["cost_capped_from"] = size
+            size = capped
     if size < float(settings["execution"]["min_order_usd"]):
         sig.status = "rejected"
         sig.reject_reason = f"order ${size:.2f} below minimum ${settings['execution']['min_order_usd']:.0f}"
