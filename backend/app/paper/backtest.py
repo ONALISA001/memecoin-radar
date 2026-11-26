@@ -141,17 +141,22 @@ class Verdicts:
     """Latest verdict per coin as of time t."""
 
     def __init__(self, db, end: int):
-        self.rows: dict[int, list[tuple[int, str]]] = {}
-        for tid, created, rating in db.execute(select(TokenVerdict.token_id, TokenVerdict.created_at,
-                                                      TokenVerdict.rating).order_by(TokenVerdict.id)).all():
+        self.rows: dict[int, list[tuple[int, str, str]]] = {}
+        for tid, created, rating, source in db.execute(
+                select(TokenVerdict.token_id, TokenVerdict.created_at, TokenVerdict.rating, TokenVerdict.source)
+                .where(TokenVerdict.rating != "REVIEW").order_by(TokenVerdict.id)).all():
             if created is None:
                 continue
             ts = int((created if created.tzinfo else created.replace(tzinfo=dt.timezone.utc)).timestamp())
             if ts <= end:
-                self.rows.setdefault(tid, []).append((ts, rating))
+                self.rows.setdefault(tid, []).append((ts, rating, source))
 
-    def at(self, tid: int, t: int) -> tuple[str, float] | None:
+    def at(self, tid: int, t: int, sources: tuple[str, ...] | None = None) -> tuple[str, float] | None:
+        """(rating, age_h) of the latest verdict at or before t (from `sources` only, when given).
+        REVIEW is skipped, as in live paper trading (filters.latest_verdict)."""
         rows = self.rows.get(tid) or []
+        if sources:
+            rows = [r for r in rows if r[2] in sources]
         i = bisect.bisect_right([r[0] for r in rows], t) - 1
         return None if i < 0 else (rows[i][1], (t - rows[i][0]) / 3600)
 
@@ -186,17 +191,19 @@ def market_checks(S: dict, snap: dict | None) -> list[tuple[str, bool, str]]:
     return out
 
 
-def verdict_checks(S: dict, v: tuple[str, float] | None) -> list[tuple[str, bool, str]]:
+def verdict_checks(S: dict, verdicts: "Verdicts", tid: int, t: int) -> list[tuple[str, bool, str]]:
     vf, block = int(S.get("verdict_filter") or 0), bool(S.get("block_bad_verdicts"))
     if not (vf or block):
         return []
     max_age = float(S.get("verdict_max_age_h") or 0) or 1e9
-    fresh = v is not None and v[1] <= max_age
+    fresh = lambda v: v is not None and v[1] <= max_age  # noqa: E731
     out = []
     if block:
-        out.append(("AI verdict not negative", not (fresh and v[0] in F.BAD_VERDICTS), str(v)))
+        v = verdicts.at(tid, t, F.verdict_sources(S, "safety"))
+        out.append(("AI verdict not negative", not (fresh(v) and v[0] in F.BAD_VERDICTS), str(v)))
     if vf:
-        out.append(("AI verdict", fresh and v[0] in F.GOOD_VERDICTS.get(vf, F.GOOD_VERDICTS[1]), str(v)))
+        v = verdicts.at(tid, t, F.verdict_sources(S, "pick"))
+        out.append(("AI verdict", fresh(v) and v[0] in F.GOOD_VERDICTS.get(vf, F.GOOD_VERDICTS[1]), str(v)))
     return out
 
 
@@ -290,7 +297,7 @@ def run(db, start: int, end: int, capital: float, overrides: dict, mode: str = "
                                                              p["entry"], px)):
                 reason = cf
             elif S.get("verdict_exit") and verdicts is not None:
-                v = verdicts.at(tid, t)
+                v = verdicts.at(tid, t, F.verdict_sources(S, "safety"))
                 if v and v[0] in F.BAD_VERDICTS and v[1] * 3600 <= t - p["entry_ts"]:
                     reason = "VERDICT_EXIT"
             if reason is None and t - p["entry_ts"] >= S["max_hold_hours"] * 3600:
@@ -344,7 +351,7 @@ def run(db, start: int, end: int, capital: float, overrides: dict, mode: str = "
                     snap["volume_g_1h"] = m.get("volume_g_1h")
                 extra += CF.entry_checks(S, snap) + market_checks(S, snap)
             if verdicts is not None:
-                extra += verdict_checks(S, verdicts.at(tid, t))
+                extra += verdict_checks(S, verdicts, tid, t)
             cool = float(S.get("reentry_cooldown_h") or 0)
             if cool > 0 and tid in last_entry:
                 extra.append(("re-entry cooldown", t - last_entry[tid] >= cool * 3600, ""))

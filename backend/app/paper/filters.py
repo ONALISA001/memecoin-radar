@@ -21,12 +21,29 @@ VERDICT_SIZE = {("STRONG_WATCH", "high"): 1.0, ("STRONG_WATCH", "medium"): 0.85,
                 ("WATCH", "high"): 0.8, ("WATCH", "medium"): 0.6, ("WATCH", "low"): 0.4}
 
 
-def latest_verdict(db, token_id: int, now: int | None = None) -> dict | None:
+# verdict_ai_only: which verdict sources count. Picks (buy filter, sizing) need the AI
+# debate itself; safety checks (block, sell on downgrade) also honour the deterministic
+# hard-fail gate. Rules verdicts are ignored so they can't override the AI's call.
+AI_PICK_SOURCES = ("llm",)
+AI_SAFETY_SOURCES = ("llm", "gate")
+
+
+def verdict_sources(settings: dict, purpose: str) -> tuple[str, ...] | None:
+    """None = every source (default). purpose: 'pick' or 'safety'."""
+    if not settings.get("verdict_ai_only"):
+        return None
+    return AI_PICK_SOURCES if purpose == "pick" else AI_SAFETY_SOURCES
+
+
+def latest_verdict(db, token_id: int, now: int | None = None,
+                   sources: tuple[str, ...] | None = None) -> dict | None:
     """The coin's most recent verdict as a small dict (rating, confidence, source, id,
-    created_ts, age_h). REVIEW is skipped: it means "not enough data", not a call."""
-    v = db.query(TokenVerdict).filter(TokenVerdict.token_id == token_id,
-                                      TokenVerdict.rating != "REVIEW") \
-        .order_by(TokenVerdict.id.desc()).first()
+    created_ts, age_h). REVIEW is skipped: it means "not enough data", not a call.
+    sources: only verdicts from these sources (None = any)."""
+    q = db.query(TokenVerdict).filter(TokenVerdict.token_id == token_id, TokenVerdict.rating != "REVIEW")
+    if sources:
+        q = q.filter(TokenVerdict.source.in_(sources))
+    v = q.order_by(TokenVerdict.id.desc()).first()
     if v is None or v.created_at is None:
         return None
     import datetime as _dt
@@ -78,19 +95,25 @@ def strategy_checks(db, settings: dict, token: Token, mkt: dict, now: int) -> li
                         f"top-10 wallets {w10:.0f}% vs max {cap:g}%" if w10 is not None else "no wallet data yet"))
     vf, block = int(s.get("verdict_filter") or 0), bool(s.get("block_bad_verdicts"))
     if vf or block:
-        v = latest_verdict(db, token.id, now)
         max_age = float(s.get("verdict_max_age_h") or 0) or 1e9
-        fresh = v is not None and v["age_h"] <= max_age
-        label = lambda: f"{v['rating'].replace('_', ' ').title()} ({v['confidence']}, {v['age_h']:.1f}h old)"  # noqa: E731
+        ai_only = bool(s.get("verdict_ai_only"))
+
+        def label(v):
+            src = " AI" if ai_only and v["source"] == "llm" else ""
+            return f"{v['rating'].replace('_', ' ').title()}{src} ({v['confidence']}, {v['age_h']:.1f}h old)"
         if block:
+            v = latest_verdict(db, token.id, now, verdict_sources(s, "safety"))
+            fresh = v is not None and v["age_h"] <= max_age
             bad = fresh and v["rating"] in BAD_VERDICTS
-            out.append(("AI verdict not negative", not bad, f"rated {label()}" if bad else
-                        ("no recent verdict" if not fresh else f"rated {label()}")))
+            out.append(("AI verdict not negative", not bad, f"rated {label(v)}" if fresh else "no recent verdict"))
         if vf:
+            v = latest_verdict(db, token.id, now, verdict_sources(s, "pick"))
+            fresh = v is not None and v["age_h"] <= max_age
             want = GOOD_VERDICTS.get(vf, GOOD_VERDICTS[1])
             ok = fresh and v["rating"] in want
-            out.append(("AI verdict", ok, f"rated {label()}" if fresh else
-                        ("no verdict yet" if v is None else f"verdict too old ({v['age_h']:.1f}h > {max_age:g}h)")))
+            none = "no AI-debate verdict yet" if ai_only else "no verdict yet"
+            out.append(("AI verdict", ok, f"rated {label(v)}" if fresh else
+                        (none if v is None else f"verdict too old ({v['age_h']:.1f}h > {max_age:g}h)")))
     cf = int(s.get("creator_filter") or 0)
     if cf:
         cr = creator_record(db, token.id)

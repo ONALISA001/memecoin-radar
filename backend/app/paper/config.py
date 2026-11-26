@@ -55,6 +55,8 @@ DEFAULT_SETTINGS: dict = {
     "block_bad_verdicts": 0,          # 1 = never buy a coin rated Avoid / Rug risk (even with filter off)
     "verdict_sizing": 0,              # 1 = size by conviction (Strong watch/high = full size ... low = 40%)
     "verdict_exit": 0,                # 1 = close if the coin is re-judged Avoid / Rug risk after entry
+    "verdict_ai_only": 0,             # 1 = only AI-debate verdicts count (rules verdicts ignored;
+                                      #     block / exit also honour the hard-fail safety gate)
     # momentum-confluence rules (paper/confluence.py). All OFF by default.
     "min_momentum": 0.0,              # buy only if momentum ≥ this (e.g. 65)
     "momentum_confirm_readings": 0,   # …for this many consecutive 5-min readings (anti-chase)
@@ -353,6 +355,18 @@ PRESETS["verdict_cost"] = {
                "for that pool and size) is under 5%, and trades that cost more even at the minimum order "
                "are skipped. Tests whether thin pools are eating the returns.",
     "settings": {**PRESETS["ai_verdict"]["settings"], "max_round_trip_cost_pct": 5.0},
+}
+# The AI Verdict Follower above takes any verdict, and almost all of them come from the rules.
+# This is the same account with only the AI debate's (bull / bear / judge) calls counting, so
+# the gap between the two is the AI's edge over the rules. Expect few trades: the AI judges a
+# limited number of coins a day (VERDICT_DAILY_LLM_MAX).
+PRESETS["verdict_ai_only"] = {
+    "name": "V3 · AI Verdict (AI debate only)",
+    "summary": "AI Verdict Follower, but only verdicts from the AI debate count: buys need an AI Watch or "
+               "Strong watch under 6h old, sizes by the AI's conviction, sells if the AI (or the hard-fail "
+               "safety gate) later rates the coin Avoid / Rug risk. Rules verdicts are ignored. Tests "
+               "whether the AI beats the rules.",
+    "settings": {**PRESETS["ai_verdict"]["settings"], "verdict_ai_only": 1},
 }
 # Creator records come from launch forensics + Helius history scans (credit-guarded), so only a
 # share of coins have one: expect few trades. A creator with 3+ earlier launches and a clean record
