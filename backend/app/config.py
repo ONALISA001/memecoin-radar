@@ -1,5 +1,7 @@
 """Central configuration. All secrets/env-driven values live here; nothing
 secrets-bearing is ever sent to the frontend (§22)."""
+import json
+import logging
 import os
 import re
 
@@ -239,6 +241,16 @@ LLM_BASE_URL = os.getenv("LLM_BASE_URL", "").strip()
 _default_model = "claude-haiku-5-5" if LLM_PROVIDER == "anthropic" else ""
 LLM_QUICK_MODEL = os.getenv("LLM_QUICK_MODEL", _default_model).strip()   # bull + bear
 LLM_JUDGE_MODEL = os.getenv("LLM_JUDGE_MODEL", _default_model).strip()   # judge
+# Extra JSON merged into every OpenAI-compatible request body, e.g. to switch off "thinking"
+# on reasoning models (else they spend max_tokens reasoning and return no answer):
+#   LLM_EXTRA_BODY={"chat_template_kwargs": {"thinking": false}}
+try:
+    LLM_EXTRA_BODY = json.loads(os.getenv("LLM_EXTRA_BODY", "") or "{}")
+    if not isinstance(LLM_EXTRA_BODY, dict):
+        raise ValueError
+except ValueError:
+    logging.getLogger("radar.config").warning("LLM_EXTRA_BODY is not a JSON object; ignored")
+    LLM_EXTRA_BODY = {}
 VERDICT_ENABLED = os.getenv("VERDICT_ENABLED", "1") == "1"
 VERDICT_LLM_PER_TICK = int(os.getenv("VERDICT_LLM_PER_TICK", "1"))       # 3 LLM calls each
 VERDICT_RULES_PER_TICK = int(os.getenv("VERDICT_RULES_PER_TICK", "10"))   # free (no LLM)

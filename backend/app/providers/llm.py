@@ -58,7 +58,8 @@ class LLMClient:
                 base = (config.LLM_BASE_URL or "https://api.openai.com/v1").rstrip("/")
                 r = await c.post(f"{base}/chat/completions",
                                  headers={"Authorization": f"Bearer {config.LLM_API_KEY}"},
-                                 json={"model": model, "max_tokens": max_tokens, "temperature": 0.2,
+                                 json={**config.LLM_EXTRA_BODY,
+                                       "model": model, "max_tokens": max_tokens, "temperature": 0.2,
                                        "messages": [{"role": "system", "content": system},
                                                     {"role": "user", "content": user}]})
                 r.raise_for_status()

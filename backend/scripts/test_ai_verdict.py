@@ -200,8 +200,12 @@ async def service_tests():
     res = await SVC.run_verdicts(SessionLocal, L.LLMClient(transport=httpx.MockTransport(down)))
     with SessionLocal() as db:
         latest = SVC.latest_verdicts(db, [gid])[gid]
-        check("AI down => rules verdict with a note", latest.source == "rules" and "AI unavailable" in latest.reason
-              and res["llm_errors"] == 1, latest.reason)
+        check("AI down => rules verdict with a note", latest.source == "rules"
+              and "AI review unavailable" in latest.reason and res["llm_errors"] == 1, latest.reason)
+        # the raw provider error goes to the log and tick stats, never into the verdict text
+        check("AI down => raw error kept out of verdict text",
+              "503" not in latest.reason and "HTTP" not in latest.reason and "503" in res.get("llm_error", ""),
+              res.get("llm_error"))
 
     # AI queue busy: the coin still gets a (rules) call now, and the AI reviews it on a later tick
     with SessionLocal() as db:
