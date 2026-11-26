@@ -45,6 +45,7 @@ const GROUPS: { title: string; fields: [string, string, string][] }[] = [
       ["block_bad_verdicts", "Block Avoid / Rug risk", "1 = never buy coins rated Avoid or Rug risk"],
       ["verdict_sizing", "Size by AI conviction", "1 = Strong/high full size … Watch/low 40%"],
       ["verdict_exit", "Exit on AI downgrade", "1 = sell if re-judged Avoid / Rug risk"],
+      ["verdict_ai_only", "AI debate verdicts only", "1 = ignore rule-based verdicts (safety gate still counts)"],
     ],
   },
   {

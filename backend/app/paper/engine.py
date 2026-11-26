@@ -575,8 +575,9 @@ def _risk_and_maybe_execute(db, acct, settings, sig: PaperSignal, ev: SignalEven
                   "day_realized": acct.day_realized or 0.0,
                   "consec_losses": acct.consec_losses or 0}
     sig_metrics = dict(sig.metrics_json or {})
-    # tag every trade with the AI verdict it was opened under (for analytics), rules or not
-    verdict = F.latest_verdict(db, sig.token_id, now)
+    # tag every trade with the AI verdict it was opened under (for analytics), rules or not;
+    # verdict_ai_only accounts tag (and size by) the AI-debate verdict only
+    verdict = F.latest_verdict(db, sig.token_id, now, F.verdict_sources(settings, "pick"))
     if verdict:
         sig_metrics["verdict"] = verdict
     sol = SOL.current()        # SOL's regime at entry, tagged on every trade for analytics/learning
@@ -806,7 +807,7 @@ def _manage_exit(db, acct, settings, p: PaperPosition, now: int, market: dict,
     elif (mkt.get("liq_chg_3h") is not None
           and mkt["liq_chg_3h"] <= float(settings["liquidity_exit_pct"])):
         reason = "LIQUIDITY_EXIT"
-    elif settings.get("verdict_exit") and _downgraded(db, p, now):
+    elif settings.get("verdict_exit") and _downgraded(db, p, now, F.verdict_sources(settings, "safety")):
         reason = "VERDICT_EXIT"
     elif now - p.entry_ts >= (p.max_hold_secs or 86400):
         reason = "MAX_HOLD"
@@ -845,9 +846,10 @@ def _no_price_exit(db, acct, settings, p: PaperPosition, now: int, stats: dict) 
     return True
 
 
-def _downgraded(db, p: PaperPosition, now: int) -> bool:
-    """True if the coin got a NEW verdict after entry rating it Avoid / Rug risk."""
-    v = F.latest_verdict(db, p.token_id, now)
+def _downgraded(db, p: PaperPosition, now: int, sources: tuple[str, ...] | None = None) -> bool:
+    """True if the coin got a NEW verdict after entry rating it Avoid / Rug risk
+    (from `sources` only, when given)."""
+    v = F.latest_verdict(db, p.token_id, now, sources)
     entered = ((p.metrics_json or {}).get("verdict") or {}).get("id")
     return bool(v and v["rating"] in F.BAD_VERDICTS and v["created_ts"] >= p.entry_ts and v["id"] != entered)
 

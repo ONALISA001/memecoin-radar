@@ -105,7 +105,14 @@ with SessionLocal() as db:
     check("future-dated item gets fetch time", db.execute(select(NewsArticle.ts).where(
         NewsArticle.url == "https://f.example")).scalar() == now)
 
-    res = API.news_feed(limit=10, narrative=None, symbol="bonk", db=db)
+    # /news keeps the last 7 days of the REAL clock; the fixture is dated 2026-11-19, so pin
+    # the clock to the test's `now` (else this check starts failing a week after that date)
+    real_time = API.time
+    API.time = type("FrozenTime", (), {"time": staticmethod(lambda: now)})
+    try:
+        res = API.news_feed(limit=10, narrative=None, symbol="bonk", db=db)
+    finally:
+        API.time = real_time
     check("/news?symbol= filters by mention", res["source"] == "rss" and [i["url"] for i in res["items"]]
           == ["https://example.com/a"], str(res["items"])[:200])
 
